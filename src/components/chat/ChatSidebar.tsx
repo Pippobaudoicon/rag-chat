@@ -22,6 +22,8 @@ export function ChatSidebar({ onClose }: ChatSidebarProps) {
   const [conversations, setConversations] = useState<ConversationItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [isPending, startTransition] = useTransition();
+  // Optimistic active ID — set immediately on click, before the route resolves
+  const [pendingId, setPendingId] = useState<number | null>(null);
 
   useEffect(() => {
     fetch("/api/conversations")
@@ -33,10 +35,14 @@ export function ChatSidebar({ onClose }: ChatSidebarProps) {
       .catch(() => setLoading(false));
   }, [pathname]); // refresh list on route change (new message auto-titles)
 
+  // Clear pending selection once the route actually changes
+  useEffect(() => {
+    setPendingId(null);
+  }, [pathname]);
+
   function handleNewChat() {
+    setPendingId(null);
     startTransition(() => {
-      // If already on /chat, router.push is a no-op — router.refresh forces a
-      // full server re-render so the page remounts with empty messages.
       router.push("/chat");
       router.refresh();
       onClose?.();
@@ -44,6 +50,7 @@ export function ChatSidebar({ onClose }: ChatSidebarProps) {
   }
 
   function handleSelect(id: number) {
+    setPendingId(id);
     startTransition(() => {
       router.push(`/chat/${id}`);
       onClose?.();
@@ -103,33 +110,41 @@ export function ChatSidebar({ onClose }: ChatSidebarProps) {
             Nessuna conversazione ancora
           </p>
         ) : (
-          conversations.map((convo) => (
-            <div
-              key={convo.id}
-              onClick={() => handleSelect(convo.id)}
-              className={cn(
-                "group flex items-center gap-2 px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors",
-                String(convo.id) === activeId
-                  ? "bg-zinc-800 text-foreground"
-                  : "text-muted-foreground hover:text-foreground hover:bg-zinc-800/60"
-              )}
-            >
-              <span className="flex-1 truncate text-xs leading-snug">
-                {convo.title ?? (
-                  <span className="italic text-muted-foreground/60">Nuova chat</span>
+          conversations.map((convo) => {
+            // Show active state immediately on click (pendingId),
+            // fall back to the real URL match (activeId) once loaded
+            const isActive =
+              pendingId === convo.id ||
+              (!pendingId && String(convo.id) === activeId);
+
+            return (
+              <div
+                key={convo.id}
+                onClick={() => handleSelect(convo.id)}
+                className={cn(
+                  "group flex items-center gap-2 px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors",
+                  isActive
+                    ? "bg-zinc-800 text-foreground"
+                    : "text-muted-foreground hover:text-foreground hover:bg-zinc-800/60"
                 )}
-              </span>
-              {/* Delete button — only visible on hover */}
-              <button
-                onClick={(e) => handleDelete(e, convo.id)}
-                className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded hover:text-red-400"
               >
-                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-          ))
+                <span className="flex-1 truncate text-xs leading-snug">
+                  {convo.title ?? (
+                    <span className="italic text-muted-foreground/60">Nuova chat</span>
+                  )}
+                </span>
+                {/* Delete button — only visible on hover */}
+                <button
+                  onClick={(e) => handleDelete(e, convo.id)}
+                  className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded hover:text-red-400"
+                >
+                  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            );
+          })
         )}
       </div>
     </div>
