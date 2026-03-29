@@ -1,10 +1,15 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import type { UIMessage } from "ai";
-import { Conversation } from "@/components/ai-elements/conversation";
+import {
+  Conversation,
+  ConversationContent,
+  ConversationScrollButton,
+} from "@/components/ai-elements/conversation";
 import {
   Message,
   MessageContent,
@@ -26,15 +31,19 @@ interface ChatInterfaceProps {
 }
 
 export function ChatInterface({
-  conversationId,
+  conversationId: initialConversationId,
   initialMessages = [],
 }: ChatInterfaceProps) {
+  const router = useRouter();
   const [language, setLanguage] = useState<Language>("ita");
   const [sources, setSources] = useState<SourceType[]>([
     "scriptures",
     "conference",
     "handbook",
   ]);
+
+  // Track the resolved conversation ID (may be created on first send)
+  const conversationIdRef = useRef<number | undefined>(initialConversationId);
 
   const { messages, sendMessage, status } = useChat({
     transport: new DefaultChatTransport({ api: "/api/chat" }),
@@ -43,24 +52,53 @@ export function ChatInterface({
 
   const isStreaming = status === "streaming" || status === "submitted";
 
+  // After the first stream completes, refresh Next.js's server cache so the
+  // sidebar picks up the new conversation (created silently via replaceState).
+  const didRefreshRef = useRef(false);
+  useEffect(() => {
+    if (status === "ready" && conversationIdRef.current && !didRefreshRef.current) {
+      didRefreshRef.current = true;
+      router.refresh();
+    }
+  }, [status, router]);
+
   const handleSubmit = useCallback(
-    (text: string) => {
+    async (text: string) => {
       if (!text.trim() || isStreaming) return;
+
+      // If there's no conversation yet, create one so history is always persisted.
+      // Use window.history.replaceState so the URL updates WITHOUT a React navigation
+      // (router.push would unmount this component and wipe the optimistic messages).
+      let convId = conversationIdRef.current;
+      if (!convId) {
+        const res = await fetch("/api/conversations", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ language, sources }),
+        });
+        if (res.ok) {
+          const convo = await res.json();
+          convId = convo.id as number;
+          conversationIdRef.current = convId;
+          // Update URL bar silently — no remount, sidebar refreshes on next route change
+          window.history.replaceState(null, "", `/chat/${convId}`);
+        }
+      }
+
       sendMessage(
         { text },
         {
-          // Pass per-request options in body (not in static transport config)
-          // so language/sources state is always fresh at call time
-          body: { conversationId, language, sources, topK: 20 },
+          body: { conversationId: convId, language, sources, topK: 20 },
         }
       );
     },
-    [conversationId, language, sources, isStreaming, sendMessage]
+    [language, sources, isStreaming, sendMessage]
   );
 
   const handlePromptSubmit = useCallback(
     (message: PromptInputMessage) => {
-      handleSubmit(message.text);
+      // Return the promise so PromptInput can await it before clearing the form
+      return handleSubmit(message.text);
     },
     [handleSubmit]
   );
@@ -79,21 +117,37 @@ export function ChatInterface({
       {/* Message list */}
       <div className="flex-1 min-h-0 overflow-hidden">
         <Conversation className="h-full px-4 py-6 max-w-3xl mx-auto">
-          {messages.length === 0 ? (
-            <EmptyState language={language} onSelect={handleSubmit} />
-          ) : (
-            messages.map((message) => (
-              <Message key={message.id} from={message.role}>
+          <ConversationContent>
+            {messages.length === 0 ? (
+              <EmptyState language={language} onSelect={handleSubmit} />
+            ) : (
+              messages.map((message) => (
+                <Message key={message.id} from={message.role}>
+                  <MessageContent>
+                    {message.parts.map((part, i) =>
+                      part.type === "text" ? (
+                        <MessageResponse key={i}>{part.text}</MessageResponse>
+                      ) : null
+                    )}
+                  </MessageContent>
+                </Message>
+              ))
+            )}
+
+            {/* Thinking indicator — shown only while waiting for the first token */}
+            {status === "submitted" && (
+              <Message from="assistant">
                 <MessageContent>
-                  {message.parts.map((part, i) =>
-                    part.type === "text" ? (
-                      <MessageResponse key={i}>{part.text}</MessageResponse>
-                    ) : null
-                  )}
+                  <div className="flex items-center gap-1 px-1 py-0.5">
+                    <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/60 animate-bounce [animation-delay:0ms]" />
+                    <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/60 animate-bounce [animation-delay:150ms]" />
+                    <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/60 animate-bounce [animation-delay:300ms]" />
+                  </div>
                 </MessageContent>
               </Message>
-            ))
-          )}
+            )}
+          </ConversationContent>
+          <ConversationScrollButton />
         </Conversation>
       </div>
 

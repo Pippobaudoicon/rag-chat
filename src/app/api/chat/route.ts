@@ -96,7 +96,7 @@ export async function POST(req: Request) {
 
   // ── 7. Stream with AI SDK v6 ──────────────────────────────────────────────
   const result = streamText({
-    model: gateway("anthropic/claude-sonnet-4.6"),
+    model: gateway("openai/gpt-4o-mini"),
     system: SYSTEM_PROMPT,
     messages: chatMessages,
     maxOutputTokens: 1500,

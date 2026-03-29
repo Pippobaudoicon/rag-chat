@@ -35,7 +35,10 @@ export function ChatSidebar({ onClose }: ChatSidebarProps) {
 
   function handleNewChat() {
     startTransition(() => {
+      // If already on /chat, router.push is a no-op — router.refresh forces a
+      // full server re-render so the page remounts with empty messages.
       router.push("/chat");
+      router.refresh();
       onClose?.();
     });
   }
