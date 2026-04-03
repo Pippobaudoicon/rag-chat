@@ -33,12 +33,14 @@ export default async function ConversationPage({ params }: Props) {
     .orderBy(asc(messages.createdAt));
 
   // Map DB messages to UIMessage format for AI SDK useChat initialMessages
+  // Include sources for assistant messages so they can be displayed in the UI
   const initialMessages: UIMessage[] = msgs.map((msg) => ({
     id: String(msg.id),
     role: msg.role as "user" | "assistant",
     content: msg.content,
     parts: [{ type: "text" as const, text: msg.content }],
     createdAt: msg.createdAt,
+    metadata: msg.sourcesJson ? { sources: msg.sourcesJson } : undefined,
   }));
 
   return (

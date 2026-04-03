@@ -23,7 +23,8 @@ import {
 import type { PromptInputMessage } from "@/components/ai-elements/prompt-input";
 import { SettingsPanel } from "./SettingsPanel";
 import { EmptyState } from "./EmptyState";
-import type { SourceType, Language } from "@/lib/types";
+import { SourcesPanel } from "./SourcesPanel";
+import type { SourceType, Language, MessageMetadata } from "@/lib/types";
 
 interface ChatInterfaceProps {
   conversationId?: number;
@@ -121,17 +122,27 @@ export function ChatInterface({
             {messages.length === 0 ? (
               <EmptyState language={language} onSelect={handleSubmit} />
             ) : (
-              messages.map((message) => (
-                <Message key={message.id} from={message.role}>
-                  <MessageContent>
-                    {message.parts.map((part, i) =>
-                      part.type === "text" ? (
-                        <MessageResponse key={i}>{part.text}</MessageResponse>
-                      ) : null
-                    )}
-                  </MessageContent>
-                </Message>
-              ))
+              messages.map((message) => {
+                // Extract sources from message metadata if available
+                const metadata = message.metadata as MessageMetadata | undefined;
+                const sources = metadata?.sources;
+
+                return (
+                  <Message key={message.id} from={message.role}>
+                    <MessageContent>
+                      {message.parts.map((part, i) =>
+                        part.type === "text" ? (
+                          <MessageResponse key={i}>{part.text}</MessageResponse>
+                        ) : null
+                      )}
+                      {/* Show sources for assistant messages */}
+                      {message.role === "assistant" && sources && sources.length > 0 && (
+                        <SourcesPanel chunks={sources} language={language} />
+                      )}
+                    </MessageContent>
+                  </Message>
+                );
+              })
             )}
 
             {/* Thinking indicator — shown only while waiting for the first token */}
