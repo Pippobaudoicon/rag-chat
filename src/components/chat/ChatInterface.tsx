@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import type { UIMessage } from "ai";
+import { CheckIcon, CopyIcon } from "lucide-react";
 import {
   Conversation,
   ConversationContent,
@@ -14,6 +15,8 @@ import {
   Message,
   MessageContent,
   MessageResponse,
+  MessageToolbar,
+  MessageAction,
 } from "@/components/ai-elements/message";
 import {
   PromptInput,
@@ -30,12 +33,18 @@ interface ChatInterfaceProps {
   initialMessages?: UIMessage[];
 }
 
+type TextMessagePart = Extract<UIMessage["parts"][number], { type: "text" }>;
+
+const isTextPart = (part: UIMessage["parts"][number]): part is TextMessagePart =>
+  part.type === "text";
+
 export function ChatInterface({
   conversationId: initialConversationId,
   initialMessages = [],
 }: ChatInterfaceProps) {
   const router = useRouter();
   const [language, setLanguage] = useState<Language>("ita");
+  const [copiedId, setCopiedId] = useState<string | null>(null);
   const [sources, setSources] = useState<SourceType[]>([
     "scriptures",
     "conference",
@@ -103,6 +112,18 @@ export function ChatInterface({
     [handleSubmit]
   );
 
+  const handleCopyMessage = useCallback(async (id: string, text: string) => {
+    if (!text) return;
+
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedId(id);
+      setTimeout(() => setCopiedId(null), 2000);
+    } catch (error) {
+      console.error("Failed to copy message", error);
+    }
+  }, []);
+
   return (
     <div className="flex flex-col h-full min-h-0">
       {/* Settings bar — language + source toggles */}
@@ -121,17 +142,42 @@ export function ChatInterface({
             {messages.length === 0 ? (
               <EmptyState language={language} onSelect={handleSubmit} />
             ) : (
-              messages.map((message) => (
-                <Message key={message.id} from={message.role}>
-                  <MessageContent>
-                    {message.parts.map((part, i) =>
-                      part.type === "text" ? (
-                        <MessageResponse key={i}>{part.text}</MessageResponse>
-                      ) : null
-                    )}
-                  </MessageContent>
-                </Message>
-              ))
+              messages.map((message) => {
+                const textParts = message.parts.filter(isTextPart);
+                const messageText = textParts.map((part) => part.text).join("\n\n");
+
+                return (
+                  <Message key={message.id} from={message.role}>
+                    <MessageContent>
+                      {textParts.map((part, index) => (
+                        <MessageResponse key={`${message.id}-${index}`}>{part.text}</MessageResponse>
+                      ))}
+                      {/* Action toolbar under response */}
+                      {messageText && message.role === "assistant" && (
+                        <MessageToolbar>
+                          <MessageAction
+                            tooltip="Copy message"
+                            size="sm"
+                            className="cursor-pointer gap-1.5 px-2 text-xs text-muted-foreground"
+                            onClick={() => {
+                              void handleCopyMessage(message.id, messageText);
+                            }}
+                          >
+                            {copiedId === message.id ? (
+                              <>
+                                <CheckIcon size={14} />
+                                <span>Copied!</span>
+                              </>
+                            ) : (
+                              <CopyIcon size={14} />
+                            )}
+                          </MessageAction>
+                        </MessageToolbar>
+                      )}
+                    </MessageContent>
+                  </Message>
+                );
+              })
             )}
 
             {/* Thinking indicator — shown only while waiting for the first token */}
