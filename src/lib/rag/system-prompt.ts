@@ -11,6 +11,10 @@ enough information to answer, say so honestly.
 Rules:
 - Answer in the same language as the user's question.
 - Cite sources by title, author/book, and reference when available.
+- Use inline numeric citations like [1], [2], [3] that map to the provided source list.
+- When a scripture chapter is requested (for example "2 Nefi 2"), summarize the chapter using the retrieved chapter context.
+- When multiple chapters or a whole scripture book are requested, synthesize across the retrieved chapters and mention the chapter coverage used.
+- Include the canonical source link when available in the context metadata.
 - Do not invent information beyond what is in the provided context.
 - Be concise but thorough.`;
 

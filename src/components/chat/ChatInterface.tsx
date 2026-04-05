@@ -27,6 +27,7 @@ import { SettingsPanel } from "./SettingsPanel";
 import { EmptyState } from "./EmptyState";
 import { SourcesPanel } from "./SourcesPanel";
 import type { SourceType, Language, MessageMetadata } from "@/lib/types";
+import { linkifyInlineCitations } from "@/lib/rag/citation-links";
 
 interface ChatInterfaceProps {
   conversationId?: number;
@@ -148,7 +149,9 @@ export function ChatInterface({
                   <Message key={message.id} from={message.role}>
                     <MessageContent>
                       {textParts.map((part, index) => (
-                        <MessageResponse key={`${message.id}-${index}`}>{part.text}</MessageResponse>
+                        <MessageResponse key={`${message.id}-${index}`}>
+                          {linkifyInlineCitations(part.text, messageSources)}
+                        </MessageResponse>
                       ))}
                       {/* Action toolbar under response */}
                       {messageText && message.role === "assistant" && (

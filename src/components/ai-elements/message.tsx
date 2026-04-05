@@ -322,6 +322,19 @@ export const MessageBranchPage = ({
 export type MessageResponseProps = ComponentProps<typeof Streamdown>;
 
 const streamdownPlugins = { cjk, code, math, mermaid };
+const streamdownComponents: NonNullable<ComponentProps<typeof Streamdown>["components"]> = {
+  a: ({ href, children, ...props }) => (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      {...props}
+      className={cn("underline underline-offset-2 hover:opacity-80", props.className)}
+    >
+      {children}
+    </a>
+  ),
+};
 
 export const MessageResponse = memo(
   ({ className, ...props }: MessageResponseProps) => (
@@ -331,6 +344,7 @@ export const MessageResponse = memo(
         className
       )}
       plugins={streamdownPlugins}
+      components={streamdownComponents}
       {...props}
     />
   ),
