@@ -71,6 +71,8 @@ export function ChatSidebar({ onClose }: ChatSidebarProps) {
 
   function handleNewChat() {
     setPendingId(null);
+    setCurrentPath("/chat");
+    window.dispatchEvent(new CustomEvent("chat:new-conversation"));
     startTransition(() => {
       router.push("/chat");
       onClose?.();

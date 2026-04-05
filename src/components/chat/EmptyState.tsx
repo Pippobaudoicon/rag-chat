@@ -4,14 +4,14 @@ const SUGGESTIONS_IT = [
   "Qual è lo scopo del sacramento nella Chiesa?",
   "Cosa insegna 2 Nefi 2 sul piano di salvezza?",
   "Cosa dice il Manuale generale sui doveri del vescovo?",
-  "Cosa ha insegnato il Presidente Nelson nell'ultima Conferenza Generale?",
+  "Articoli della liahona che parlano di fede",
 ];
 
 const SUGGESTIONS_EN = [
   "What is the purpose of the sacrament in the Church?",
   "What does 2 Nephi 2 teach about the plan of salvation?",
   "What does the General Handbook say about the bishop's duties?",
-  "What did President Nelson teach at the last General Conference?",
+  "What are some Liahona articles that talk about faith?",
 ];
 
 interface EmptyStateProps {

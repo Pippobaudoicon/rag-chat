@@ -120,7 +120,7 @@ export function SourcesPanel({ chunks, language = "ita" }: SourcesPanelProps) {
     <div className="mt-3 space-y-2">
       <button
         onClick={() => setExpanded((v) => !v)}
-        className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+        className="flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
       >
         <svg
           className={`w-3 h-3 transition-transform ${expanded ? "rotate-90" : ""}`}
@@ -149,34 +149,40 @@ export function SourcesPanel({ chunks, language = "ita" }: SourcesPanelProps) {
                 : "Scroll horizontally to see all sources"}
             </span>
             <span className="text-muted-foreground/60">&lt;- -&gt;</span>
+          </div>
 
-            <div className="ml-auto flex items-center gap-1">
+          <div className="group/rail relative">
+            <div className="pointer-events-none absolute inset-y-0 left-0 z-10 w-5 bg-gradient-to-r from-background to-transparent" />
+            <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-5 bg-gradient-to-l from-background to-transparent" />
+
+            <div className="pointer-events-none absolute inset-y-0 left-1 z-20 flex items-center">
               <button
                 type="button"
                 aria-label={language === "ita" ? "Scorri a sinistra" : "Scroll left"}
                 disabled={!canScrollLeft}
                 onClick={() => scrollCards("left")}
-                className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-border/50 bg-card/60 text-muted-foreground transition-colors enabled:hover:bg-card enabled:hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                className="pointer-events-auto inline-flex h-7 w-7 items-center justify-center rounded-full border border-border/60 bg-background/90 text-muted-foreground shadow-sm backdrop-blur transition-all md:opacity-0 md:group-hover/rail:opacity-100 md:group-focus-within/rail:opacity-100 enabled:hover:bg-card enabled:hover:text-foreground disabled:cursor-not-allowed disabled:opacity-35"
               >
-                <ChevronLeftIcon className="h-3.5 w-3.5" />
+                <ChevronLeftIcon className="h-4 w-4" />
               </button>
+            </div>
+
+            <div className="pointer-events-none absolute inset-y-0 right-1 z-20 flex items-center">
               <button
                 type="button"
                 aria-label={language === "ita" ? "Scorri a destra" : "Scroll right"}
                 disabled={!canScrollRight}
                 onClick={() => scrollCards("right")}
-                className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-border/50 bg-card/60 text-muted-foreground transition-colors enabled:hover:bg-card enabled:hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                className="pointer-events-auto inline-flex h-7 w-7 items-center justify-center rounded-full border border-border/60 bg-background/90 text-muted-foreground shadow-sm backdrop-blur transition-all md:opacity-0 md:group-hover/rail:opacity-100 md:group-focus-within/rail:opacity-100 enabled:hover:bg-card enabled:hover:text-foreground disabled:cursor-not-allowed disabled:opacity-35"
               >
-                <ChevronRightIcon className="h-3.5 w-3.5" />
+                <ChevronRightIcon className="h-4 w-4" />
               </button>
             </div>
-          </div>
 
-          <div className="relative">
-            <div className="pointer-events-none absolute inset-y-0 left-0 z-10 w-5 bg-gradient-to-r from-background to-transparent" />
-            <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-5 bg-gradient-to-l from-background to-transparent" />
-
-            <div ref={railRef} className="flex snap-x gap-2 overflow-x-auto pb-1 pr-2">
+            <div
+              ref={railRef}
+              className="flex snap-x gap-2 overflow-x-auto px-8 pb-1"
+            >
               {shown.map((chunk, i) => (
                 <div key={chunk.id} className="w-[220px] shrink-0 snap-start">
                   <SourceCard chunk={chunk} index={i} language={language} />

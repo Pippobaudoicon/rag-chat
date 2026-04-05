@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import type { UIMessage } from "ai";
@@ -54,7 +54,7 @@ export function ChatInterface({
   // Track the resolved conversation ID (may be created on first send)
   const conversationIdRef = useRef<number | undefined>(initialConversationId);
 
-  const { messages, sendMessage, status } = useChat({
+  const { messages, sendMessage, status, setMessages, stop } = useChat({
     transport: new DefaultChatTransport({ api: "/api/chat" }),
     messages: initialMessages,
   });
@@ -119,6 +119,27 @@ export function ChatInterface({
       console.error("Failed to copy message", error);
     }
   }, []);
+
+  useEffect(() => {
+    const onNewConversation = () => {
+      stop();
+      conversationIdRef.current = undefined;
+      setMessages([]);
+      if (window.location.pathname !== "/chat") {
+        window.history.replaceState(null, "", "/chat");
+      }
+      window.dispatchEvent(
+        new CustomEvent("chat:path-changed", {
+          detail: { path: "/chat" },
+        })
+      );
+    };
+
+    window.addEventListener("chat:new-conversation", onNewConversation);
+    return () => {
+      window.removeEventListener("chat:new-conversation", onNewConversation);
+    };
+  }, [setMessages, stop]);
 
   return (
     <div className="flex flex-col h-full min-h-0">
