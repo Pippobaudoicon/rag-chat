@@ -1,7 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useCallback, useRef } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import type { UIMessage } from "ai";
@@ -35,7 +34,6 @@ export function ChatInterface({
   conversationId: initialConversationId,
   initialMessages = [],
 }: ChatInterfaceProps) {
-  const router = useRouter();
   const [language, setLanguage] = useState<Language>("ita");
   const [sources, setSources] = useState<SourceType[]>([
     "scriptures",
@@ -52,16 +50,6 @@ export function ChatInterface({
   });
 
   const isStreaming = status === "streaming" || status === "submitted";
-
-  // After the first stream completes, refresh Next.js's server cache so the
-  // sidebar picks up the new conversation (created silently via replaceState).
-  const didRefreshRef = useRef(false);
-  useEffect(() => {
-    if (status === "ready" && conversationIdRef.current && !didRefreshRef.current) {
-      didRefreshRef.current = true;
-      router.refresh();
-    }
-  }, [status, router]);
 
   const handleSubmit = useCallback(
     async (text: string) => {
@@ -81,8 +69,14 @@ export function ChatInterface({
           const convo = await res.json();
           convId = convo.id as number;
           conversationIdRef.current = convId;
-          // Update URL bar silently — no remount, sidebar refreshes on next route change
+          // Update URL bar silently — no remount, keeps optimistic messages intact.
           window.history.replaceState(null, "", `/chat/${convId}`);
+          window.dispatchEvent(
+            new CustomEvent("chat:path-changed", {
+              detail: { path: `/chat/${convId}` },
+            })
+          );
+          window.dispatchEvent(new CustomEvent("chat:conversations-changed"));
         }
       }
 
