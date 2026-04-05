@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { SourceCard } from "./SourceCard";
 import type { SourceChunk, Language } from "@/lib/types";
+import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 
 interface SourcesPanelProps {
   chunks: SourceChunk[];
@@ -69,12 +70,51 @@ function getScriptureCoverageLabel(chunks: SourceChunk[], language: Language): s
 
 export function SourcesPanel({ chunks, language = "ita" }: SourcesPanelProps) {
   const [expanded, setExpanded] = useState(false);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+  const railRef = useRef<HTMLDivElement | null>(null);
 
   if (!chunks || chunks.length === 0) return null;
 
   const shown = expanded ? chunks : chunks.slice(0, 3);
   const label = language === "ita" ? "fonti" : "sources";
   const scriptureCoverage = getScriptureCoverageLabel(chunks, language);
+
+  useEffect(() => {
+    const updateScrollButtons = () => {
+      const rail = railRef.current;
+      if (!rail) {
+        setCanScrollLeft(false);
+        setCanScrollRight(false);
+        return;
+      }
+
+      const maxScrollLeft = rail.scrollWidth - rail.clientWidth;
+      setCanScrollLeft(rail.scrollLeft > 4);
+      setCanScrollRight(rail.scrollLeft < maxScrollLeft - 4);
+    };
+
+    updateScrollButtons();
+    const rail = railRef.current;
+    rail?.addEventListener("scroll", updateScrollButtons, { passive: true });
+    window.addEventListener("resize", updateScrollButtons);
+
+    return () => {
+      rail?.removeEventListener("scroll", updateScrollButtons);
+      window.removeEventListener("resize", updateScrollButtons);
+    };
+  }, [expanded, shown.length]);
+
+  const scrollCards = (direction: "left" | "right") => {
+    const rail = railRef.current;
+    if (!rail) return;
+
+    const amount = Math.max(rail.clientWidth * 0.8, 220);
+    rail.scrollBy({
+      left: direction === "left" ? -amount : amount,
+      behavior: "smooth",
+    });
+  };
 
   return (
     <div className="mt-3 space-y-2">
@@ -100,10 +140,50 @@ export function SourcesPanel({ chunks, language = "ita" }: SourcesPanelProps) {
       )}
 
       {expanded && (
-        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-          {shown.map((chunk, i) => (
-            <SourceCard key={chunk.id} chunk={chunk} index={i} language={language} />
-          ))}
+        <div className="space-y-1.5">
+          <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground/90">
+            <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/70 animate-pulse" />
+            <span>
+              {language === "ita"
+                ? "Scorri in orizzontale per vedere tutte le fonti"
+                : "Scroll horizontally to see all sources"}
+            </span>
+            <span className="text-muted-foreground/60">&lt;- -&gt;</span>
+
+            <div className="ml-auto flex items-center gap-1">
+              <button
+                type="button"
+                aria-label={language === "ita" ? "Scorri a sinistra" : "Scroll left"}
+                disabled={!canScrollLeft}
+                onClick={() => scrollCards("left")}
+                className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-border/50 bg-card/60 text-muted-foreground transition-colors enabled:hover:bg-card enabled:hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <ChevronLeftIcon className="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                aria-label={language === "ita" ? "Scorri a destra" : "Scroll right"}
+                disabled={!canScrollRight}
+                onClick={() => scrollCards("right")}
+                className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-border/50 bg-card/60 text-muted-foreground transition-colors enabled:hover:bg-card enabled:hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <ChevronRightIcon className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </div>
+
+          <div className="relative">
+            <div className="pointer-events-none absolute inset-y-0 left-0 z-10 w-5 bg-gradient-to-r from-background to-transparent" />
+            <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-5 bg-gradient-to-l from-background to-transparent" />
+
+            <div ref={railRef} className="flex snap-x gap-2 overflow-x-auto pb-1 pr-2">
+              {shown.map((chunk, i) => (
+                <div key={chunk.id} className="w-[220px] shrink-0 snap-start">
+                  <SourceCard chunk={chunk} index={i} language={language} />
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       )}
     </div>
