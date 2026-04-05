@@ -1,7 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useCallback, useRef } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import type { UIMessage } from "ai";
@@ -26,7 +25,8 @@ import {
 import type { PromptInputMessage } from "@/components/ai-elements/prompt-input";
 import { SettingsPanel } from "./SettingsPanel";
 import { EmptyState } from "./EmptyState";
-import type { SourceType, Language } from "@/lib/types";
+import { SourcesPanel } from "./SourcesPanel";
+import type { SourceType, Language, MessageMetadata } from "@/lib/types";
 
 interface ChatInterfaceProps {
   conversationId?: number;
@@ -42,7 +42,6 @@ export function ChatInterface({
   conversationId: initialConversationId,
   initialMessages = [],
 }: ChatInterfaceProps) {
-  const router = useRouter();
   const [language, setLanguage] = useState<Language>("ita");
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [sources, setSources] = useState<SourceType[]>([
@@ -60,16 +59,6 @@ export function ChatInterface({
   });
 
   const isStreaming = status === "streaming" || status === "submitted";
-
-  // After the first stream completes, refresh Next.js's server cache so the
-  // sidebar picks up the new conversation (created silently via replaceState).
-  const didRefreshRef = useRef(false);
-  useEffect(() => {
-    if (status === "ready" && conversationIdRef.current && !didRefreshRef.current) {
-      didRefreshRef.current = true;
-      router.refresh();
-    }
-  }, [status, router]);
 
   const handleSubmit = useCallback(
     async (text: string) => {
@@ -89,8 +78,14 @@ export function ChatInterface({
           const convo = await res.json();
           convId = convo.id as number;
           conversationIdRef.current = convId;
-          // Update URL bar silently — no remount, sidebar refreshes on next route change
+          // Update URL bar silently — no remount, keeps optimistic messages intact.
           window.history.replaceState(null, "", `/chat/${convId}`);
+          window.dispatchEvent(
+            new CustomEvent("chat:path-changed", {
+              detail: { path: `/chat/${convId}` },
+            })
+          );
+          window.dispatchEvent(new CustomEvent("chat:conversations-changed"));
         }
       }
 
@@ -145,6 +140,9 @@ export function ChatInterface({
               messages.map((message) => {
                 const textParts = message.parts.filter(isTextPart);
                 const messageText = textParts.map((part) => part.text).join("\n\n");
+                // Extract sources from message metadata if available
+                const metadata = message.metadata as MessageMetadata | undefined;
+                const messageSources = metadata?.sources;
 
                 return (
                   <Message key={message.id} from={message.role}>
@@ -173,6 +171,10 @@ export function ChatInterface({
                             )}
                           </MessageAction>
                         </MessageToolbar>
+                      )}
+                      {/* Show sources for assistant messages */}
+                      {message.role === "assistant" && messageSources && messageSources.length > 0 && (
+                        <SourcesPanel chunks={messageSources} language={language} />
                       )}
                     </MessageContent>
                   </Message>

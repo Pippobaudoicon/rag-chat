@@ -138,7 +138,9 @@ export async function POST(req: Request) {
   });
 
   // toUIMessageStreamResponse() is required for AI Elements <Message> component
+  // Include sources in the message metadata so UI can display them
   return result.toUIMessageStreamResponse({
     generateMessageId: generateId,
+    messageMetadata: ({ part }) => part.type === "finish" ? { sources: chunks } : undefined,
   });
 }

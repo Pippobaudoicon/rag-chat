@@ -46,3 +46,8 @@ export interface SourceChunk {
   section?: string;
   url?: string;
 }
+
+// Type for UIMessage metadata that includes sources
+export interface MessageMetadata {
+  sources?: SourceChunk[];
+}
