@@ -2,14 +2,14 @@ import type { Language } from "@/lib/types";
 
 const SUGGESTIONS_IT = [
   "Qual è lo scopo del sacramento nella Chiesa?",
-  "Cosa insegna 2 Nefi 2 sul piano di salvezza?",
+  "Cosa insegna 2 Nefi 2?",
   "Cosa dice il Manuale generale sui doveri del vescovo?",
   "Articoli della liahona che parlano di fede",
 ];
 
 const SUGGESTIONS_EN = [
   "What is the purpose of the sacrament in the Church?",
-  "What does 2 Nephi 2 teach about the plan of salvation?",
+  "What does 2 Nephi 2 teach?",
   "What does the General Handbook say about the bishop's duties?",
   "What are some Liahona articles that talk about faith?",
 ];
