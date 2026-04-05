@@ -4,10 +4,17 @@ import { useEffect, useRef, useState } from "react";
 import { SourceCard } from "./SourceCard";
 import type { SourceChunk, Language } from "@/lib/types";
 import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface SourcesPanelProps {
   chunks: SourceChunk[];
   language?: Language;
+  showScriptureCoverage?: boolean;
+}
+
+interface ScriptureCoverageLabels {
+  compact: string;
+  full: string;
 }
 
 function formatChapterCoverage(chapters: number[]): string {
@@ -34,7 +41,10 @@ function formatChapterCoverage(chapters: number[]): string {
   return ranges.join(", ");
 }
 
-function getScriptureCoverageLabel(chunks: SourceChunk[], language: Language): string | null {
+function getScriptureCoverageLabels(
+  chunks: SourceChunk[],
+  language: Language
+): ScriptureCoverageLabels | null {
   const scriptureChunks = chunks.filter(
     (chunk) => chunk.source === "scriptures" && chunk.book && chunk.chapter
   );
@@ -52,11 +62,18 @@ function getScriptureCoverageLabel(chunks: SourceChunk[], language: Language): s
     .map(([book, chapters]) => ({ book, chapters: [...new Set(chapters)].sort((a, b) => a - b) }))
     .sort((a, b) => b.chapters.length - a.chapters.length);
 
+  const prefix = language === "ita" ? "Copertura" : "Coverage";
+  const full = `${prefix}: ${entries
+    .map((entry) => `${entry.book} ${formatChapterCoverage(entry.chapters)}`)
+    .join("; ")}`;
+
   if (entries.length === 1) {
     const { book, chapters } = entries[0];
     const coverage = formatChapterCoverage(chapters);
-    const prefix = language === "ita" ? "Copertura" : "Coverage";
-    return `${prefix}: ${book} ${coverage}`;
+    return {
+      compact: `${prefix}: ${book} ${coverage}`,
+      full,
+    };
   }
 
   const [main, ...rest] = entries;
@@ -64,11 +81,17 @@ function getScriptureCoverageLabel(chunks: SourceChunk[], language: Language): s
     language === "ita"
       ? ` + ${rest.length} ${rest.length === 1 ? "altro libro" : "altri libri"}`
       : ` + ${rest.length} ${rest.length === 1 ? "other book" : "other books"}`;
-  const prefix = language === "ita" ? "Copertura" : "Coverage";
-  return `${prefix}: ${main.book} ${formatChapterCoverage(main.chapters)}${suffix}`;
+  return {
+    compact: `${prefix}: ${main.book} ${formatChapterCoverage(main.chapters)}${suffix}`,
+    full,
+  };
 }
 
-export function SourcesPanel({ chunks, language = "ita" }: SourcesPanelProps) {
+export function SourcesPanel({
+  chunks,
+  language = "ita",
+  showScriptureCoverage = true,
+}: SourcesPanelProps) {
   const [expanded, setExpanded] = useState(false);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
@@ -78,7 +101,9 @@ export function SourcesPanel({ chunks, language = "ita" }: SourcesPanelProps) {
 
   const shown = expanded ? chunks : chunks.slice(0, 3);
   const label = language === "ita" ? "fonti" : "sources";
-  const scriptureCoverage = getScriptureCoverageLabel(chunks, language);
+  const scriptureCoverage = showScriptureCoverage
+    ? getScriptureCoverageLabels(chunks, language)
+    : null;
 
   useEffect(() => {
     const updateScrollButtons = () => {
@@ -134,9 +159,18 @@ export function SourcesPanel({ chunks, language = "ita" }: SourcesPanelProps) {
       </button>
 
       {scriptureCoverage && (
-        <div className="inline-flex items-center rounded-md border border-blue-500/30 bg-blue-500/10 px-2 py-1 text-[11px] text-blue-300">
-          {scriptureCoverage}
-        </div>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <div className="inline-flex cursor-help items-center rounded-md border border-blue-500/30 bg-blue-500/10 px-2 py-1 text-[11px] text-blue-300">
+                {scriptureCoverage.compact}
+              </div>
+            }
+          />
+          <TooltipContent side="top" align="start" className="max-w-md">
+            <p className="text-xs leading-relaxed">{scriptureCoverage.full}</p>
+          </TooltipContent>
+        </Tooltip>
       )}
 
       {expanded && (

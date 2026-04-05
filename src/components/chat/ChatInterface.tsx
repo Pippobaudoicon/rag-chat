@@ -28,6 +28,7 @@ import { EmptyState } from "./EmptyState";
 import { SourcesPanel } from "./SourcesPanel";
 import type { SourceType, Language, MessageMetadata } from "@/lib/types";
 import { linkifyInlineCitations } from "@/lib/rag/citation-links";
+import { parseScriptureSelection } from "@/lib/rag/scripture-reference";
 
 interface ChatInterfaceProps {
   conversationId?: number;
@@ -38,6 +39,19 @@ type TextMessagePart = Extract<UIMessage["parts"][number], { type: "text" }>;
 
 const isTextPart = (part: UIMessage["parts"][number]): part is TextMessagePart =>
   part.type === "text";
+
+function getPlainText(message: UIMessage): string {
+  return message.parts.filter(isTextPart).map((part) => part.text).join("\n\n").trim();
+}
+
+function getPreviousUserQuery(messages: UIMessage[], fromIndex: number): string | null {
+  for (let i = fromIndex - 1; i >= 0; i -= 1) {
+    if (messages[i].role !== "user") continue;
+    const text = getPlainText(messages[i]);
+    if (text) return text;
+  }
+  return null;
+}
 
 export function ChatInterface({
   conversationId: initialConversationId,
@@ -159,12 +173,17 @@ export function ChatInterface({
             {messages.length === 0 ? (
               <EmptyState language={language} onSelect={handleSubmit} />
             ) : (
-              messages.map((message) => {
+              messages.map((message, messageIndex) => {
                 const textParts = message.parts.filter(isTextPart);
                 const messageText = textParts.map((part) => part.text).join("\n\n");
                 // Extract sources from message metadata if available
                 const metadata = message.metadata as MessageMetadata | undefined;
                 const messageSources = metadata?.sources;
+                const previousUserQuery = getPreviousUserQuery(messages, messageIndex);
+                const shouldShowScriptureCoverage =
+                  message.role === "assistant" &&
+                  !!previousUserQuery &&
+                  !!parseScriptureSelection(previousUserQuery, language);
 
                 return (
                   <Message key={message.id} from={message.role}>
@@ -198,7 +217,11 @@ export function ChatInterface({
                       )}
                       {/* Show sources for assistant messages */}
                       {message.role === "assistant" && messageSources && messageSources.length > 0 && (
-                        <SourcesPanel chunks={messageSources} language={language} />
+                        <SourcesPanel
+                          chunks={messageSources}
+                          language={language}
+                          showScriptureCoverage={shouldShowScriptureCoverage}
+                        />
                       )}
                     </MessageContent>
                   </Message>
