@@ -22,18 +22,47 @@ export function ChatSidebar({ onClose }: ChatSidebarProps) {
   const [conversations, setConversations] = useState<ConversationItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [isPending, startTransition] = useTransition();
+  const [currentPath, setCurrentPath] = useState(pathname ?? "/chat");
   // Optimistic active ID — set immediately on click, before the route resolves
   const [pendingId, setPendingId] = useState<number | null>(null);
 
+  async function loadConversations() {
+    try {
+      const data = await fetch("/api/conversations").then((r) => r.json());
+      setConversations(data);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   useEffect(() => {
-    fetch("/api/conversations")
-      .then((r) => r.json())
-      .then((data) => {
-        setConversations(data);
-        setLoading(false);
-      })
-      .catch(() => setLoading(false));
+    loadConversations();
   }, [pathname]); // refresh list on route change (new message auto-titles)
+
+  useEffect(() => {
+    setCurrentPath(pathname ?? "/chat");
+  }, [pathname]);
+
+  useEffect(() => {
+    const onPathChanged = (event: Event) => {
+      const customEvent = event as CustomEvent<{ path?: string }>;
+      if (customEvent.detail?.path) {
+        setCurrentPath(customEvent.detail.path);
+      }
+    };
+
+    const onConversationsChanged = () => {
+      loadConversations();
+    };
+
+    window.addEventListener("chat:path-changed", onPathChanged as EventListener);
+    window.addEventListener("chat:conversations-changed", onConversationsChanged);
+
+    return () => {
+      window.removeEventListener("chat:path-changed", onPathChanged as EventListener);
+      window.removeEventListener("chat:conversations-changed", onConversationsChanged);
+    };
+  }, []);
 
   // Clear pending selection once the route actually changes
   useEffect(() => {
@@ -44,7 +73,6 @@ export function ChatSidebar({ onClose }: ChatSidebarProps) {
     setPendingId(null);
     startTransition(() => {
       router.push("/chat");
-      router.refresh();
       onClose?.();
     });
   }
@@ -66,7 +94,7 @@ export function ChatSidebar({ onClose }: ChatSidebarProps) {
     }
   }
 
-  const activeId = pathname?.match(/\/chat\/(\d+)/)?.[1];
+  const activeId = currentPath?.match(/\/chat\/(\d+)/)?.[1];
 
   return (
     <div className="flex flex-col h-full w-full bg-zinc-950 border-r border-border/40">
