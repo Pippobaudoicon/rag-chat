@@ -37,6 +37,7 @@ interface ChatInterfaceProps {
 }
 
 type TextMessagePart = Extract<UIMessage["parts"][number], { type: "text" }>;
+type PendingPhase = "queued" | "tools" | "drafting";
 
 const isTextPart = (part: UIMessage["parts"][number]): part is TextMessagePart =>
   part.type === "text";
@@ -61,6 +62,53 @@ function getToolUsage(message: UIMessage): string[] {
     .filter((name): name is string => !!name);
 
   return [...new Set(toolNames)];
+}
+
+function hasVisibleAssistantText(message: UIMessage): boolean {
+  if (message.role !== "assistant") return false;
+  return message.parts
+    .filter(isTextPart)
+    .some((part) => part.text.trim().length > 0);
+}
+
+function getPendingLabel(language: Language, phase: PendingPhase): string {
+  if (language === "ita") {
+    if (phase === "queued") return "Invio della richiesta...";
+    if (phase === "tools") return "Sto usando i tool sulle fonti...";
+    return "Sto scrivendo la risposta...";
+  }
+
+  if (phase === "queued") return "Sending request...";
+  if (phase === "tools") return "Using tools on sources...";
+  return "Writing the response...";
+}
+
+function getLastAssistantMessageIndex(messages: UIMessage[]): number {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    if (messages[i].role === "assistant") return i;
+  }
+  return -1;
+}
+
+function PendingIndicator({
+  language,
+  phase,
+  className,
+}: {
+  language: Language;
+  phase: PendingPhase;
+  className?: string;
+}) {
+  return (
+    <div
+      className={`inline-flex items-center gap-2 rounded-md border border-border/50 bg-background/40 px-2 py-1 text-xs text-muted-foreground ${className ?? ""}`}
+    >
+      <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/70 animate-bounce [animation-delay:0ms]" />
+      <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/70 animate-bounce [animation-delay:120ms]" />
+      <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/70 animate-bounce [animation-delay:240ms]" />
+      <span>{getPendingLabel(language, phase)}</span>
+    </div>
+  );
 }
 
 function getPlainText(message: UIMessage): string {
@@ -97,6 +145,8 @@ export function ChatInterface({
   });
 
   const isStreaming = status === "streaming" || status === "submitted";
+  const hasAnyVisibleAssistantText = messages.some(hasVisibleAssistantText);
+  const lastAssistantMessageIndex = getLastAssistantMessageIndex(messages);
 
   const handleSubmit = useCallback(
     async (text: string) => {
@@ -199,6 +249,7 @@ export function ChatInterface({
               messages.map((message, messageIndex) => {
                 const textParts = message.parts.filter(isTextPart);
                 const messageText = textParts.map((part) => part.text).join("\n\n");
+                const hasText = messageText.trim().length > 0;
                 const toolUsage = getToolUsage(message);
                 const hasToolUsage = toolUsage.length > 0;
                 // Extract sources from message metadata if available
@@ -209,9 +260,16 @@ export function ChatInterface({
                   message.role === "assistant" &&
                   !!previousUserQuery &&
                   !!parseScriptureSelection(previousUserQuery, language);
-                const isLastAssistantMessage =
-                  message.role === "assistant" && messageIndex === messages.length - 1;
+                const isLastAssistantMessage = messageIndex === lastAssistantMessageIndex;
                 const toolRunInProgress = isLastAssistantMessage && isStreaming && hasToolUsage;
+                const isAssistantPending =
+                  message.role === "assistant" && isLastAssistantMessage && isStreaming && !hasText;
+                const pendingPhase: PendingPhase =
+                  status === "submitted"
+                    ? "queued"
+                    : toolRunInProgress
+                      ? "tools"
+                      : "drafting";
 
                 return (
                   <Message key={message.id} from={message.role}>
@@ -247,8 +305,11 @@ export function ChatInterface({
                           {linkifyInlineCitations(part.text, messageSources)}
                         </MessageResponse>
                       ))}
+                      {isAssistantPending && (
+                        <PendingIndicator language={language} phase={pendingPhase} className="mt-1" />
+                      )}
                       {/* Action toolbar under response */}
-                      {messageText && message.role === "assistant" && (
+                      {hasText && message.role === "assistant" && (
                         <MessageToolbar>
                           <MessageAction
                             tooltip="Copy message"
@@ -270,7 +331,7 @@ export function ChatInterface({
                         </MessageToolbar>
                       )}
                       {/* Show sources for assistant messages */}
-                      {message.role === "assistant" && messageSources && messageSources.length > 0 && (
+                      {message.role === "assistant" && hasText && messageSources && messageSources.length > 0 && (
                         <SourcesPanel
                           chunks={messageSources}
                           language={language}
@@ -283,15 +344,15 @@ export function ChatInterface({
               })
             )}
 
-            {/* Thinking indicator — shown only while waiting for the first token */}
-            {status === "submitted" && (
+            {/* Global pending indicator when no assistant message has visible text yet */}
+            {isStreaming && !hasAnyVisibleAssistantText && lastAssistantMessageIndex === -1 && (
               <Message from="assistant">
                 <MessageContent>
-                  <div className="flex items-center gap-1 px-1 py-0.5">
-                    <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/60 animate-bounce [animation-delay:0ms]" />
-                    <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/60 animate-bounce [animation-delay:150ms]" />
-                    <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/60 animate-bounce [animation-delay:300ms]" />
-                  </div>
+                  <PendingIndicator
+                    language={language}
+                    phase={status === "submitted" ? "queued" : "drafting"}
+                    className="px-0 py-0 text-xs"
+                  />
                 </MessageContent>
               </Message>
             )}

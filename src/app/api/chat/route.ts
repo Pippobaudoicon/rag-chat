@@ -1,5 +1,5 @@
 import { auth } from "@clerk/nextjs/server";
-import { streamText, generateId, gateway } from "ai";
+import { streamText, generateId, gateway, stepCountIs } from "ai";
 import { eq, and, asc } from "drizzle-orm";
 import { getDb } from "@/lib/db";
 import { conversations, messages } from "@/lib/db/schema";
@@ -101,6 +101,7 @@ export async function POST(req: Request) {
     system: SYSTEM_PROMPT,
     messages: chatMessages,
     maxOutputTokens: 1500,
+    stopWhen: stepCountIs(5),
     tools: createRagTools(language, chunks),
 
     onFinish: async ({ text }) => {

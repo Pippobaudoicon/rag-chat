@@ -98,6 +98,8 @@ Notes:
   - `lookup_scripture_passage`
   - `search_conference_talks`
   - `citation_verifier`
+- `search_conference_talks` uses strict speaker/year filtering first, then relaxed fallback,
+  to avoid false "not found" outcomes when metadata is partial.
 - System prompt enforces:
   - same-language answers,
   - no unsupported claims,
