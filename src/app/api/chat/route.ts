@@ -6,6 +6,7 @@ import { conversations, messages } from "@/lib/db/schema";
 import { retrieve } from "@/lib/rag/retriever";
 import { SYSTEM_PROMPT, buildUserMessage } from "@/lib/rag/system-prompt";
 import { cacheKey, getFromCache, setInCache } from "@/lib/rag/cache";
+import { createRagTools } from "@/lib/rag/tools";
 import { DEFAULT_SOURCES } from "@/lib/types";
 import type { SourceType, Language, SourceChunk } from "@/lib/types";
 
@@ -100,6 +101,7 @@ export async function POST(req: Request) {
     system: SYSTEM_PROMPT,
     messages: chatMessages,
     maxOutputTokens: 1500,
+    tools: createRagTools(language),
 
     onFinish: async ({ text }) => {
       // Update cache with complete answer
