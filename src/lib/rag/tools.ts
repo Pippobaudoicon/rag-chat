@@ -20,7 +20,15 @@ function toToolChunk(chunk: SourceChunk) {
   };
 }
 
-export function createRagTools(language: Language) {
+function extractCitationIndices(answerText: string): number[] {
+  const matches = answerText.matchAll(/\[(\d+)\]/g);
+  const numbers = Array.from(matches, (m) => Number(m[1])).filter(
+    (n) => Number.isInteger(n) && n > 0
+  );
+  return [...new Set(numbers)].sort((a, b) => a - b);
+}
+
+export function createRagTools(language: Language, contextChunks: SourceChunk[]) {
   return {
     lookup_scripture_passage: tool({
       description:
@@ -94,6 +102,38 @@ export function createRagTools(language: Language) {
           language,
           total: filtered.length,
           chunks: filtered.slice(0, topK).map(toToolChunk),
+        };
+      },
+    }),
+
+    citation_verifier: tool({
+      description:
+        "Validate inline numeric citations like [1], [2] against the current source list for this answer.",
+      inputSchema: z.object({
+        answerText: z
+          .string()
+          .min(1)
+          .describe("Draft assistant answer containing inline numeric citations"),
+      }),
+      execute: async ({ answerText }) => {
+        const cited = extractCitationIndices(answerText);
+        const maxIndex = contextChunks.length;
+
+        const invalid = cited.filter((n) => n > maxIndex);
+        const valid = cited.filter((n) => n <= maxIndex);
+        const uncitedSourceCount = Math.max(0, maxIndex - valid.length);
+
+        return {
+          isValid: invalid.length === 0,
+          totalContextSources: maxIndex,
+          citedIndices: cited,
+          validIndices: valid,
+          invalidIndices: invalid,
+          uncitedSourceCount,
+          note:
+            invalid.length === 0
+              ? "All citation markers are within the available source range."
+              : `Invalid markers found: ${invalid.join(", ")}. Use only [1]...[${maxIndex}] for this turn.`,
         };
       },
     }),

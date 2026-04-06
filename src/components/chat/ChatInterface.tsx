@@ -4,7 +4,7 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import type { UIMessage } from "ai";
-import { CheckIcon, CopyIcon } from "lucide-react";
+import { CheckIcon, CopyIcon, WrenchIcon } from "lucide-react";
 import {
   Conversation,
   ConversationContent,
@@ -22,6 +22,7 @@ import {
   PromptInputTextarea,
   PromptInputSubmit,
 } from "@/components/ai-elements/prompt-input";
+import { Badge } from "@/components/ui/badge";
 import type { PromptInputMessage } from "@/components/ai-elements/prompt-input";
 import { SettingsPanel } from "./SettingsPanel";
 import { EmptyState } from "./EmptyState";
@@ -39,6 +40,28 @@ type TextMessagePart = Extract<UIMessage["parts"][number], { type: "text" }>;
 
 const isTextPart = (part: UIMessage["parts"][number]): part is TextMessagePart =>
   part.type === "text";
+
+function getToolNameFromPart(part: UIMessage["parts"][number]): string | null {
+  const withToolName = part as { toolName?: unknown; name?: unknown; type?: unknown };
+  if (typeof withToolName.toolName === "string" && withToolName.toolName.trim()) {
+    return withToolName.toolName;
+  }
+  if (typeof withToolName.name === "string" && withToolName.name.trim()) {
+    return withToolName.name;
+  }
+  if (typeof withToolName.type === "string" && withToolName.type.startsWith("tool-")) {
+    return withToolName.type.slice(5);
+  }
+  return null;
+}
+
+function getToolUsage(message: UIMessage): string[] {
+  const toolNames = message.parts
+    .map(getToolNameFromPart)
+    .filter((name): name is string => !!name);
+
+  return [...new Set(toolNames)];
+}
 
 function getPlainText(message: UIMessage): string {
   return message.parts.filter(isTextPart).map((part) => part.text).join("\n\n").trim();
@@ -176,6 +199,8 @@ export function ChatInterface({
               messages.map((message, messageIndex) => {
                 const textParts = message.parts.filter(isTextPart);
                 const messageText = textParts.map((part) => part.text).join("\n\n");
+                const toolUsage = getToolUsage(message);
+                const hasToolUsage = toolUsage.length > 0;
                 // Extract sources from message metadata if available
                 const metadata = message.metadata as MessageMetadata | undefined;
                 const messageSources = metadata?.sources;
@@ -184,10 +209,39 @@ export function ChatInterface({
                   message.role === "assistant" &&
                   !!previousUserQuery &&
                   !!parseScriptureSelection(previousUserQuery, language);
+                const isLastAssistantMessage =
+                  message.role === "assistant" && messageIndex === messages.length - 1;
+                const toolRunInProgress = isLastAssistantMessage && isStreaming && hasToolUsage;
 
                 return (
                   <Message key={message.id} from={message.role}>
                     <MessageContent>
+                      {message.role === "assistant" && hasToolUsage && (
+                        <div className="mb-1 flex flex-wrap items-center gap-1.5">
+                          <Badge
+                            variant="outline"
+                            className="h-6 gap-1.5 border-indigo-500/30 bg-indigo-500/10 text-indigo-300"
+                          >
+                            <WrenchIcon size={12} />
+                            {toolRunInProgress
+                              ? language === "ita"
+                                ? "Tool in uso"
+                                : "Using tools"
+                              : language === "ita"
+                                ? "Tool usati"
+                                : "Tools used"}
+                          </Badge>
+                          {toolUsage.map((toolName) => (
+                            <Badge
+                              key={`${message.id}-${toolName}`}
+                              variant="outline"
+                              className="h-6 border-border/60 bg-background/50 text-muted-foreground"
+                            >
+                              {toolName}
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
                       {textParts.map((part, index) => (
                         <MessageResponse key={`${message.id}-${index}`}>
                           {linkifyInlineCitations(part.text, messageSources)}

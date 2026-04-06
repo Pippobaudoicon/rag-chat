@@ -101,7 +101,7 @@ export async function POST(req: Request) {
     system: SYSTEM_PROMPT,
     messages: chatMessages,
     maxOutputTokens: 1500,
-    tools: createRagTools(language),
+    tools: createRagTools(language, chunks),
 
     onFinish: async ({ text }) => {
       // Update cache with complete answer

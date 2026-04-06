@@ -40,6 +40,8 @@ Read this first before deep code exploration.
 - Tool-assisted answer refinement for:
   - scripture passage lookup
   - conference talk lookup with optional speaker/year constraints
+  - citation index validation against current source list
+- Visual tool-use feedback in chat responses (tool badges similar to major AI chats).
 
 ## 4) Runtime architecture flow
 
@@ -95,6 +97,7 @@ Notes:
 - Chat runtime also exposes AI function tools for targeted retrieval:
   - `lookup_scripture_passage`
   - `search_conference_talks`
+  - `citation_verifier`
 - System prompt enforces:
   - same-language answers,
   - no unsupported claims,
