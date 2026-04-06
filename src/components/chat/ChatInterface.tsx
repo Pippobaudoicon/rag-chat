@@ -362,17 +362,24 @@ export function ChatInterface({
       </div>
 
       {/* Input area */}
-      <div className="border-t border-border/50 bg-background/80 backdrop-blur-sm px-4 py-4">
+      <div className="border-t border-border/50 bg-linear-to-b from-background to-muted/20 backdrop-blur-sm px-4 py-4">
         <div className="max-w-3xl mx-auto">
-          <PromptInput onSubmit={handlePromptSubmit}>
+          <PromptInput
+            onSubmit={handlePromptSubmit}
+            className="rounded-full transition-all duration-200 **:data-[slot=input-group]:h-auto **:data-[slot=input-group]:rounded-full **:data-[slot=input-group]:border **:data-[slot=input-group]:border-border/70 **:data-[slot=input-group]:bg-background/95 **:data-[slot=input-group]:px-2.5 **:data-[slot=input-group]:shadow-[inset_0_1px_0_hsl(var(--background)),0_8px_20px_-14px_hsl(var(--foreground)/0.45)] focus-within:**:data-[slot=input-group]:border-primary/50 focus-within:**:data-[slot=input-group]:shadow-[inset_0_1px_0_hsl(var(--background)),0_12px_28px_-14px_hsl(var(--foreground)/0.55)]"
+          >
             <PromptInputTextarea
+              className="min-h-14 max-h-44 px-4 pt-4 pb-2 text-[15px] leading-6 placeholder:text-muted-foreground/80"
               placeholder={
                 language === "ita"
                   ? "Fai una domanda sulle scritture, la conferenza o il manuale…"
                   : "Ask a question about scriptures, conference, or handbook…"
               }
             />
-            <PromptInputSubmit status={status} />
+            <PromptInputSubmit
+              status={status}
+              className="mr-1.5 mb-1.5 self-end size-11 rounded-full border border-primary/20 bg-primary text-primary-foreground shadow-[0_10px_20px_-10px_hsl(var(--primary)/0.85)] transition-all hover:scale-[1.03] hover:bg-primary/90 active:scale-100 disabled:opacity-60"
+            />
           </PromptInput>
           <p className="mt-2 text-center text-[11px] text-muted-foreground/50">
             {language === "ita"
