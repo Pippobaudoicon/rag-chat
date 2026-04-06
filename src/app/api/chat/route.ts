@@ -45,6 +45,18 @@ export async function POST(req: Request) {
   const key = cacheKey(question, language, sources, topK);
   const cached = await getFromCache(key);
   const chunks: SourceChunk[] = cached?.chunks ?? await retrieve(question, sources, language, topK);
+  const toolChunksUsed: SourceChunk[] = [];
+
+  const addToolChunks = (newChunks: SourceChunk[]) => {
+    toolChunksUsed.push(...newChunks);
+  };
+
+  const getResponseSources = (): SourceChunk[] => {
+    const merged = [...chunks, ...toolChunksUsed];
+    return merged.filter(
+      (chunk, idx, arr) => arr.findIndex((c) => c.id === chunk.id) === idx
+    );
+  };
 
   // ── 4. Conversation ownership ─────────────────────────────────────────────
   const db = getDb();
@@ -102,12 +114,12 @@ export async function POST(req: Request) {
     messages: chatMessages,
     maxOutputTokens: 1500,
     stopWhen: stepCountIs(5),
-    tools: createRagTools(language, chunks),
+    tools: createRagTools(language, chunks, addToolChunks),
 
     onFinish: async ({ text }) => {
       // Update cache with complete answer
       if (!cached) {
-        await setInCache(key, { chunks, answer: text });
+        await setInCache(key, { chunks: getResponseSources(), answer: text });
       }
 
       // Persist assistant response + update conversation metadata
@@ -116,7 +128,7 @@ export async function POST(req: Request) {
           conversationId: conversation.id,
           role: "assistant",
           content: text,
-          sourcesJson: chunks,
+          sourcesJson: getResponseSources(),
         });
 
         // Auto-title from first question (≤60 chars, break at word boundary)
@@ -144,6 +156,7 @@ export async function POST(req: Request) {
   // Include sources in the message metadata so UI can display them
   return result.toUIMessageStreamResponse({
     generateMessageId: generateId,
-    messageMetadata: ({ part }) => part.type === "finish" ? { sources: chunks } : undefined,
+    messageMetadata: ({ part }) =>
+      part.type === "finish" ? { sources: getResponseSources() } : undefined,
   });
 }

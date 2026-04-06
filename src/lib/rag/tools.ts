@@ -3,6 +3,8 @@ import { z } from "zod";
 import { retrieve } from "@/lib/rag/retriever";
 import type { Language, SourceChunk } from "@/lib/types";
 
+type ToolSourceListener = (chunks: SourceChunk[]) => void;
+
 function normalizeForMatch(value: string): string {
   return value
     .toLowerCase()
@@ -49,7 +51,11 @@ function extractCitationIndices(answerText: string): number[] {
   return [...new Set(numbers)].sort((a, b) => a - b);
 }
 
-export function createRagTools(language: Language, contextChunks: SourceChunk[]) {
+export function createRagTools(
+  language: Language,
+  contextChunks: SourceChunk[],
+  onToolSources?: ToolSourceListener
+) {
   return {
     lookup_scripture_passage: tool({
       description:
@@ -69,6 +75,7 @@ export function createRagTools(language: Language, contextChunks: SourceChunk[])
       }),
       execute: async ({ reference, topK }) => {
         const chunks = await retrieve(reference, ["scriptures"], language, topK);
+        onToolSources?.(chunks);
         return {
           reference,
           language,
@@ -147,6 +154,7 @@ export function createRagTools(language: Language, contextChunks: SourceChunk[])
         const final = strict.length > 0 ? strict : relaxed.length > 0 ? relaxed : chunks;
         const strategy =
           strict.length > 0 ? "strict" : relaxed.length > 0 ? "relaxed" : "semantic-only";
+        onToolSources?.(final);
 
         return {
           query,
