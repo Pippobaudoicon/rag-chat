@@ -48,6 +48,31 @@ function parseVerseStart(verse?: string): number {
   return m ? Number(m[0]) : Number.POSITIVE_INFINITY;
 }
 
+function parseVerseBounds(verse?: string): { start: number; end: number } | null {
+  if (!verse) return null;
+  const m = verse.match(/(\d+)(?:\s*[-–]\s*(\d+))?/);
+  if (!m) return null;
+
+  const start = Number(m[1]);
+  const end = m[2] ? Number(m[2]) : start;
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return null;
+
+  return {
+    start: Math.min(start, end),
+    end: Math.max(start, end),
+  };
+}
+
+function verseOverlaps(
+  verse: string | undefined,
+  requestedStart: number,
+  requestedEnd: number
+): boolean {
+  const bounds = parseVerseBounds(verse);
+  if (!bounds) return false;
+  return bounds.start <= requestedEnd && requestedStart <= bounds.end;
+}
+
 function normalizeBookName(value: string): string[] {
   return value
     .toLowerCase()
@@ -164,6 +189,61 @@ async function retrieveWholeChapterChunks(
   return chapterResults.flat();
 }
 
+async function retrieveSpecificVerseChunks(
+  query: string,
+  language: Language
+): Promise<SourceChunk[]> {
+  const selection = parseScriptureSelection(query, language);
+  if (!selection || selection.verseStart === undefined || selection.chapters.length !== 1) {
+    return [];
+  }
+
+  const chapter = selection.chapters[0];
+  const requestedStart = selection.verseStart;
+  const requestedEnd = selection.verseEnd ?? selection.verseStart;
+  const referenceQuery = `${selection.canonicalBook} ${chapter}:${requestedStart}-${requestedEnd}`;
+  const index = getPinecone().index(INDEX_NAME);
+
+  const [vector] = await Promise.all([embedQuery(referenceQuery)]);
+  const res = await index
+    .namespace("scriptures")
+    .query({
+      vector,
+      topK: 48,
+      includeMetadata: true,
+      filter: {
+        language: { $eq: language },
+        chapter: { $eq: chapter },
+      },
+    });
+
+  const chapterUrl = selection.urls[0];
+  const filtered = res.matches
+    .map((match) => toChunk("scriptures", language, match))
+    .filter((chunk) => {
+      if (
+        !isRequestedScriptureChunk(
+          chunk,
+          selection.canonicalBook,
+          selection.volumeSlug,
+          selection.bookSlug,
+          chapter
+        )
+      ) {
+        return false;
+      }
+      return verseOverlaps(chunk.verse, requestedStart, requestedEnd);
+    })
+    .sort((a, b) => parseVerseStart(a.verse) - parseVerseStart(b.verse))
+    .map((chunk, i) => ({
+      ...chunk,
+      score: Math.max(chunk.score, 0.999 - i * 0.0005),
+      url: chunk.url ?? chapterUrl,
+    }));
+
+  return filtered;
+}
+
 export async function retrieve(
   query: string,
   sources: SourceType[],
@@ -171,10 +251,19 @@ export async function retrieve(
   topK = 20
 ): Promise<SourceChunk[]> {
   const scriptureSelection = parseScriptureSelection(query, language);
+  const verseChunks =
+    sources.includes("scriptures")
+      ? await retrieveSpecificVerseChunks(query, language)
+      : [];
   const chapterChunks =
     sources.includes("scriptures")
       ? await retrieveWholeChapterChunks(query, language)
       : [];
+
+  if (scriptureSelection && verseChunks.length > 0) {
+    const limit = Math.max(topK, Math.min(48, verseChunks.length));
+    return verseChunks.slice(0, limit);
+  }
 
   if (scriptureSelection && chapterChunks.length > 0) {
     const limit = Math.max(topK, Math.min(120, chapterChunks.length));
@@ -205,7 +294,7 @@ export async function retrieve(
     )
   );
 
-  const merged = [...chapterChunks, ...results.flat()];
+  const merged = [...verseChunks, ...chapterChunks, ...results.flat()];
   const deduped = merged.filter(
     (chunk, idx, arr) => arr.findIndex((c) => c.id === chunk.id) === idx
   );
