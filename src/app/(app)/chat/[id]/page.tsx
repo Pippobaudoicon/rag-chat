@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { auth } from "@clerk/nextjs/server";
 import { and, asc, eq } from "drizzle-orm";
 import { getDb } from "@/lib/db";
-import { conversations, messages } from "@/lib/db/schema";
+import { conversations, messageFeedback, messages } from "@/lib/db/schema";
 import { ChatInterface } from "@/components/chat/ChatInterface";
 import type { AssistantVersion } from "@/lib/types";
 import type { UIMessage } from "ai";
@@ -57,12 +57,39 @@ export default async function ConversationPage({ params }: Props) {
     .filter((msg) => msg.role === "assistant")
     .map((msg) => (msg.versionsJson as AssistantVersion[] | null) ?? []);
 
+  const feedbackRows = await db
+    .select({
+      assistantMessageId: messageFeedback.assistantMessageId,
+      feedback: messageFeedback.feedback,
+      comment: messageFeedback.comment,
+      createdAt: messageFeedback.createdAt,
+    })
+    .from(messageFeedback)
+    .where(
+      and(
+        eq(messageFeedback.conversationId, convo.id),
+        eq(messageFeedback.clerkUserId, userId)
+      )
+    )
+    .orderBy(asc(messageFeedback.createdAt));
+
+  const initialFeedbackByMessageId: Record<string, { value: "up" | "down"; comment: string | null }> = {};
+  for (const row of feedbackRows) {
+    if (!row.assistantMessageId) continue;
+    if (row.feedback !== "up" && row.feedback !== "down") continue;
+    initialFeedbackByMessageId[String(row.assistantMessageId)] = {
+      value: row.feedback,
+      comment: row.comment ?? null,
+    };
+  }
+
   return (
     <ChatInterface
       conversationId={convo.id}
       initialMessages={initialMessages}
       initialMessageVersions={initialMessageVersions}
       initialAssistantVersions={initialAssistantVersions}
+      initialFeedbackByMessageId={initialFeedbackByMessageId}
     />
   );
 }

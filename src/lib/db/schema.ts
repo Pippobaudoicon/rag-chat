@@ -34,7 +34,28 @@ export const messages = pgTable("rag_messages", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+// User feedback events for assistant answers (thumbs up/down)
+export const messageFeedback = pgTable("rag_message_feedback", {
+  id: serial("id").primaryKey(),
+  conversationId: integer("conversation_id")
+    .notNull()
+    .references(() => conversations.id, { onDelete: "cascade" }),
+  assistantMessageId: integer("assistant_message_id").references(() => messages.id, {
+    onDelete: "set null",
+  }),
+  clerkUserId: text("clerk_user_id").notNull(),
+  clientMessageId: text("client_message_id"),
+  feedback: text("feedback").notNull(), // 'up' | 'down'
+  comment: text("comment"),
+  question: text("question"),
+  answerText: text("answer_text"),
+  sourcesJson: jsonb("sources_json").$type<SourceChunk[]>(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 export type Conversation = typeof conversations.$inferSelect;
 export type NewConversation = typeof conversations.$inferInsert;
 export type Message = typeof messages.$inferSelect;
 export type NewMessage = typeof messages.$inferInsert;
+export type MessageFeedback = typeof messageFeedback.$inferSelect;
+export type NewMessageFeedback = typeof messageFeedback.$inferInsert;

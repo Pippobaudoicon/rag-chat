@@ -10,6 +10,8 @@ import {
   ChevronRightIcon,
   CopyIcon,
   RefreshCwIcon,
+  ThumbsDownIcon,
+  ThumbsUpIcon,
   WrenchIcon,
 } from "lucide-react";
 import {
@@ -30,6 +32,8 @@ import {
   PromptInputSubmit,
 } from "@/components/ai-elements/prompt-input";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 import type { PromptInputMessage } from "@/components/ai-elements/prompt-input";
 import { SettingsPanel } from "./SettingsPanel";
 import { EmptyState } from "./EmptyState";
@@ -49,10 +53,16 @@ interface ChatInterfaceProps {
   initialMessages?: UIMessage[];
   initialMessageVersions?: Record<string, AssistantVersion[]>;
   initialAssistantVersions?: AssistantVersion[][];
+  initialFeedbackByMessageId?: Record<string, { value: "up" | "down"; comment: string | null }>;
 }
 
 type TextMessagePart = Extract<UIMessage["parts"][number], { type: "text" }>;
 type PendingPhase = "queued" | "tools" | "drafting";
+type FeedbackComposer = { messageId: string; value: "up" | "down" } | null;
+type FeedbackFollowUp = { messageId: string; value: "up" | "down" } | null;
+
+const FEEDBACK_FOLLOWUP_TIMEOUT_MS = 6000;
+const FEEDBACK_FOLLOWUP_FADE_MS = 300;
 
 const isTextPart = (part: UIMessage["parts"][number]): part is TextMessagePart =>
   part.type === "text";
@@ -144,6 +154,7 @@ export function ChatInterface({
   initialMessages = [],
   initialMessageVersions = {},
   initialAssistantVersions = [],
+  initialFeedbackByMessageId = {},
 }: ChatInterfaceProps) {
   const [language, setLanguage] = useState<Language>("ita");
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -152,6 +163,15 @@ export function ChatInterface({
     "conference",
     "handbook",
   ]);
+  const [feedbackByMessageId, setFeedbackByMessageId] = useState<
+    Record<string, { value: "up" | "down"; comment: string | null }>
+  >(initialFeedbackByMessageId);
+  const [feedbackComposer, setFeedbackComposer] = useState<FeedbackComposer>(null);
+  const [feedbackFollowUp, setFeedbackFollowUp] = useState<FeedbackFollowUp>(null);
+  const [feedbackFollowUpRemainingMs, setFeedbackFollowUpRemainingMs] = useState(0);
+  const [isFeedbackFollowUpClosing, setIsFeedbackFollowUpClosing] = useState(false);
+  const [feedbackCommentDraft, setFeedbackCommentDraft] = useState("");
+  const [submittingFeedbackId, setSubmittingFeedbackId] = useState<string | null>(null);
   const [messageVersions, setMessageVersions] = useState<Record<string, AssistantVersion[]>>(
     initialMessageVersions
   );
@@ -276,6 +296,55 @@ export function ChatInterface({
     }
   }, []);
 
+  const handleFeedback = useCallback(
+    async (
+      messageId: string,
+      feedback: "up" | "down",
+      answerText: string,
+      answerSources: SourceChunk[] | undefined,
+      question: string | null,
+      comment: string | null
+    ) => {
+      const convId = conversationIdRef.current;
+      if (!convId || submittingFeedbackId === messageId) return;
+
+      const numericMessageId = Number(messageId);
+
+      try {
+        setSubmittingFeedbackId(messageId);
+
+        const response = await fetch("/api/feedback", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            conversationId: convId,
+            assistantMessageId: Number.isInteger(numericMessageId) ? numericMessageId : null,
+            clientMessageId: messageId,
+            feedback,
+            comment,
+            question,
+            answerText,
+            sources: answerSources ?? [],
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error(`Feedback request failed with status ${response.status}`);
+        }
+
+        setFeedbackByMessageId((prev) => ({
+          ...prev,
+          [messageId]: { value: feedback, comment },
+        }));
+      } catch (error) {
+        console.error("Failed to submit feedback", error);
+      } finally {
+        setSubmittingFeedbackId((current) => (current === messageId ? null : current));
+      }
+    },
+    [submittingFeedbackId]
+  );
+
   useEffect(() => {
     if (initialAssistantVersions.length === 0 || messages.length === 0) return;
 
@@ -304,6 +373,12 @@ export function ChatInterface({
       void stop();
       conversationIdRef.current = undefined;
       setMessages([]);
+      setFeedbackByMessageId({});
+      setFeedbackComposer(null);
+      setFeedbackFollowUp(null);
+      setFeedbackFollowUpRemainingMs(0);
+      setIsFeedbackFollowUpClosing(false);
+      setFeedbackCommentDraft("");
       setMessageVersions({});
       setActiveVersionIndex({});
       pendingRegenerationRef.current = null;
@@ -376,6 +451,42 @@ export function ChatInterface({
     pendingRegenerationRef.current = null;
   }, [isStreaming, messages]);
 
+  useEffect(() => {
+    if (!feedbackFollowUp) {
+      setFeedbackFollowUpRemainingMs(0);
+      setIsFeedbackFollowUpClosing(false);
+      return;
+    }
+
+    setIsFeedbackFollowUpClosing(false);
+
+    const endAt = Date.now() + FEEDBACK_FOLLOWUP_TIMEOUT_MS;
+    setFeedbackFollowUpRemainingMs(FEEDBACK_FOLLOWUP_TIMEOUT_MS);
+
+    const interval = window.setInterval(() => {
+      setFeedbackFollowUpRemainingMs(Math.max(0, endAt - Date.now()));
+    }, 100);
+
+    let fadeTimer: number | undefined;
+    const timer = window.setTimeout(() => {
+      setIsFeedbackFollowUpClosing(true);
+      setFeedbackFollowUpRemainingMs(0);
+      fadeTimer = window.setTimeout(() => {
+        setFeedbackFollowUp((current) =>
+          current && current.messageId === feedbackFollowUp.messageId ? null : current
+        );
+      }, FEEDBACK_FOLLOWUP_FADE_MS);
+    }, FEEDBACK_FOLLOWUP_TIMEOUT_MS);
+
+    return () => {
+      window.clearInterval(interval);
+      window.clearTimeout(timer);
+      if (fadeTimer) {
+        window.clearTimeout(fadeTimer);
+      }
+    };
+  }, [feedbackFollowUp]);
+
   return (
     <div className="flex flex-col h-full min-h-0">
       {/* Settings bar — language + source toggles */}
@@ -423,6 +534,16 @@ export function ChatInterface({
                 const toolRunInProgress = isLastAssistantMessage && isStreaming && hasToolUsage;
                 const isAssistantPending =
                   message.role === "assistant" && isLastAssistantMessage && isStreaming && !hasText;
+                const selectedFeedback = feedbackByMessageId[message.id];
+                const isComposerOpenForMessage = feedbackComposer?.messageId === message.id;
+                const isFollowUpOpenForMessage =
+                  feedbackFollowUp?.messageId === message.id && !isComposerOpenForMessage;
+                const isSubmittingFeedback = submittingFeedbackId === message.id;
+                const followUpSeconds = Math.max(0, Math.ceil(feedbackFollowUpRemainingMs / 1000));
+                const followUpProgressPct = Math.max(
+                  0,
+                  Math.min(100, (feedbackFollowUpRemainingMs / FEEDBACK_FOLLOWUP_TIMEOUT_MS) * 100)
+                );
                 const pendingPhase: PendingPhase =
                   status === "submitted"
                     ? "queued"
@@ -510,6 +631,60 @@ export function ChatInterface({
                             </>
                           )}
                           <MessageAction
+                            tooltip={
+                              language === "ita" ? "Risposta utile" : "Helpful answer"
+                            }
+                            size="sm"
+                            disabled={isSubmittingFeedback || !conversationIdRef.current}
+                            className={`cursor-pointer gap-1.5 px-2 text-xs ${
+                              selectedFeedback?.value === "up"
+                                ? "text-emerald-400"
+                                : "text-muted-foreground"
+                            }`}
+                            onClick={() => {
+                              setFeedbackComposer(null);
+                              setFeedbackFollowUp({ messageId: message.id, value: "up" });
+                              setFeedbackCommentDraft("");
+                              void handleFeedback(
+                                message.id,
+                                "up",
+                                displayedText,
+                                displayedSources,
+                                previousUserQuery,
+                                null
+                              );
+                            }}
+                          >
+                            <ThumbsUpIcon size={14} />
+                          </MessageAction>
+                          <MessageAction
+                            tooltip={
+                              language === "ita" ? "Risposta non utile" : "Unhelpful answer"
+                            }
+                            size="sm"
+                            disabled={isSubmittingFeedback || !conversationIdRef.current}
+                            className={`cursor-pointer gap-1.5 px-2 text-xs ${
+                              selectedFeedback?.value === "down"
+                                ? "text-rose-400"
+                                : "text-muted-foreground"
+                            }`}
+                            onClick={() => {
+                              setFeedbackComposer(null);
+                              setFeedbackFollowUp({ messageId: message.id, value: "down" });
+                              setFeedbackCommentDraft("");
+                              void handleFeedback(
+                                message.id,
+                                "down",
+                                displayedText,
+                                displayedSources,
+                                previousUserQuery,
+                                null
+                              );
+                            }}
+                          >
+                            <ThumbsDownIcon size={14} />
+                          </MessageAction>
+                          <MessageAction
                             tooltip="Copy message"
                             size="sm"
                             className="cursor-pointer gap-1.5 px-2 text-xs text-muted-foreground"
@@ -543,6 +718,125 @@ export function ChatInterface({
                             <RefreshCwIcon size={14} />
                           </MessageAction>
                         </MessageToolbar>
+                      )}
+                      {hasText && message.role === "assistant" && isFollowUpOpenForMessage && (
+                        <div
+                          className={`mt-1 rounded-md border border-border/40 bg-background/30 px-2 py-1.5 text-[11px] text-muted-foreground/85 transition-all duration-300 ${
+                            isFeedbackFollowUpClosing ? "translate-y-1 opacity-0" : "translate-y-0 opacity-100"
+                          }`}
+                        >
+                          <div className="mb-1 flex items-center justify-between gap-2">
+                            <span>
+                              {feedbackFollowUp?.value === "down"
+                                ? language === "ita"
+                                  ? "Aggiungere un motivo?"
+                                  : "Add a reason?"
+                                : language === "ita"
+                                  ? "Aggiungere una nota?"
+                                  : "Add a note?"}
+                            </span>
+                            <span className="tabular-nums text-[10px] text-muted-foreground/60">
+                              {followUpSeconds}s
+                            </span>
+                          </div>
+                          <div className="mb-1.5 h-1 w-full overflow-hidden rounded-full bg-muted/25">
+                            <div
+                              className="h-full rounded-full bg-muted-foreground/40 transition-[width] duration-100 ease-linear"
+                              style={{ width: `${followUpProgressPct}%` }}
+                            />
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <Button
+                              type="button"
+                              size="xs"
+                              variant="ghost"
+                              className="h-5 px-1.5 text-[10px]"
+                              onClick={() => {
+                                if (!feedbackFollowUp) return;
+                                setFeedbackComposer({
+                                  messageId: message.id,
+                                  value: feedbackFollowUp.value,
+                                });
+                                setFeedbackFollowUp(null);
+                                setFeedbackCommentDraft(selectedFeedback?.comment ?? "");
+                              }}
+                            >
+                              {language === "ita" ? "Aggiungi" : "Add"}
+                            </Button>
+                            <Button
+                              type="button"
+                              size="xs"
+                              variant="ghost"
+                              className="h-5 px-1.5 text-[10px]"
+                              onClick={() => {
+                                setFeedbackFollowUp(null);
+                              }}
+                            >
+                              {language === "ita" ? "Ignora" : "Dismiss"}
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                      {hasText && message.role === "assistant" && isComposerOpenForMessage && (
+                        <div className="mt-2 rounded-md border border-border/60 bg-background/60 p-2.5">
+                          <p className="mb-2 text-xs text-muted-foreground">
+                            {feedbackComposer?.value === "up"
+                              ? language === "ita"
+                                ? "Cosa ha reso utile questa risposta? (opzionale)"
+                                : "What made this answer helpful? (optional)"
+                              : language === "ita"
+                                ? "Cosa non ha funzionato in questa risposta? (opzionale)"
+                                : "What did not work in this answer? (optional)"}
+                          </p>
+                          <Textarea
+                            value={feedbackCommentDraft}
+                            onChange={(event) => setFeedbackCommentDraft(event.target.value)}
+                            placeholder={
+                              language === "ita"
+                                ? "Aggiungi un commento (facoltativo)"
+                                : "Add a comment (optional)"
+                            }
+                            className="min-h-20"
+                          />
+                          <div className="mt-2 flex items-center justify-end gap-2">
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => {
+                                setFeedbackComposer(null);
+                                setFeedbackFollowUp(null);
+                                setFeedbackCommentDraft("");
+                              }}
+                              disabled={isSubmittingFeedback}
+                            >
+                              {language === "ita" ? "Annulla" : "Cancel"}
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              onClick={() => {
+                                if (!feedbackComposer) return;
+                                void (async () => {
+                                  await handleFeedback(
+                                    message.id,
+                                    feedbackComposer.value,
+                                    displayedText,
+                                    displayedSources,
+                                    previousUserQuery,
+                                    feedbackCommentDraft.trim() || null
+                                  );
+                                  setFeedbackComposer(null);
+                                  setFeedbackFollowUp(null);
+                                  setFeedbackCommentDraft("");
+                                })();
+                              }}
+                              disabled={isSubmittingFeedback || !conversationIdRef.current}
+                            >
+                              {language === "ita" ? "Invia feedback" : "Send feedback"}
+                            </Button>
+                          </div>
+                        </div>
                       )}
                       {/* Show sources for assistant messages */}
                       {message.role === "assistant" && hasText && displayedSources && displayedSources.length > 0 && (
