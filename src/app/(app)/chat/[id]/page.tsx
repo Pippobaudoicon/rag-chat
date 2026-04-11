@@ -4,6 +4,7 @@ import { and, asc, eq } from "drizzle-orm";
 import { getDb } from "@/lib/db";
 import { conversations, messages } from "@/lib/db/schema";
 import { ChatInterface } from "@/components/chat/ChatInterface";
+import type { AssistantVersion } from "@/lib/types";
 import type { UIMessage } from "ai";
 
 interface Props {
@@ -40,13 +41,28 @@ export default async function ConversationPage({ params }: Props) {
     content: msg.content,
     parts: [{ type: "text" as const, text: msg.content }],
     createdAt: msg.createdAt,
-    metadata: msg.sourcesJson ? { sources: msg.sourcesJson } : undefined,
+    metadata:
+      msg.sourcesJson || msg.versionsJson
+        ? { sources: msg.sourcesJson ?? undefined, versions: msg.versionsJson ?? undefined }
+        : undefined,
   }));
+
+  const initialMessageVersions: Record<string, AssistantVersion[]> = Object.fromEntries(
+    msgs
+      .filter((msg) => msg.role === "assistant" && !!msg.versionsJson && msg.versionsJson.length > 0)
+      .map((msg) => [String(msg.id), msg.versionsJson as AssistantVersion[]])
+  );
+
+  const initialAssistantVersions: AssistantVersion[][] = msgs
+    .filter((msg) => msg.role === "assistant")
+    .map((msg) => (msg.versionsJson as AssistantVersion[] | null) ?? []);
 
   return (
     <ChatInterface
       conversationId={convo.id}
       initialMessages={initialMessages}
+      initialMessageVersions={initialMessageVersions}
+      initialAssistantVersions={initialAssistantVersions}
     />
   );
 }

@@ -47,7 +47,13 @@ export interface SourceChunk {
   url?: string;
 }
 
+export interface AssistantVersion {
+  text: string;
+  sources: SourceChunk[];
+}
+
 // Type for UIMessage metadata that includes sources
 export interface MessageMetadata {
   sources?: SourceChunk[];
+  versions?: AssistantVersion[];
 }

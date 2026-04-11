@@ -4,7 +4,14 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import type { UIMessage } from "ai";
-import { CheckIcon, CopyIcon, WrenchIcon } from "lucide-react";
+import {
+  CheckIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  CopyIcon,
+  RefreshCwIcon,
+  WrenchIcon,
+} from "lucide-react";
 import {
   Conversation,
   ConversationContent,
@@ -27,13 +34,21 @@ import type { PromptInputMessage } from "@/components/ai-elements/prompt-input";
 import { SettingsPanel } from "./SettingsPanel";
 import { EmptyState } from "./EmptyState";
 import { SourcesPanel } from "./SourcesPanel";
-import type { SourceType, Language, MessageMetadata } from "@/lib/types";
+import type {
+  AssistantVersion,
+  SourceType,
+  Language,
+  MessageMetadata,
+  SourceChunk,
+} from "@/lib/types";
 import { linkifyInlineCitations } from "@/lib/rag/citation-links";
 import { parseScriptureSelection } from "@/lib/rag/scripture-reference";
 
 interface ChatInterfaceProps {
   conversationId?: number;
   initialMessages?: UIMessage[];
+  initialMessageVersions?: Record<string, AssistantVersion[]>;
+  initialAssistantVersions?: AssistantVersion[][];
 }
 
 type TextMessagePart = Extract<UIMessage["parts"][number], { type: "text" }>;
@@ -127,6 +142,8 @@ function getPreviousUserQuery(messages: UIMessage[], fromIndex: number): string 
 export function ChatInterface({
   conversationId: initialConversationId,
   initialMessages = [],
+  initialMessageVersions = {},
+  initialAssistantVersions = [],
 }: ChatInterfaceProps) {
   const [language, setLanguage] = useState<Language>("ita");
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -135,11 +152,28 @@ export function ChatInterface({
     "conference",
     "handbook",
   ]);
+  const [messageVersions, setMessageVersions] = useState<Record<string, AssistantVersion[]>>(
+    initialMessageVersions
+  );
+  const [activeVersionIndex, setActiveVersionIndex] = useState<Record<string, number>>(() => {
+    const initialIndexes: Record<string, number> = {};
+    for (const [messageId, versions] of Object.entries(initialMessageVersions)) {
+      initialIndexes[messageId] = Math.max(versions.length - 1, 0);
+    }
+    return initialIndexes;
+  });
 
   // Track the resolved conversation ID (may be created on first send)
   const conversationIdRef = useRef<number | undefined>(initialConversationId);
+  const pendingRegenerationRef = useRef<
+    | {
+        targetMessageId: string;
+        previousVersion: AssistantVersion;
+      }
+    | null
+  >(null);
 
-  const { messages, sendMessage, status, setMessages, stop } = useChat({
+  const { messages, sendMessage, regenerate, status, setMessages, stop } = useChat({
     transport: new DefaultChatTransport({ api: "/api/chat" }),
     messages: initialMessages,
   });
@@ -148,34 +182,40 @@ export function ChatInterface({
   const hasAnyVisibleAssistantText = messages.some(hasVisibleAssistantText);
   const lastAssistantMessageIndex = getLastAssistantMessageIndex(messages);
 
+  const ensureConversation = useCallback(async () => {
+    // If there's no conversation yet, create one so history is always persisted.
+    // Use window.history.replaceState so the URL updates WITHOUT a React navigation
+    // (router.push would unmount this component and wipe the optimistic messages).
+    let convId = conversationIdRef.current;
+    if (!convId) {
+      const res = await fetch("/api/conversations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ language, sources }),
+      });
+      if (res.ok) {
+        const convo = await res.json();
+        convId = convo.id as number;
+        conversationIdRef.current = convId;
+        // Update URL bar silently — no remount, keeps optimistic messages intact.
+        window.history.replaceState(null, "", `/chat/${convId}`);
+        window.dispatchEvent(
+          new CustomEvent("chat:path-changed", {
+            detail: { path: `/chat/${convId}` },
+          })
+        );
+        window.dispatchEvent(new CustomEvent("chat:conversations-changed"));
+      }
+    }
+
+    return convId;
+  }, [language, sources]);
+
   const handleSubmit = useCallback(
     async (text: string) => {
       if (!text.trim() || isStreaming) return;
 
-      // If there's no conversation yet, create one so history is always persisted.
-      // Use window.history.replaceState so the URL updates WITHOUT a React navigation
-      // (router.push would unmount this component and wipe the optimistic messages).
-      let convId = conversationIdRef.current;
-      if (!convId) {
-        const res = await fetch("/api/conversations", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ language, sources }),
-        });
-        if (res.ok) {
-          const convo = await res.json();
-          convId = convo.id as number;
-          conversationIdRef.current = convId;
-          // Update URL bar silently — no remount, keeps optimistic messages intact.
-          window.history.replaceState(null, "", `/chat/${convId}`);
-          window.dispatchEvent(
-            new CustomEvent("chat:path-changed", {
-              detail: { path: `/chat/${convId}` },
-            })
-          );
-          window.dispatchEvent(new CustomEvent("chat:conversations-changed"));
-        }
-      }
+      const convId = await ensureConversation();
 
       sendMessage(
         { text },
@@ -184,7 +224,36 @@ export function ChatInterface({
         }
       );
     },
-    [language, sources, isStreaming, sendMessage]
+    [ensureConversation, isStreaming, language, sendMessage, sources]
+  );
+
+  const handleRegenerate = useCallback(
+    async (messageId: string, question: string, currentText: string, fixedChunks: SourceChunk[]) => {
+      if (!question.trim() || !currentText.trim() || fixedChunks.length === 0 || isStreaming) return;
+
+      const convId = await ensureConversation();
+
+      pendingRegenerationRef.current = {
+        targetMessageId: messageId,
+        previousVersion: {
+          text: currentText,
+          sources: fixedChunks,
+        },
+      };
+
+      await regenerate({
+        messageId,
+        body: {
+          conversationId: convId,
+          language,
+          sources,
+          topK: 20,
+          fixedChunks,
+          regenerateQuestion: question,
+        },
+      });
+    },
+    [ensureConversation, isStreaming, language, regenerate, sources]
   );
 
   const handlePromptSubmit = useCallback(
@@ -208,10 +277,36 @@ export function ChatInterface({
   }, []);
 
   useEffect(() => {
+    if (initialAssistantVersions.length === 0 || messages.length === 0) return;
+
+    const mappedVersions: Record<string, AssistantVersion[]> = {};
+    const mappedActive: Record<string, number> = {};
+    let assistantIndex = 0;
+
+    for (const message of messages) {
+      if (message.role !== "assistant") continue;
+      const versions = initialAssistantVersions[assistantIndex] ?? [];
+      if (versions.length > 0 && !messageVersions[message.id]) {
+        mappedVersions[message.id] = versions;
+        mappedActive[message.id] = Math.max(versions.length - 1, 0);
+      }
+      assistantIndex += 1;
+    }
+
+    if (Object.keys(mappedVersions).length > 0) {
+      setMessageVersions((prev) => ({ ...prev, ...mappedVersions }));
+      setActiveVersionIndex((prev) => ({ ...prev, ...mappedActive }));
+    }
+  }, [initialAssistantVersions, messageVersions, messages]);
+
+  useEffect(() => {
     const onNewConversation = () => {
-      stop();
+      void stop();
       conversationIdRef.current = undefined;
       setMessages([]);
+      setMessageVersions({});
+      setActiveVersionIndex({});
+      pendingRegenerationRef.current = null;
       if (window.location.pathname !== "/chat") {
         window.history.replaceState(null, "", "/chat");
       }
@@ -227,6 +322,59 @@ export function ChatInterface({
       window.removeEventListener("chat:new-conversation", onNewConversation);
     };
   }, [setMessages, stop]);
+
+  useEffect(() => {
+    const pending = pendingRegenerationRef.current;
+    if (!pending || isStreaming) return;
+
+    let targetMessage = messages.find(
+      (msg) => msg.id === pending.targetMessageId && msg.role === "assistant"
+    );
+
+    if (!targetMessage) {
+      const fallbackIndex = getLastAssistantMessageIndex(messages);
+      if (fallbackIndex >= 0) {
+        targetMessage = messages[fallbackIndex];
+      }
+    }
+
+    if (!targetMessage || targetMessage.role !== "assistant") {
+      pendingRegenerationRef.current = null;
+      return;
+    }
+
+    const newText = getPlainText(targetMessage);
+    const newSources = ((targetMessage.metadata as MessageMetadata | undefined)?.sources ?? []) as SourceChunk[];
+    if (!newText.trim()) {
+      pendingRegenerationRef.current = null;
+      return;
+    }
+
+    const messageId = targetMessage.id;
+    let nextLength = 0;
+    setMessageVersions((prev) => {
+      const existing = prev[messageId];
+      if (existing && existing.length > 0) {
+        nextLength = existing.length + 1;
+        return {
+          ...prev,
+          [messageId]: [...existing, { text: newText, sources: newSources }],
+        };
+      }
+
+      nextLength = 2;
+
+      return {
+        ...prev,
+        [messageId]: [pending.previousVersion, { text: newText, sources: newSources }],
+      };
+    });
+    setActiveVersionIndex((prev) => {
+      return { ...prev, [messageId]: Math.max(nextLength - 1, 0) };
+    });
+
+    pendingRegenerationRef.current = null;
+  }, [isStreaming, messages]);
 
   return (
     <div className="flex flex-col h-full min-h-0">
@@ -255,7 +403,18 @@ export function ChatInterface({
                 // Extract sources from message metadata if available
                 const metadata = message.metadata as MessageMetadata | undefined;
                 const messageSources = metadata?.sources;
+                const persistedVersions = metadata?.versions ?? [];
                 const previousUserQuery = getPreviousUserQuery(messages, messageIndex);
+                const versions = messageVersions[message.id] ?? persistedVersions;
+                const hasVersions = versions.length > 1;
+                const currentVersionIndex =
+                  hasVersions
+                    ? Math.min(activeVersionIndex[message.id] ?? versions.length - 1, versions.length - 1)
+                    : 0;
+                const displayedText =
+                  hasVersions ? versions[currentVersionIndex].text : messageText;
+                const displayedSources =
+                  hasVersions ? versions[currentVersionIndex].sources : messageSources;
                 const shouldShowScriptureCoverage =
                   message.role === "assistant" &&
                   !!previousUserQuery &&
@@ -300,23 +459,62 @@ export function ChatInterface({
                           ))}
                         </div>
                       )}
-                      {textParts.map((part, index) => (
-                        <MessageResponse key={`${message.id}-${index}`}>
-                          {linkifyInlineCitations(part.text, messageSources)}
-                        </MessageResponse>
-                      ))}
+                      {hasVersions ? (
+                        <MessageResponse>{linkifyInlineCitations(displayedText, displayedSources)}</MessageResponse>
+                      ) : (
+                        textParts.map((part, index) => (
+                          <MessageResponse key={`${message.id}-${index}`}>
+                            {linkifyInlineCitations(part.text, messageSources)}
+                          </MessageResponse>
+                        ))
+                      )}
                       {isAssistantPending && (
                         <PendingIndicator language={language} phase={pendingPhase} className="mt-1" />
                       )}
                       {/* Action toolbar under response */}
                       {hasText && message.role === "assistant" && (
-                        <MessageToolbar>
+                        <MessageToolbar className="justify-start gap-1.5">
+                          {hasVersions && (
+                            <>
+                              <MessageAction
+                                tooltip={language === "ita" ? "Versione precedente" : "Previous version"}
+                                size="sm"
+                                disabled={currentVersionIndex === 0}
+                                className="cursor-pointer px-2 text-xs text-muted-foreground"
+                                onClick={() => {
+                                  setActiveVersionIndex((prev) => ({
+                                    ...prev,
+                                    [message.id]: Math.max(0, currentVersionIndex - 1),
+                                  }));
+                                }}
+                              >
+                                <ChevronLeftIcon size={14} />
+                              </MessageAction>
+                              <span className="px-1 text-xs text-muted-foreground">
+                                {currentVersionIndex + 1}/{versions.length}
+                              </span>
+                              <MessageAction
+                                tooltip={language === "ita" ? "Versione successiva" : "Next version"}
+                                size="sm"
+                                disabled={currentVersionIndex >= versions.length - 1}
+                                className="cursor-pointer px-2 text-xs text-muted-foreground"
+                                onClick={() => {
+                                  setActiveVersionIndex((prev) => ({
+                                    ...prev,
+                                    [message.id]: Math.min(versions.length - 1, currentVersionIndex + 1),
+                                  }));
+                                }}
+                              >
+                                <ChevronRightIcon size={14} />
+                              </MessageAction>
+                            </>
+                          )}
                           <MessageAction
                             tooltip="Copy message"
                             size="sm"
                             className="cursor-pointer gap-1.5 px-2 text-xs text-muted-foreground"
                             onClick={() => {
-                              void handleCopyMessage(message.id, messageText);
+                              void handleCopyMessage(message.id, displayedText);
                             }}
                           >
                             {copiedId === message.id ? (
@@ -328,12 +526,28 @@ export function ChatInterface({
                               <CopyIcon size={14} />
                             )}
                           </MessageAction>
+                          <MessageAction
+                            tooltip={language === "ita" ? "Rigenera risposta" : "Regenerate answer"}
+                            size="sm"
+                            disabled={
+                              isStreaming || !previousUserQuery || !displayedSources || displayedSources.length === 0
+                            }
+                            className="cursor-pointer gap-1.5 px-2 text-xs text-muted-foreground"
+                            onClick={() => {
+                              if (!previousUserQuery || !displayedSources || displayedSources.length === 0) {
+                                return;
+                              }
+                              void handleRegenerate(message.id, previousUserQuery, displayedText, displayedSources);
+                            }}
+                          >
+                            <RefreshCwIcon size={14} />
+                          </MessageAction>
                         </MessageToolbar>
                       )}
                       {/* Show sources for assistant messages */}
-                      {message.role === "assistant" && hasText && messageSources && messageSources.length > 0 && (
+                      {message.role === "assistant" && hasText && displayedSources && displayedSources.length > 0 && (
                         <SourcesPanel
-                          chunks={messageSources}
+                          chunks={displayedSources}
                           language={language}
                           showScriptureCoverage={shouldShowScriptureCoverage}
                         />
@@ -378,6 +592,9 @@ export function ChatInterface({
             />
             <PromptInputSubmit
               status={status}
+              onStop={() => {
+                void stop();
+              }}
               className="mr-1.5 mb-1.5 self-end size-11 rounded-full border border-primary/20 bg-primary text-primary-foreground shadow-[0_10px_20px_-10px_hsl(var(--primary)/0.85)] transition-all hover:scale-[1.03] hover:bg-primary/90 active:scale-100 disabled:opacity-60"
             />
           </PromptInput>

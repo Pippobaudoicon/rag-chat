@@ -1,5 +1,5 @@
 import { pgTable, serial, text, integer, timestamp, jsonb } from "drizzle-orm/pg-core";
-import type { SourceChunk, SourceType } from "@/lib/types";
+import type { AssistantVersion, SourceChunk, SourceType } from "@/lib/types";
 
 // One conversation per user topic — owns all messages
 export const conversations = pgTable("rag_conversations", {
@@ -29,6 +29,8 @@ export const messages = pgTable("rag_messages", {
   content: text("content").notNull(),
   // Source chunks stored on assistant messages only
   sourcesJson: jsonb("sources_json").$type<SourceChunk[]>(),
+  // Regenerated assistant alternatives (including current one) for branch switching
+  versionsJson: jsonb("versions_json").$type<AssistantVersion[]>(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

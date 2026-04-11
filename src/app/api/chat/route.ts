@@ -8,7 +8,7 @@ import { SYSTEM_PROMPT, buildUserMessage } from "@/lib/rag/system-prompt";
 import { cacheKey, getFromCache, setInCache } from "@/lib/rag/cache";
 import { createRagTools } from "@/lib/rag/tools";
 import { DEFAULT_SOURCES } from "@/lib/types";
-import type { SourceType, Language, SourceChunk } from "@/lib/types";
+import type { AssistantVersion, SourceType, Language, SourceChunk } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -28,23 +28,35 @@ export async function POST(req: Request) {
     language = "ita" as Language,
     sources = DEFAULT_SOURCES as SourceType[],
     topK = 20,
+    fixedChunks,
+    regenerateQuestion,
+    trigger,
+    messageId,
   } = body;
 
-  // Extract the latest user question from UIMessage parts (AI SDK v6 format)
+  const isRegenerateRequest = trigger === "regenerate-message" || !!messageId;
+
+  // Extract latest user question from UIMessage parts (AI SDK v6 format)
   const lastMessage = uiMessages.at(-1);
-  const question: string =
+  let question: string =
     lastMessage?.parts?.find((p: { type: string }) => p.type === "text")?.text ??
     lastMessage?.content ??
+    regenerateQuestion ??
     "";
 
-  if (!question.trim()) {
-    return new Response("Bad Request: empty question", { status: 400 });
-  }
+  // ── 3. Source selection / cache check ─────────────────────────────────────
+  const hasFixedChunks =
+    Array.isArray(fixedChunks) &&
+    fixedChunks.length > 0;
+  const validatedFixedChunks: SourceChunk[] = hasFixedChunks
+    ? (fixedChunks as SourceChunk[])
+    : [];
 
-  // ── 3. Cache check ────────────────────────────────────────────────────────
   const key = cacheKey(question, language, sources, topK);
-  const cached = await getFromCache(key);
-  const chunks: SourceChunk[] = cached?.chunks ?? await retrieve(question, sources, language, topK);
+  const cached = hasFixedChunks ? null : await getFromCache(key);
+  const chunks: SourceChunk[] = hasFixedChunks
+    ? validatedFixedChunks
+    : (cached?.chunks ?? await retrieve(question, sources, language, topK));
   const toolChunksUsed: SourceChunk[] = [];
 
   const addToolChunks = (newChunks: SourceChunk[]) => {
@@ -61,6 +73,15 @@ export async function POST(req: Request) {
   // ── 4. Conversation ownership ─────────────────────────────────────────────
   const db = getDb();
   let conversation = null;
+  type StoredMessage = {
+    id: number;
+    role: string;
+    content: string;
+    sourcesJson: SourceChunk[] | null;
+    versionsJson: AssistantVersion[] | null;
+  };
+  let storedMessages: StoredMessage[] = [];
+  let targetAssistantMessage: StoredMessage | null = null;
 
   if (conversationId) {
     conversation = await db.query.conversations.findFirst({
@@ -72,29 +93,87 @@ export async function POST(req: Request) {
     if (!conversation) {
       return new Response("Conversation not found", { status: 404 });
     }
+
+    storedMessages = await db
+      .select({
+        id: messages.id,
+        role: messages.role,
+        content: messages.content,
+        sourcesJson: messages.sourcesJson,
+        versionsJson: messages.versionsJson,
+      })
+      .from(messages)
+      .where(eq(messages.conversationId, conversation.id))
+      .orderBy(asc(messages.createdAt));
+
+    if (isRegenerateRequest && messageId) {
+      const numericMessageId = Number(messageId);
+      if (!Number.isNaN(numericMessageId)) {
+        targetAssistantMessage =
+          storedMessages.find(
+            (msg) => msg.id === numericMessageId && msg.role === "assistant"
+          ) ?? null;
+      }
+
+      if (!targetAssistantMessage) {
+        targetAssistantMessage =
+          [...storedMessages].reverse().find((msg) => msg.role === "assistant") ?? null;
+      }
+
+      // Fallback question resolution for regenerate requests where transport
+      // does not include text in body.messages.
+      if (!question.trim() && targetAssistantMessage) {
+        const targetIndex = storedMessages.findIndex(
+          (msg) => msg.id === targetAssistantMessage?.id
+        );
+        for (let i = targetIndex - 1; i >= 0; i -= 1) {
+          if (storedMessages[i].role === "user") {
+            question = storedMessages[i].content;
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  if (!question.trim()) {
+    return new Response("Bad Request: empty question", { status: 400 });
   }
 
   // ── 5. Load conversation history for multi-turn memory ────────────────────
   // This is the key improvement over the Python single-turn RAG:
   // Claude sees the full conversation history + fresh RAG context each turn.
   type ChatMessage = { role: "user" | "assistant"; content: string };
-  let history: ChatMessage[] = [];
-  if (conversation) {
-    const pastMessages = await db
-      .select({ role: messages.role, content: messages.content })
-      .from(messages)
-      .where(eq(messages.conversationId, conversation.id))
-      .orderBy(asc(messages.createdAt))
-      // Last 20 messages to stay within context window
-      .limit(20);
-    history = pastMessages as ChatMessage[];
+  const modelHistory: ChatMessage[] = [];
 
-    // Persist the new user message immediately (before streaming starts)
-    await db.insert(messages).values({
-      conversationId: conversation.id,
-      role: "user",
-      content: question,
-    });
+  if (conversation) {
+    if (!isRegenerateRequest) {
+      // Persist the new user message immediately (before streaming starts)
+      await db.insert(messages).values({
+        conversationId: conversation.id,
+        role: "user",
+        content: question,
+      });
+
+      const historyWindow = storedMessages.slice(-20);
+      modelHistory.push(...(historyWindow as ChatMessage[]));
+    } else if (targetAssistantMessage) {
+      const targetIndex = storedMessages.findIndex(
+        (msg) => msg.id === targetAssistantMessage?.id
+      );
+      let priorUserIndex = -1;
+      for (let i = targetIndex - 1; i >= 0; i -= 1) {
+        if (storedMessages[i].role === "user") {
+          priorUserIndex = i;
+          break;
+        }
+      }
+
+      // Keep context up to (but not including) the user turn being regenerated.
+      if (priorUserIndex > 0) {
+        modelHistory.push(...(storedMessages.slice(0, priorUserIndex) as ChatMessage[]));
+      }
+    }
   }
 
   // ── 6. Build RAG-augmented message ────────────────────────────────────────
@@ -102,10 +181,7 @@ export async function POST(req: Request) {
   // History messages are sent as-is — Claude uses them for memory.
   const augmentedQuestion = buildUserMessage(question, chunks, language);
 
-  const chatMessages: ChatMessage[] = [
-    ...history.slice(0, -1), // all history except the last user message
-    { role: "user", content: augmentedQuestion }, // last turn with RAG context
-  ];
+  const chatMessages: ChatMessage[] = [...modelHistory, { role: "user", content: augmentedQuestion }];
 
   // ── 7. Stream with AI SDK v6 ──────────────────────────────────────────────
   const result = streamText({
@@ -118,21 +194,50 @@ export async function POST(req: Request) {
 
     onFinish: async ({ text }) => {
       // Update cache with complete answer
-      if (!cached) {
+      if (!cached && !hasFixedChunks) {
         await setInCache(key, { chunks: getResponseSources(), answer: text });
       }
 
       // Persist assistant response + update conversation metadata
       if (conversation) {
-        await db.insert(messages).values({
-          conversationId: conversation.id,
-          role: "assistant",
-          content: text,
-          sourcesJson: getResponseSources(),
-        });
+        const responseSources = getResponseSources();
+
+        if (isRegenerateRequest && targetAssistantMessage) {
+          const existingVersions =
+            targetAssistantMessage.versionsJson && targetAssistantMessage.versionsJson.length > 0
+              ? targetAssistantMessage.versionsJson
+              : [
+                  {
+                    text: targetAssistantMessage.content,
+                    sources: targetAssistantMessage.sourcesJson ?? [],
+                  },
+                ];
+
+          const updatedVersions: AssistantVersion[] = [
+            ...existingVersions,
+            { text, sources: responseSources },
+          ];
+
+          await db
+            .update(messages)
+            .set({
+              content: text,
+              sourcesJson: responseSources,
+              versionsJson: updatedVersions,
+            })
+            .where(eq(messages.id, targetAssistantMessage.id));
+        } else {
+          await db.insert(messages).values({
+            conversationId: conversation.id,
+            role: "assistant",
+            content: text,
+            sourcesJson: responseSources,
+            versionsJson: [{ text, sources: responseSources }],
+          });
+        }
 
         // Auto-title from first question (≤60 chars, break at word boundary)
-        if (!conversation.title) {
+        if (!conversation.title && !isRegenerateRequest) {
           let title = question.slice(0, 60);
           if (question.length > 60) {
             const lastSpace = title.lastIndexOf(" ");
