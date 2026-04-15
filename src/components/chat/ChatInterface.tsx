@@ -38,6 +38,7 @@ import type { PromptInputMessage } from "@/components/ai-elements/prompt-input";
 import { SettingsPanel } from "./SettingsPanel";
 import { EmptyState } from "./EmptyState";
 import { SourcesPanel } from "./SourcesPanel";
+import { DEFAULT_SOURCES, SUPER_SOURCES } from "@/lib/types";
 import type {
   AssistantVersion,
   SourceType,
@@ -156,13 +157,25 @@ export function ChatInterface({
   initialAssistantVersions = [],
   initialFeedbackByMessageId = {},
 }: ChatInterfaceProps) {
-  const [language, setLanguage] = useState<Language>("ita");
+  const [language, setLanguage] = useState<Language>(() => {
+    if (typeof window === "undefined") return "ita";
+    const stored = localStorage.getItem("chat:language");
+    return stored === "eng" ? "eng" : "ita";
+  });
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [sources, setSources] = useState<SourceType[]>([
-    "scriptures",
-    "conference",
-    "handbook",
-  ]);
+  const [sources, setSources] = useState<SourceType[]>(() => {
+    if (typeof window === "undefined") return DEFAULT_SOURCES;
+    try {
+      const stored = localStorage.getItem("chat:sources");
+      if (!stored) return DEFAULT_SOURCES;
+      const parsed = JSON.parse(stored) as string[];
+      const valid = SUPER_SOURCES as string[];
+      const filtered = parsed.filter((s) => valid.includes(s)) as SourceType[];
+      return filtered.length > 0 ? filtered : DEFAULT_SOURCES;
+    } catch {
+      return DEFAULT_SOURCES;
+    }
+  });
   const [feedbackByMessageId, setFeedbackByMessageId] = useState<
     Record<string, { value: "up" | "down"; comment: string | null }>
   >(initialFeedbackByMessageId);
@@ -230,6 +243,15 @@ export function ChatInterface({
 
     return convId;
   }, [language, sources]);
+
+  // Persist language and sources to localStorage
+  useEffect(() => {
+    localStorage.setItem("chat:language", language);
+  }, [language]);
+
+  useEffect(() => {
+    localStorage.setItem("chat:sources", JSON.stringify(sources));
+  }, [sources]);
 
   const handleSubmit = useCallback(
     async (text: string) => {
