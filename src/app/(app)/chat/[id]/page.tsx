@@ -42,8 +42,12 @@ export default async function ConversationPage({ params }: Props) {
     parts: [{ type: "text" as const, text: msg.content }],
     createdAt: msg.createdAt,
     metadata:
-      msg.sourcesJson || msg.versionsJson
-        ? { sources: msg.sourcesJson ?? undefined, versions: msg.versionsJson ?? undefined }
+      msg.sourcesJson || msg.versionsJson || msg.detailsJson
+        ? {
+            sources: msg.sourcesJson ?? undefined,
+            versions: msg.versionsJson ?? undefined,
+            details: msg.detailsJson ?? undefined,
+          }
         : undefined,
   }));
 

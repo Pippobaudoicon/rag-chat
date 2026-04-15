@@ -9,6 +9,7 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
   CopyIcon,
+  InfoIcon,
   RefreshCwIcon,
   ThumbsDownIcon,
   ThumbsUpIcon,
@@ -38,12 +39,14 @@ import type { PromptInputMessage } from "@/components/ai-elements/prompt-input";
 import { SettingsPanel } from "./SettingsPanel";
 import { EmptyState } from "./EmptyState";
 import { SourcesPanel } from "./SourcesPanel";
+import { DetailRows } from "./DetailsPanel";
 import { DEFAULT_SOURCES, SUPER_SOURCES } from "@/lib/types";
 import type {
   AssistantVersion,
   SourceType,
   Language,
   MessageMetadata,
+  MessageDetails,
   SourceChunk,
 } from "@/lib/types";
 import { linkifyInlineCitations } from "@/lib/rag/citation-links";
@@ -157,25 +160,27 @@ export function ChatInterface({
   initialAssistantVersions = [],
   initialFeedbackByMessageId = {},
 }: ChatInterfaceProps) {
-  const [language, setLanguage] = useState<Language>(() => {
-    if (typeof window === "undefined") return "ita";
-    const stored = localStorage.getItem("chat:language");
-    return stored === "eng" ? "eng" : "ita";
-  });
+  const [language, setLanguage] = useState<Language>("ita");
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [sources, setSources] = useState<SourceType[]>(() => {
-    if (typeof window === "undefined") return DEFAULT_SOURCES;
+  const [sources, setSources] = useState<SourceType[]>(DEFAULT_SOURCES);
+
+  // Hydrate language and sources from localStorage after mount to avoid SSR mismatch
+  useEffect(() => {
+    const storedLang = localStorage.getItem("chat:language");
+    if (storedLang === "eng") setLanguage("eng");
+
     try {
-      const stored = localStorage.getItem("chat:sources");
-      if (!stored) return DEFAULT_SOURCES;
-      const parsed = JSON.parse(stored) as string[];
-      const valid = SUPER_SOURCES as string[];
-      const filtered = parsed.filter((s) => valid.includes(s)) as SourceType[];
-      return filtered.length > 0 ? filtered : DEFAULT_SOURCES;
+      const storedSources = localStorage.getItem("chat:sources");
+      if (storedSources) {
+        const parsed = JSON.parse(storedSources) as string[];
+        const valid = SUPER_SOURCES as string[];
+        const filtered = parsed.filter((s) => valid.includes(s)) as SourceType[];
+        if (filtered.length > 0) setSources(filtered);
+      }
     } catch {
-      return DEFAULT_SOURCES;
+      // ignore
     }
-  });
+  }, []);
   const [feedbackByMessageId, setFeedbackByMessageId] = useState<
     Record<string, { value: "up" | "down"; comment: string | null }>
   >(initialFeedbackByMessageId);
@@ -185,6 +190,7 @@ export function ChatInterface({
   const [isFeedbackFollowUpClosing, setIsFeedbackFollowUpClosing] = useState(false);
   const [feedbackCommentDraft, setFeedbackCommentDraft] = useState("");
   const [submittingFeedbackId, setSubmittingFeedbackId] = useState<string | null>(null);
+  const [expandedDetailsId, setExpandedDetailsId] = useState<string | null>(null);
   const [messageVersions, setMessageVersions] = useState<Record<string, AssistantVersion[]>>(
     initialMessageVersions
   );
@@ -536,6 +542,7 @@ export function ChatInterface({
                 // Extract sources from message metadata if available
                 const metadata = message.metadata as MessageMetadata | undefined;
                 const messageSources = metadata?.sources;
+                const messageDetails = metadata?.details;
                 const persistedVersions = metadata?.versions ?? [];
                 const previousUserQuery = getPreviousUserQuery(messages, messageIndex);
                 const versions = messageVersions[message.id] ?? persistedVersions;
@@ -739,7 +746,30 @@ export function ChatInterface({
                           >
                             <RefreshCwIcon size={14} />
                           </MessageAction>
+                          {messageDetails && (
+                            <MessageAction
+                              tooltip={language === "ita" ? "Dettagli" : "Details"}
+                              size="sm"
+                              className={`cursor-pointer gap-1.5 px-2 text-xs ${
+                                expandedDetailsId === message.id
+                                  ? "text-indigo-400"
+                                  : "text-muted-foreground"
+                              }`}
+                              onClick={() => {
+                                setExpandedDetailsId((prev) =>
+                                  prev === message.id ? null : message.id
+                                );
+                              }}
+                            >
+                              <InfoIcon size={14} />
+                            </MessageAction>
+                          )}
                         </MessageToolbar>
+                      )}
+                      {hasText && message.role === "assistant" && messageDetails && expandedDetailsId === message.id && (
+                        <div className="mt-1.5 rounded-md border border-border/40 bg-background/30 px-3 py-2">
+                          <DetailRows details={messageDetails} language={language} />
+                        </div>
                       )}
                       {hasText && message.role === "assistant" && isFollowUpOpenForMessage && (
                         <div
@@ -868,6 +898,7 @@ export function ChatInterface({
                           showScriptureCoverage={shouldShowScriptureCoverage}
                         />
                       )}
+
                     </MessageContent>
                   </Message>
                 );

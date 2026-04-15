@@ -1,0 +1,1 @@
+ALTER TABLE "rag_messages" ADD COLUMN "details_json" jsonb;

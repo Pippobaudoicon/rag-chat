@@ -110,8 +110,19 @@ export interface AssistantVersion {
   sources: SourceChunk[];
 }
 
+export interface MessageDetails {
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+  reasoningTokens?: number;
+  latencyMs?: number;
+  model?: string;
+  finishReason?: string;
+}
+
 // Type for UIMessage metadata that includes sources
 export interface MessageMetadata {
   sources?: SourceChunk[];
   versions?: AssistantVersion[];
+  details?: MessageDetails;
 }

@@ -8,12 +8,13 @@ import { SYSTEM_PROMPT, buildUserMessage } from "@/lib/rag/system-prompt";
 import { cacheKey, getFromCache, setInCache } from "@/lib/rag/cache";
 import { createRagTools } from "@/lib/rag/tools";
 import { DEFAULT_SOURCES } from "@/lib/types";
-import type { AssistantVersion, SourceType, Language, SourceChunk } from "@/lib/types";
+import type { AssistantVersion, SourceType, Language, SourceChunk, MessageDetails } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
 export async function POST(req: Request) {
+  const startTime = Date.now();
   // ── 1. Auth ──────────────────────────────────────────────────────────────
   const { userId } = await auth();
   if (!userId) {
@@ -192,7 +193,18 @@ export async function POST(req: Request) {
     stopWhen: stepCountIs(5),
     tools: createRagTools(language, chunks, addToolChunks),
 
-    onFinish: async ({ text }) => {
+    onFinish: async ({ text, totalUsage, finishReason }) => {
+      // Build details object for persistence
+      const details: MessageDetails = {
+        inputTokens: totalUsage.inputTokens ?? undefined,
+        outputTokens: totalUsage.outputTokens ?? undefined,
+        totalTokens: totalUsage.totalTokens ?? undefined,
+        reasoningTokens: totalUsage.outputTokenDetails?.reasoningTokens ?? undefined,
+        latencyMs: Date.now() - startTime,
+        model: "gpt-4o-mini",
+        finishReason,
+      };
+
       // Update cache with complete answer
       if (!cached && !hasFixedChunks) {
         await setInCache(key, { chunks: getResponseSources(), answer: text });
@@ -224,6 +236,7 @@ export async function POST(req: Request) {
               content: text,
               sourcesJson: responseSources,
               versionsJson: updatedVersions,
+              detailsJson: details,
             })
             .where(eq(messages.id, targetAssistantMessage.id));
         } else {
@@ -233,6 +246,7 @@ export async function POST(req: Request) {
             content: text,
             sourcesJson: responseSources,
             versionsJson: [{ text, sources: responseSources }],
+            detailsJson: details,
           });
         }
 
@@ -261,7 +275,20 @@ export async function POST(req: Request) {
   // Include sources in the message metadata so UI can display them
   return result.toUIMessageStreamResponse({
     generateMessageId: generateId,
-    messageMetadata: ({ part }) =>
-      part.type === "finish" ? { sources: getResponseSources() } : undefined,
+    messageMetadata: ({ part }) => {
+      if (part.type === "finish") {
+        const details: MessageDetails = {
+          inputTokens: part.totalUsage.inputTokens ?? undefined,
+          outputTokens: part.totalUsage.outputTokens ?? undefined,
+          totalTokens: part.totalUsage.totalTokens ?? undefined,
+          reasoningTokens: part.totalUsage.outputTokenDetails?.reasoningTokens ?? undefined,
+          latencyMs: Date.now() - startTime,
+          model: "gpt-4o-mini",
+          finishReason: part.finishReason,
+        };
+        return { sources: getResponseSources(), details };
+      }
+      return undefined;
+    },
   });
 }
