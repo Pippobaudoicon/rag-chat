@@ -7,7 +7,7 @@ import {
   withVerseHighlight,
 } from "./scripture-reference";
 
-// ⚠️ CRITICAL: Index name must match Python VectorStore.INDEX_NAME = "lds-rag"
+// CRITICAL: Index name must match Python VectorStore.INDEX_NAME = "lds-rag"
 const INDEX_NAME = "lds-rag";
 
 // Singleton Pinecone client — one per serverless instance
