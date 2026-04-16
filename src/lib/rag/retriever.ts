@@ -17,6 +17,17 @@ function getPinecone(): Pinecone {
   return _pc;
 }
 
+function enrichScriptureUrl(
+  url: string | undefined,
+  verse: string | undefined,
+  source: SourceType
+): string | undefined {
+  if (!url || !verse || source !== "scriptures") return url;
+  const bounds = parseVerseBounds(verse);
+  if (!bounds) return url;
+  return withVerseHighlight(url, bounds.start, bounds.end);
+}
+
 function toChunk(
   source: SourceType,
   language: Language,
@@ -26,6 +37,8 @@ function toChunk(
     metadata?: Record<string, unknown>;
   }
 ): SourceChunk {
+  const rawUrl = match.metadata?.url as string | undefined;
+  const verse = match.metadata?.verse as string | undefined;
   return {
     id: match.id,
     text: (match.metadata?.text ?? "") as string,
@@ -34,12 +47,12 @@ function toChunk(
     language,
     book: match.metadata?.book as string | undefined,
     chapter: match.metadata?.chapter as number | undefined,
-    verse: match.metadata?.verse as string | undefined,
+    verse,
     speaker: match.metadata?.speaker as string | undefined,
     title: match.metadata?.title as string | undefined,
     date: match.metadata?.date as string | undefined,
     section: match.metadata?.section as string | undefined,
-    url: match.metadata?.url as string | undefined,
+    url: enrichScriptureUrl(rawUrl, verse, source),
   };
 }
 
