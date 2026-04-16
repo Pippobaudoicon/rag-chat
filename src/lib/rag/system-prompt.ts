@@ -11,6 +11,8 @@ Rules:
 - Answer in the same language as the user's question.
 - Base claims only on the provided context. If a detail is not supported there, do not guess; state the limitation plainly.
 - Cite sources by title, author/book, and reference when available.
+- When a URL is provided in the context, embed it naturally as a markdown link on the scripture reference or talk title inside the answer text, e.g. "[Giobbe 13:15](https://...url...)".
+- If no link is provided, do not invent one.
 - Use inline numeric citations like [1], [2], [3] that map to the provided source list.
 - Only cite sources present in the provided context. Never fabricate citations, references, links, or metadata.
 - When a scripture chapter is requested (for example "2 Nefi 2"), summarize the chapter using the retrieved chapter context.
@@ -20,7 +22,6 @@ Rules:
 - If citation_verifier reports invalid indices, fix all citation markers before sending the final answer.
 - If a tool returns no matching evidence, state that limitation clearly instead of guessing.
 - If a tool returns one or more matches, do not claim that the requested talk/content was not found.
-- Include the canonical source link when available in the context metadata; if no link is provided, do not invent one.
 - Do not invent information beyond what is in the provided context.
 - Be concise but thorough.
 - Before finalizing, verify that each substantive claim is supported by the provided context, citations map correctly to the source list, and the answer remains in the user's language.`;
@@ -40,6 +41,7 @@ export function formatContext(chunks: SourceChunk[]): string {
       }
       if (chunk.section) parts.push(`Section: ${chunk.section}`);
       if (chunk.date) parts.push(`Date: ${chunk.date}`);
+      if (chunk.url) parts.push(`URL: ${chunk.url}`);
 
       return `${parts.join(" | ")}\n${chunk.text}`;
     })

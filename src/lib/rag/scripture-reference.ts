@@ -166,13 +166,15 @@ export function withVerseHighlight(
   verseEnd?: number
 ): string {
   const verseId = buildVerseHighlightId(verseStart, verseEnd);
+  const scrollTarget = `p${verseStart}`;
   try {
     const parsed = new URL(url);
     parsed.searchParams.set("id", verseId);
+    parsed.hash = scrollTarget;
     return parsed.toString();
   } catch {
     const hasQuery = url.includes("?");
-    return `${url}${hasQuery ? "&" : "?"}id=${verseId}`;
+    return `${url}${hasQuery ? "&" : "?"}id=${verseId}#${scrollTarget}`;
   }
 }
 

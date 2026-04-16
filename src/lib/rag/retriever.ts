@@ -151,7 +151,7 @@ async function retrieveWholeChapterChunks(
         embedQuery(`${selection.canonicalBook} ${chapter}`),
       ]);
 
-      // Retrieve chunks constrained by exact chapter metadata.
+      // Retrieve chunks constrained by exact book + chapter metadata.
       const chapterRes = await index
         .namespace("scriptures")
         .query({
@@ -160,6 +160,7 @@ async function retrieveWholeChapterChunks(
           includeMetadata: true,
           filter: {
             language: { $eq: language },
+            book: { $eq: selection.canonicalBook },
             chapter: { $eq: chapter },
           },
         });
@@ -214,6 +215,7 @@ async function retrieveSpecificVerseChunks(
       includeMetadata: true,
       filter: {
         language: { $eq: language },
+        book: { $eq: selection.canonicalBook },
         chapter: { $eq: chapter },
       },
     });

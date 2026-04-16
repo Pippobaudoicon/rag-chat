@@ -13,6 +13,8 @@ import type { AssistantVersion, SourceType, Language, SourceChunk, MessageDetail
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
+const CHAT_MODEL = process.env.CHAT_MODEL ?? "openai/gpt-4o-mini";
+
 export async function POST(req: Request) {
   const startTime = Date.now();
   // ── 1. Auth ──────────────────────────────────────────────────────────────
@@ -186,7 +188,7 @@ export async function POST(req: Request) {
 
   // ── 7. Stream with AI SDK v6 ──────────────────────────────────────────────
   const result = streamText({
-    model: gateway("openai/gpt-4o-mini"),
+    model: gateway(CHAT_MODEL),
     system: SYSTEM_PROMPT,
     messages: chatMessages,
     maxOutputTokens: 1500,
@@ -201,7 +203,7 @@ export async function POST(req: Request) {
         totalTokens: totalUsage.totalTokens ?? undefined,
         reasoningTokens: totalUsage.outputTokenDetails?.reasoningTokens ?? undefined,
         latencyMs: Date.now() - startTime,
-        model: "gpt-4o-mini",
+        model: CHAT_MODEL,
         finishReason,
       };
 
@@ -283,7 +285,7 @@ export async function POST(req: Request) {
           totalTokens: part.totalUsage.totalTokens ?? undefined,
           reasoningTokens: part.totalUsage.outputTokenDetails?.reasoningTokens ?? undefined,
           latencyMs: Date.now() - startTime,
-          model: "gpt-4o-mini",
+          model: CHAT_MODEL,
           finishReason: part.finishReason,
         };
         return { sources: getResponseSources(), details };
