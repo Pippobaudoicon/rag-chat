@@ -4,6 +4,7 @@ import type { SourceChunk, SourceType, Language } from "@/lib/types";
 import {
   parseScriptureSelection,
   isWholeChapterIntent,
+  withVerseHighlight,
 } from "./scripture-reference";
 
 // ⚠️ CRITICAL: Index name must match Python VectorStore.INDEX_NAME = "lds-rag"
@@ -217,7 +218,7 @@ async function retrieveSpecificVerseChunks(
       },
     });
 
-  const chapterUrl = selection.urls[0];
+  const chapterUrl = selection.urls[0]; // already has verse highlight from parseScriptureSelection
   const filtered = res.matches
     .map((match) => toChunk("scriptures", language, match))
     .filter((chunk) => {
@@ -238,7 +239,9 @@ async function retrieveSpecificVerseChunks(
     .map((chunk, i) => ({
       ...chunk,
       score: Math.max(chunk.score, 0.999 - i * 0.0005),
-      url: chunk.url ?? chapterUrl,
+      url: chunk.url
+        ? withVerseHighlight(chunk.url, requestedStart, requestedEnd)
+        : chapterUrl,
     }));
 
   return filtered;

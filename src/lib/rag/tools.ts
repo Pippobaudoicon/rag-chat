@@ -26,6 +26,11 @@ function uniqueById(chunks: SourceChunk[]): SourceChunk[] {
   return out;
 }
 
+function mergeUniqueById(existing: SourceChunk[], incoming: SourceChunk[]): SourceChunk[] {
+  if (incoming.length === 0) return existing;
+  return uniqueById([...existing, ...incoming]);
+}
+
 function toToolChunk(chunk: SourceChunk) {
   return {
     id: chunk.id,
@@ -43,12 +48,22 @@ function toToolChunk(chunk: SourceChunk) {
   };
 }
 
-function extractCitationIndices(answerText: string): number[] {
-  const matches = answerText.matchAll(/\[(\d+)\]/g);
-  const numbers = Array.from(matches, (m) => Number(m[1])).filter(
-    (n) => Number.isInteger(n) && n > 0
-  );
-  return [...new Set(numbers)].sort((a, b) => a - b);
+function extractCitationMarkers(answerText: string): {
+  uniqueIndices: number[];
+  malformedMarkers: string[];
+} {
+  const allMarkers = Array.from(answerText.matchAll(/\[[^\]]+\]/g), (m) => m[0]);
+  const validMatches = Array.from(answerText.matchAll(/\[(?:source\s+)?(\d+)\]/gi), (m) =>
+    Number(m[1])
+  ).filter((n) => Number.isInteger(n) && n > 0);
+
+  const uniqueIndices = [...new Set(validMatches)].sort((a, b) => a - b);
+  const malformedMarkers = allMarkers.filter((marker) => !/\[(?:source\s+)?\d+\]/i.test(marker));
+
+  return {
+    uniqueIndices,
+    malformedMarkers,
+  };
 }
 
 export function createRagTools(
@@ -56,6 +71,13 @@ export function createRagTools(
   contextChunks: SourceChunk[],
   onToolSources?: ToolSourceListener
 ) {
+  let liveChunks = uniqueById(contextChunks);
+
+  const registerToolChunks = (chunks: SourceChunk[]) => {
+    liveChunks = mergeUniqueById(liveChunks, chunks);
+    onToolSources?.(chunks);
+  };
+
   return {
     lookup_scripture_passage: tool({
       description:
@@ -75,7 +97,7 @@ export function createRagTools(
       }),
       execute: async ({ reference, topK }) => {
         const chunks = await retrieve(reference, ["scriptures"], language, topK);
-        onToolSources?.(chunks);
+        registerToolChunks(chunks);
         return {
           reference,
           language,
@@ -154,7 +176,7 @@ export function createRagTools(
         const final = strict.length > 0 ? strict : relaxed.length > 0 ? relaxed : chunks;
         const strategy =
           strict.length > 0 ? "strict" : relaxed.length > 0 ? "relaxed" : "semantic-only";
-        onToolSources?.(final);
+        registerToolChunks(final);
 
         return {
           query,
@@ -183,24 +205,37 @@ export function createRagTools(
           .describe("Draft assistant answer containing inline numeric citations"),
       }),
       execute: async ({ answerText }) => {
-        const cited = extractCitationIndices(answerText);
-        const maxIndex = contextChunks.length;
+        const { uniqueIndices: cited, malformedMarkers } = extractCitationMarkers(answerText);
+        const maxIndex = liveChunks.length;
 
         const invalid = cited.filter((n) => n > maxIndex);
         const valid = cited.filter((n) => n <= maxIndex);
         const uncitedSourceCount = Math.max(0, maxIndex - valid.length);
+        const hasMalformed = malformedMarkers.length > 0;
+        const hasInvalid = invalid.length > 0;
 
         return {
-          isValid: invalid.length === 0,
+          isValid: !hasInvalid && !hasMalformed,
           totalContextSources: maxIndex,
           citedIndices: cited,
           validIndices: valid,
           invalidIndices: invalid,
+          malformedMarkers,
           uncitedSourceCount,
           note:
-            invalid.length === 0
-              ? "All citation markers are within the available source range."
-              : `Invalid markers found: ${invalid.join(", ")}. Use only [1]...[${maxIndex}] for this turn.`,
+            !hasInvalid && !hasMalformed
+              ? "All citation markers are valid and within the available source range."
+              : [
+                  hasInvalid
+                    ? `Out-of-range markers: ${invalid.map((n) => `[${n}]`).join(", ")}.`
+                    : undefined,
+                  hasMalformed
+                    ? `Malformed markers: ${malformedMarkers.join(", ")}. Use [N] or [Source N].`
+                    : undefined,
+                  `Allowed citation range for this turn: [1]...[${maxIndex}].`,
+                ]
+                  .filter(Boolean)
+                  .join(" "),
         };
       },
     }),
