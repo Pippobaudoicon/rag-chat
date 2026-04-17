@@ -4,6 +4,8 @@ import { ClerkProvider } from "@clerk/nextjs";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Analytics } from "@vercel/analytics/next";
 import { SpeedInsights } from "@vercel/speed-insights/next";
+import { ServiceWorkerRegistration } from "@/components/pwa/ServiceWorkerRegistration";
+import { InstallPrompt } from "@/components/pwa/InstallPrompt";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -24,11 +26,23 @@ export const metadata: Metadata = {
   title: "LDS RAG Chat",
   description:
     "AI assistant grounded in LDS scriptures, conference talks, handbook and Liahona",
+  manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "LDS RAG Chat",
+  },
+  other: {
+    "mobile-web-app-capable": "yes",
+  },
 };
 
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  viewportFit: "cover",
   themeColor: "#1a1a1a",
 };
 
@@ -44,8 +58,13 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} dark h-full antialiased`}
         suppressHydrationWarning
       >
+        <head>
+          <link rel="apple-touch-icon" href="/icons/apple-touch-icon.svg" />
+        </head>
         <body className="h-full bg-background text-foreground">
           <TooltipProvider>{children}</TooltipProvider>
+          <InstallPrompt />
+          <ServiceWorkerRegistration />
           <Analytics />
           <SpeedInsights />
         </body>
