@@ -1,10 +1,13 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { lazy, Suspense, useEffect, useState, useTransition } from "react";
 import { useRouter, usePathname } from "next/navigation";
-import { UserButton } from "@clerk/nextjs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
+
+const UserButton = lazy(() =>
+  import("@clerk/nextjs").then((m) => ({ default: m.UserButton }))
+);
 
 interface ConversationItem {
   id: number;
@@ -111,7 +114,9 @@ export function ChatSidebar({ onClose }: ChatSidebarProps) {
           </div>
           <span className="text-sm font-semibold tracking-tight">LDS RAG</span>
         </div>
-        <UserButton />
+        <Suspense fallback={<Skeleton className="h-7 w-7 rounded-full" />}>
+          <UserButton />
+        </Suspense>
       </div>
 
       {/* New chat button */}
