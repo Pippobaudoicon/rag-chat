@@ -55,7 +55,7 @@ export function SettingsPanel({
       : "Search all sources:";
 
   return (
-    <div className="flex flex-wrap items-center gap-3 border-b border-border/50 bg-background/50 px-4 py-2 pl-16 backdrop-blur-sm md:pl-4">
+    <div className="flex items-center gap-3 px-4 py-2 border-b border-border/50 bg-background/50 backdrop-blur-sm flex-wrap">
       {/* Language toggle */}
       <div className="flex items-center gap-1 rounded-md border border-border/60 p-0.5">
         {(["ita", "eng"] as Language[]).map((lang) => (
