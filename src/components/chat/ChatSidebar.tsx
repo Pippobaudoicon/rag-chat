@@ -17,9 +17,10 @@ interface ConversationItem {
 
 interface ChatSidebarProps {
   onClose?: () => void;
+  showMobileClose?: boolean;
 }
 
-export function ChatSidebar({ onClose }: ChatSidebarProps) {
+export function ChatSidebar({ onClose, showMobileClose = false }: ChatSidebarProps) {
   const router = useRouter();
   const pathname = usePathname();
   const [conversations, setConversations] = useState<ConversationItem[]>([]);
@@ -104,7 +105,7 @@ export function ChatSidebar({ onClose }: ChatSidebarProps) {
   return (
     <div className="flex flex-col h-full w-full bg-zinc-950 border-r border-border/40">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-4 border-b border-border/40">
+      <div className="flex items-center justify-between border-b border-border/40 px-4 pb-4 pt-[max(1rem,env(safe-area-inset-top))] md:pt-4">
         <div className="flex items-center gap-2">
           <div className="h-6 w-6 rounded bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center">
             <svg className="h-3.5 w-3.5 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -114,9 +115,23 @@ export function ChatSidebar({ onClose }: ChatSidebarProps) {
           </div>
           <span className="text-sm font-semibold tracking-tight">LDS RAG</span>
         </div>
-        <Suspense fallback={<Skeleton className="h-7 w-7 rounded-full" />}>
-          <UserButton />
-        </Suspense>
+        <div className="flex items-center gap-2">
+          <Suspense fallback={<Skeleton className="h-7 w-7 rounded-full" />}>
+            <UserButton />
+          </Suspense>
+          {showMobileClose && onClose && (
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close sidebar"
+              className="flex h-8 w-8 items-center justify-center rounded-md border border-border/50 text-muted-foreground transition-colors hover:text-foreground"
+            >
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* New chat button */}
