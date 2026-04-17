@@ -12,7 +12,7 @@
 const CACHE_NAME = "lds-rag-v1";
 
 /** Paths to pre-cache on install (app shell) */
-const PRECACHE_URLS = ["/chat", "/manifest.json"];
+const PRECACHE_URLS = ["/chat", "/manifest.webmanifest"];
 
 /* ------------------------------------------------------------------ */
 /*  INSTALL — pre-cache the app shell                                 */

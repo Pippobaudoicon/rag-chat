@@ -25,8 +25,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "LDS RAG Chat",
   description:
-    "AI assistant grounded in LDS scriptures, conference talks, handbook and Liahona",
-  manifest: "/manifest.json",
+    "AI assistant grounded in LDS scriptures, conference talks, handbook and Liahona and so much more!",
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
@@ -59,7 +58,7 @@ export default function RootLayout({
         suppressHydrationWarning
       >
         <head>
-          <link rel="apple-touch-icon" href="/icons/apple-touch-icon.svg" />
+          <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
         </head>
         <body className="h-full bg-background text-foreground">
           <TooltipProvider>{children}</TooltipProvider>
