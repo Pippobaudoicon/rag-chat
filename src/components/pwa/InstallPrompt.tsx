@@ -69,7 +69,7 @@ export function InstallPrompt() {
   if (isIOS) {
     return (
       <div className="fixed bottom-20 left-4 right-4 z-50 mx-auto max-w-md animate-in slide-in-from-bottom-4 fade-in duration-300">
-        <div className="flex items-start gap-3 rounded-xl border border-border/60 bg-zinc-900/95 p-3 shadow-lg backdrop-blur-sm">
+        <div className="flex items-start gap-3 rounded-xl border border-border/60 bg-card/95 p-3 shadow-lg backdrop-blur-sm">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-indigo-500/15 text-indigo-400">
             <DownloadIcon size={18} />
           </div>
@@ -101,7 +101,7 @@ export function InstallPrompt() {
   // Android/Chrome: native install button
   return (
     <div className="fixed bottom-20 left-4 right-4 z-50 mx-auto max-w-md animate-in slide-in-from-bottom-4 fade-in duration-300 md:left-auto md:right-6 md:max-w-sm">
-      <div className="flex items-center gap-3 rounded-xl border border-border/60 bg-zinc-900/95 p-3 shadow-lg backdrop-blur-sm">
+      <div className="flex items-center gap-3 rounded-xl border border-border/60 bg-card/95 p-3 shadow-lg backdrop-blur-sm">
         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-indigo-500/15 text-indigo-400">
           <DownloadIcon size={18} />
         </div>

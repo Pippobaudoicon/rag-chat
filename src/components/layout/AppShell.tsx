@@ -97,7 +97,7 @@ export function AppShell({ children }: AppShellProps) {
 
   return (
     <LanguageProvider>
-    <div className="flex h-dvh w-full overflow-hidden bg-zinc-950 overscroll-none">
+    <div className="flex h-dvh w-full overflow-hidden bg-background overscroll-none">
       {/* Desktop sidebar — fixed, always visible */}
       <aside className="hidden md:flex w-64 shrink-0 flex-col">
         <ChatSidebar />
@@ -108,7 +108,7 @@ export function AppShell({ children }: AppShellProps) {
         {/* Mobile top bar — participates in flex layout (no absolute) so it
             cannot overlap the language selector or the notch. */}
         <header
-          className="md:hidden flex items-center gap-3 border-b border-border/40 bg-zinc-950/95 backdrop-blur-sm
+          className="md:hidden flex items-center gap-3 border-b border-border/40 bg-background/95 backdrop-blur-sm
                      pl-[max(0.75rem,env(safe-area-inset-left))]
                      pr-[max(0.75rem,env(safe-area-inset-right))]
                      pt-[max(0.5rem,env(safe-area-inset-top))]
@@ -118,7 +118,7 @@ export function AppShell({ children }: AppShellProps) {
             type="button"
             onClick={() => setMobileOpen(true)}
             aria-label="Open menu"
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-border/50 bg-zinc-900 text-muted-foreground hover:text-foreground transition-colors"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-border/50 bg-card text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
           >
             <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
@@ -145,7 +145,7 @@ export function AppShell({ children }: AppShellProps) {
               <SheetContent
                 side="left"
                 showCloseButton={false}
-                className="w-[min(18rem,85vw)] border-border/40 bg-zinc-950 p-0"
+                className="w-[min(18rem,85vw)] border-border/40 bg-sidebar p-0"
               >
                 <ChatSidebar
                   onClose={() => setMobileOpen(false)}

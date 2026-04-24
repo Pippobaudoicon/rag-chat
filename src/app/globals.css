@@ -84,37 +84,52 @@
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
+  /* ---- Dark theme palette ----
+   * Follows Material Design (https://m2.material.io/design/color/dark-theme.html)
+   * and Apple HIG dark mode guidance:
+   *  - Avoid pure black; use a near-black background so elevated surfaces
+   *    can feel raised by being slightly lighter.
+   *  - Avoid pure white text; ~92% white is more comfortable on dark.
+   *  - Borders are very low-opacity white instead of solid greys.
+   *  - Surfaces step up by ~3-5% lightness per elevation level.
+   *
+   * NOTE: OKLCH lightness is perceptual, not sRGB-linear. The values below
+   * are tuned so the resulting hex sits near Material's recommended steps:
+   *  oklch(0.205) ≈ #121212  (baseline)
+   *  oklch(0.245) ≈ #1E1E1E  (elevation 1-2)
+   *  oklch(0.27)  ≈ #232323  (elevation 8 / overlays)
+   */
+  --background: oklch(0.205 0 0);         /* #121212  base surface (dp 0) */
+  --foreground: oklch(0.93 0 0);          /* ~#ECECEC  high-emphasis text (~92%) */
+  --card: oklch(0.245 0 0);               /* #1E1E1E  elevated surface (dp 1-2) */
+  --card-foreground: oklch(0.93 0 0);
+  --popover: oklch(0.27 0 0);             /* #232323  overlay surface (dp 8) */
+  --popover-foreground: oklch(0.93 0 0);
+  --primary: oklch(0.93 0 0);             /* off-white for primary buttons */
   --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --secondary: oklch(0.295 0 0);
+  --secondary-foreground: oklch(0.96 0 0);
+  --muted: oklch(0.265 0 0);              /* subtle filled surface */
+  --muted-foreground: oklch(0.71 0 0);    /* medium-emphasis text (~60%) */
+  --accent: oklch(0.305 0 0);             /* hover / active state */
+  --accent-foreground: oklch(0.96 0 0);
+  --destructive: oklch(0.66 0.18 22);     /* slightly desaturated for dark */
+  --border: oklch(1 0 0 / 9%);            /* subtle hairlines */
+  --input: oklch(1 0 0 / 13%);
+  --ring: oklch(0.65 0.13 264);           /* desaturated indigo focus ring */
+  --chart-1: oklch(0.78 0 0);
+  --chart-2: oklch(0.62 0 0);
+  --chart-3: oklch(0.5 0 0);
+  --chart-4: oklch(0.4 0 0);
+  --chart-5: oklch(0.3 0 0);
+  --sidebar: oklch(0.185 0 0);            /* #0E0E0E  sidebar slightly deeper than main */
+  --sidebar-foreground: oklch(0.93 0 0);
+  --sidebar-primary: oklch(0.6 0.18 264); /* desaturated indigo accent */
+  --sidebar-primary-foreground: oklch(0.96 0 0);
+  --sidebar-accent: oklch(0.295 0 0);
+  --sidebar-accent-foreground: oklch(0.96 0 0);
+  --sidebar-border: oklch(1 0 0 / 9%);
+  --sidebar-ring: oklch(0.6 0.18 264);
 }
 
 @layer base {
@@ -165,4 +180,33 @@ body {
     user-select: none;
     -webkit-tap-highlight-color: transparent;
   }
+}
+
+/* ---- Refined scrollbars (dark theme) ----
+ * Thin, low-contrast scrollbars that don't compete with content. */
+.dark * {
+  scrollbar-width: thin;
+  scrollbar-color: oklch(1 0 0 / 14%) transparent;
+}
+.dark *::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.dark *::-webkit-scrollbar-track {
+  background: transparent;
+}
+.dark *::-webkit-scrollbar-thumb {
+  background-color: oklch(1 0 0 / 12%);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.dark *::-webkit-scrollbar-thumb:hover {
+  background-color: oklch(1 0 0 / 22%);
+}
+
+/* Selection — branded but soft */
+.dark ::selection {
+  background-color: oklch(0.55 0.18 264 / 35%);
+  color: oklch(0.96 0 0);
 }

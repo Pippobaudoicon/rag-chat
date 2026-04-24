@@ -1,13 +1,10 @@
 "use client";
 
-import { lazy, Suspense, useEffect, useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter, usePathname } from "next/navigation";
+import { UserButton } from "@clerk/nextjs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-
-const UserButton = lazy(() =>
-  import("@clerk/nextjs").then((m) => ({ default: m.UserButton }))
-);
 
 interface ConversationItem {
   id: number;
@@ -103,9 +100,9 @@ export function ChatSidebar({ onClose, showMobileClose = false }: ChatSidebarPro
   const activeId = currentPath?.match(/\/chat\/(\d+)/)?.[1];
 
   return (
-    <div className="flex flex-col h-full w-full bg-zinc-950 border-r border-border/40">
+    <div className="flex flex-col h-full w-full bg-sidebar border-r border-border/40">
       {/* Header */}
-      <div className="flex items-center justify-between gap-2 border-b border-border/40 px-4 pb-3 pt-[max(0.75rem,calc(env(safe-area-inset-top)+0.5rem))]">
+      <div className="flex items-center justify-between gap-2 border-b border-border/40 px-4 pb-1.5 pt-[max(0.75rem,calc(env(safe-area-inset-top)+0.5rem))]">
         <div className="flex items-center gap-2 min-w-0">
           <div className="h-6 w-6 shrink-0 rounded bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center">
             <svg className="h-3.5 w-3.5 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -134,7 +131,7 @@ export function ChatSidebar({ onClose, showMobileClose = false }: ChatSidebarPro
         <button
           onClick={handleNewChat}
           disabled={isPending}
-          className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-muted-foreground hover:text-foreground hover:bg-zinc-800 transition-colors border border-border/40 hover:border-border/60 disabled:opacity-50"
+          className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-muted-foreground hover:text-foreground hover:bg-accent transition-colors border border-border/40 hover:border-border/60 disabled:opacity-50"
         >
           <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -169,8 +166,8 @@ export function ChatSidebar({ onClose, showMobileClose = false }: ChatSidebarPro
                 className={cn(
                   "group flex items-center gap-2 px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors",
                   isActive
-                    ? "bg-zinc-800 text-foreground"
-                    : "text-muted-foreground hover:text-foreground hover:bg-zinc-800/60"
+                    ? "bg-accent text-foreground"
+                    : "text-muted-foreground hover:text-foreground hover:bg-accent/60"
                 )}
               >
                 <span className="flex-1 truncate text-xs leading-snug">
@@ -195,9 +192,9 @@ export function ChatSidebar({ onClose, showMobileClose = false }: ChatSidebarPro
 
       {/* Footer — account */}
       <div className="border-t border-border/40 px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] flex items-center gap-3">
-        <Suspense fallback={<Skeleton className="h-7 w-7 rounded-full" />}>
+        <span>
           <UserButton />
-        </Suspense>
+        </span>
         <span className="text-xs text-muted-foreground truncate">Account</span>
       </div>
     </div>
