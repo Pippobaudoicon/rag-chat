@@ -17,49 +17,71 @@ interface AppShellProps {
 }
 
 const MOBILE_BREAKPOINT_PX = 768;
-const EDGE_SWIPE_MIN_DISTANCE = 50;
-const EDGE_SWIPE_MAX_VERTICAL_DRIFT = 60;
+const OPEN_SWIPE_MIN_DISTANCE = 70;
+const OPEN_SWIPE_HORIZONTAL_RATIO = 1.5; // |dx| must dominate |dy| by this factor
 
 export function AppShell({ children }: AppShellProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
-  const edgeZoneRef = useRef<HTMLDivElement | null>(null);
-  const swipeStartRef = useRef<{ x: number; y: number } | null>(null);
+  const swipeStartRef = useRef<
+    | {
+        x: number;
+        y: number;
+        ignore: boolean;
+      }
+    | null
+  >(null);
 
   useEffect(() => {
-    const node = edgeZoneRef.current;
-    if (!node || typeof window === "undefined") {
+    if (typeof window === "undefined") {
       return;
     }
+
+    const isInteractiveTarget = (target: EventTarget | null) => {
+      if (!(target instanceof Element)) return false;
+      // Avoid hijacking gestures over native horizontal scrollers,
+      // form controls, sliders, or anything that opts out via data attribute.
+      return Boolean(
+        target.closest(
+          'input, textarea, select, [contenteditable="true"], [role="slider"], [data-no-swipe], [data-radix-scroll-area-viewport], .overflow-x-auto, .overflow-x-scroll'
+        )
+      );
+    };
 
     const handleTouchStart = (event: TouchEvent) => {
       if (window.innerWidth >= MOBILE_BREAKPOINT_PX || mobileOpen) {
         swipeStartRef.current = null;
         return;
       }
-      const touch = event.touches[0];
-      if (!touch) {
+      if (event.touches.length > 1) {
+        swipeStartRef.current = null;
         return;
       }
-      swipeStartRef.current = { x: touch.clientX, y: touch.clientY };
+      const touch = event.touches[0];
+      if (!touch) return;
+      swipeStartRef.current = {
+        x: touch.clientX,
+        y: touch.clientY,
+        ignore: isInteractiveTarget(event.target),
+      };
     };
 
     const handleTouchMove = (event: TouchEvent) => {
       const start = swipeStartRef.current;
-      if (!start) {
-        return;
-      }
+      if (!start || start.ignore) return;
       const touch = event.touches[0];
-      if (!touch) {
-        return;
-      }
-      const deltaX = touch.clientX - start.x;
-      const deltaY = Math.abs(touch.clientY - start.y);
+      if (!touch) return;
 
-      if (deltaY > EDGE_SWIPE_MAX_VERTICAL_DRIFT || deltaX < -12) {
+      const deltaX = touch.clientX - start.x;
+      const deltaY = touch.clientY - start.y;
+      const absX = Math.abs(deltaX);
+      const absY = Math.abs(deltaY);
+
+      // Cancel if the gesture turns into a vertical scroll or moves left.
+      if (deltaX < -12 || (absY > 16 && absY * OPEN_SWIPE_HORIZONTAL_RATIO > absX)) {
         swipeStartRef.current = null;
         return;
       }
-      if (deltaX >= EDGE_SWIPE_MIN_DISTANCE) {
+      if (deltaX >= OPEN_SWIPE_MIN_DISTANCE && absX > absY * OPEN_SWIPE_HORIZONTAL_RATIO) {
         setMobileOpen(true);
         swipeStartRef.current = null;
       }
@@ -69,36 +91,23 @@ export function AppShell({ children }: AppShellProps) {
       swipeStartRef.current = null;
     };
 
-    node.addEventListener("touchstart", handleTouchStart, { passive: true });
-    node.addEventListener("touchmove", handleTouchMove, { passive: true });
-    node.addEventListener("touchend", resetSwipe, { passive: true });
-    node.addEventListener("touchcancel", resetSwipe, { passive: true });
+    const opts: AddEventListenerOptions = { passive: true, capture: true };
+    window.addEventListener("touchstart", handleTouchStart, opts);
+    window.addEventListener("touchmove", handleTouchMove, opts);
+    window.addEventListener("touchend", resetSwipe, opts);
+    window.addEventListener("touchcancel", resetSwipe, opts);
 
     return () => {
-      node.removeEventListener("touchstart", handleTouchStart);
-      node.removeEventListener("touchmove", handleTouchMove);
-      node.removeEventListener("touchend", resetSwipe);
-      node.removeEventListener("touchcancel", resetSwipe);
+      window.removeEventListener("touchstart", handleTouchStart, opts);
+      window.removeEventListener("touchmove", handleTouchMove, opts);
+      window.removeEventListener("touchend", resetSwipe, opts);
+      window.removeEventListener("touchcancel", resetSwipe, opts);
     };
   }, [mobileOpen]);
 
   return (
     <LanguageProvider>
     <div className="flex h-dvh w-full overflow-hidden bg-background overscroll-none">
-      {/* Edge swipe capture zone (mobile only). Positioned past the system
-          back-gesture inset so Android/iOS don't swallow the touch first.
-          touch-action: pan-y lets vertical scrolling pass through. */}
-      <div
-        ref={edgeZoneRef}
-        aria-hidden
-        className="md:hidden fixed top-0 bottom-0 z-40"
-        style={{
-          left: "max(24px, env(safe-area-inset-left))",
-          width: "28px",
-          touchAction: "pan-y",
-        }}
-      />
-
       {/* Desktop sidebar — fixed, always visible */}
       <aside className="hidden md:flex w-64 shrink-0 flex-col">
         <ChatSidebar />

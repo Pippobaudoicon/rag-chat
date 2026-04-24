@@ -6,6 +6,7 @@ const nextConfig: NextConfig = {
     optimizeCss: true,
     optimizeServerReact: true,
   },
+  allowedDevOrigins: ["localhost", "192.168.1.11"],
   async headers() {
     return [
       {
