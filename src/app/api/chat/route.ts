@@ -1,5 +1,5 @@
 import { auth } from "@clerk/nextjs/server";
-import { streamText, generateId, gateway, stepCountIs } from "ai";
+import { streamText, generateId, gateway, stepCountIs, smoothStream } from "ai";
 import { eq, and, asc } from "drizzle-orm";
 import { getDb } from "@/lib/db";
 import { conversations, messages } from "@/lib/db/schema";
@@ -194,6 +194,10 @@ export async function POST(req: Request) {
     maxOutputTokens: 1500,
     stopWhen: stepCountIs(5),
     tools: createRagTools(language, chunks, addToolChunks),
+    experimental_transform: smoothStream({
+      delayInMs: 20,
+      chunking: "word",
+    }),
 
     onFinish: async ({ text, totalUsage, finishReason }) => {
       // Build details object for persistence
