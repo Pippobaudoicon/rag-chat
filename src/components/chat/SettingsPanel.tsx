@@ -5,6 +5,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { ZapIcon } from "lucide-react";
 import { ALL_SOURCES, SUPER_SOURCES, SOURCE_LABELS } from "@/lib/types";
 import type { SourceType, Language } from "@/lib/types";
+import { LanguageToggle } from "./LanguageToggle";
 
 interface SettingsPanelProps {
   language: Language;
@@ -55,27 +56,7 @@ export function SettingsPanel({
       : "Search all sources:";
 
   return (
-    <div className="flex flex-wrap items-center gap-3 border-b border-border/50 bg-background/50 py-2 pr-4 pl-[calc(env(safe-area-inset-left)+3.75rem)] backdrop-blur-sm md:px-4">
-      {/* Language toggle */}
-      <div className="flex items-center gap-1 rounded-md border border-border/60 p-0.5">
-        {(["ita", "eng"] as Language[]).map((lang) => (
-          <button
-            key={lang}
-            onClick={() => onLanguageChange(lang)}
-            disabled={disabled}
-            className={`px-2.5 py-1 rounded text-xs font-medium transition-colors disabled:opacity-50 ${
-              language === lang
-                ? "bg-indigo-500/20 text-indigo-300 border border-indigo-500/30"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            {lang === "ita" ? "IT" : "EN"}
-          </button>
-        ))}
-      </div>
-
-      <Separator orientation="vertical" className="h-4" />
-
+    <div className="flex flex-wrap items-center gap-3 border-b border-border/50 bg-background/50 py-2 px-3 pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] backdrop-blur-sm md:px-4">
       {/* Source toggles */}
       <div className="flex items-center gap-1.5 flex-wrap">
         {ALL_SOURCES.map((source) => {
@@ -132,6 +113,11 @@ export function SettingsPanel({
             </div>
           </TooltipContent>
         </Tooltip>
+      </div>
+
+      {/* Language switch — desktop only; on mobile it lives in the top bar */}
+      <div className="ml-auto hidden md:flex">
+        <LanguageToggle disabled={disabled} />
       </div>
     </div>
   );

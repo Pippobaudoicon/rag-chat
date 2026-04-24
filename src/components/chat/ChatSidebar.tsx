@@ -105,33 +105,28 @@ export function ChatSidebar({ onClose, showMobileClose = false }: ChatSidebarPro
   return (
     <div className="flex flex-col h-full w-full bg-zinc-950 border-r border-border/40">
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-border/40 px-4 pb-4 pt-[max(1rem,env(safe-area-inset-top))] md:pt-4">
-        <div className="flex items-center gap-2">
-          <div className="h-6 w-6 rounded bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center">
+      <div className="flex items-center justify-between gap-2 border-b border-border/40 px-4 pb-3 pt-[max(0.75rem,calc(env(safe-area-inset-top)+0.5rem))]">
+        <div className="flex items-center gap-2 min-w-0">
+          <div className="h-6 w-6 shrink-0 rounded bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center">
             <svg className="h-3.5 w-3.5 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
                 d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" />
             </svg>
           </div>
-          <span className="text-sm font-semibold tracking-tight">LDS RAG</span>
+          <span className="text-sm font-semibold tracking-tight truncate">LDS RAG</span>
         </div>
-        <div className="flex items-center gap-2">
-          <Suspense fallback={<Skeleton className="h-7 w-7 rounded-full" />}>
-            <UserButton />
-          </Suspense>
-          {showMobileClose && onClose && (
-            <button
-              type="button"
-              onClick={onClose}
-              aria-label="Close sidebar"
-              className="flex h-8 w-8 items-center justify-center rounded-md border border-border/50 text-muted-foreground transition-colors hover:text-foreground"
-            >
-              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          )}
-        </div>
+        {showMobileClose && onClose && (
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close sidebar"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border/50 text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        )}
       </div>
 
       {/* New chat button */}
@@ -196,6 +191,14 @@ export function ChatSidebar({ onClose, showMobileClose = false }: ChatSidebarPro
             );
           })
         )}
+      </div>
+
+      {/* Footer — account */}
+      <div className="border-t border-border/40 px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] flex items-center gap-3">
+        <Suspense fallback={<Skeleton className="h-7 w-7 rounded-full" />}>
+          <UserButton />
+        </Suspense>
+        <span className="text-xs text-muted-foreground truncate">Account</span>
       </div>
     </div>
   );

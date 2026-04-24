@@ -51,6 +51,7 @@ import type {
 } from "@/lib/types";
 import { linkifyInlineCitations } from "@/lib/rag/citation-links";
 import { parseScriptureSelection } from "@/lib/rag/scripture-reference";
+import { useLanguage } from "./language-context";
 
 interface ChatInterfaceProps {
   conversationId?: number;
@@ -160,15 +161,12 @@ export function ChatInterface({
   initialAssistantVersions = [],
   initialFeedbackByMessageId = {},
 }: ChatInterfaceProps) {
-  const [language, setLanguage] = useState<Language>("ita");
+  const { language, setLanguage } = useLanguage();
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [sources, setSources] = useState<SourceType[]>(DEFAULT_SOURCES);
 
-  // Hydrate language and sources from localStorage after mount to avoid SSR mismatch
+  // Hydrate sources from localStorage after mount to avoid SSR mismatch
   useEffect(() => {
-    const storedLang = localStorage.getItem("chat:language");
-    if (storedLang === "eng") setLanguage("eng");
-
     try {
       const storedSources = localStorage.getItem("chat:sources");
       if (storedSources) {
@@ -250,11 +248,7 @@ export function ChatInterface({
     return convId;
   }, [language, sources]);
 
-  // Persist language and sources to localStorage
-  useEffect(() => {
-    localStorage.setItem("chat:language", language);
-  }, [language]);
-
+  // Persist sources to localStorage (language is persisted by LanguageProvider)
   useEffect(() => {
     localStorage.setItem("chat:sources", JSON.stringify(sources));
   }, [sources]);
