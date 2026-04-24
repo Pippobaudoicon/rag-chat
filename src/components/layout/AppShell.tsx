@@ -17,18 +17,17 @@ interface AppShellProps {
 }
 
 const MOBILE_BREAKPOINT_PX = 768;
-// iOS reserves the very edge (~20px) for system gestures in standalone PWA,
-// so we open the detection zone a bit wider than that.
-const EDGE_SWIPE_START_MAX_X = 40;
-const EDGE_SWIPE_MIN_DISTANCE = 60;
+const EDGE_SWIPE_MIN_DISTANCE = 50;
 const EDGE_SWIPE_MAX_VERTICAL_DRIFT = 60;
 
 export function AppShell({ children }: AppShellProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const edgeZoneRef = useRef<HTMLDivElement | null>(null);
   const swipeStartRef = useRef<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
-    if (typeof window === "undefined") {
+    const node = edgeZoneRef.current;
+    if (!node || typeof window === "undefined") {
       return;
     }
 
@@ -37,17 +36,11 @@ export function AppShell({ children }: AppShellProps) {
         swipeStartRef.current = null;
         return;
       }
-
       const touch = event.touches[0];
-      if (!touch || touch.clientX > EDGE_SWIPE_START_MAX_X) {
-        swipeStartRef.current = null;
+      if (!touch) {
         return;
       }
-
-      swipeStartRef.current = {
-        x: touch.clientX,
-        y: touch.clientY,
-      };
+      swipeStartRef.current = { x: touch.clientX, y: touch.clientY };
     };
 
     const handleTouchMove = (event: TouchEvent) => {
@@ -55,12 +48,10 @@ export function AppShell({ children }: AppShellProps) {
       if (!start) {
         return;
       }
-
       const touch = event.touches[0];
       if (!touch) {
         return;
       }
-
       const deltaX = touch.clientX - start.x;
       const deltaY = Math.abs(touch.clientY - start.y);
 
@@ -68,7 +59,6 @@ export function AppShell({ children }: AppShellProps) {
         swipeStartRef.current = null;
         return;
       }
-
       if (deltaX >= EDGE_SWIPE_MIN_DISTANCE) {
         setMobileOpen(true);
         swipeStartRef.current = null;
@@ -79,25 +69,36 @@ export function AppShell({ children }: AppShellProps) {
       swipeStartRef.current = null;
     };
 
-    // Capture phase so other components (e.g. stick-to-bottom scroll
-    // containers) cannot swallow the edge gesture before us.
-    const opts: AddEventListenerOptions = { passive: true, capture: true };
-    window.addEventListener("touchstart", handleTouchStart, opts);
-    window.addEventListener("touchmove", handleTouchMove, opts);
-    window.addEventListener("touchend", resetSwipe, opts);
-    window.addEventListener("touchcancel", resetSwipe, opts);
+    node.addEventListener("touchstart", handleTouchStart, { passive: true });
+    node.addEventListener("touchmove", handleTouchMove, { passive: true });
+    node.addEventListener("touchend", resetSwipe, { passive: true });
+    node.addEventListener("touchcancel", resetSwipe, { passive: true });
 
     return () => {
-      window.removeEventListener("touchstart", handleTouchStart, opts);
-      window.removeEventListener("touchmove", handleTouchMove, opts);
-      window.removeEventListener("touchend", resetSwipe, opts);
-      window.removeEventListener("touchcancel", resetSwipe, opts);
+      node.removeEventListener("touchstart", handleTouchStart);
+      node.removeEventListener("touchmove", handleTouchMove);
+      node.removeEventListener("touchend", resetSwipe);
+      node.removeEventListener("touchcancel", resetSwipe);
     };
   }, [mobileOpen]);
 
   return (
     <LanguageProvider>
     <div className="flex h-dvh w-full overflow-hidden bg-background overscroll-none">
+      {/* Edge swipe capture zone (mobile only). Positioned past the system
+          back-gesture inset so Android/iOS don't swallow the touch first.
+          touch-action: pan-y lets vertical scrolling pass through. */}
+      <div
+        ref={edgeZoneRef}
+        aria-hidden
+        className="md:hidden fixed top-0 bottom-0 z-40"
+        style={{
+          left: "max(24px, env(safe-area-inset-left))",
+          width: "28px",
+          touchAction: "pan-y",
+        }}
+      />
+
       {/* Desktop sidebar — fixed, always visible */}
       <aside className="hidden md:flex w-64 shrink-0 flex-col">
         <ChatSidebar />
@@ -147,10 +148,12 @@ export function AppShell({ children }: AppShellProps) {
                 showCloseButton={false}
                 className="w-[min(18rem,85vw)] border-border/40 bg-sidebar p-0"
               >
-                <ChatSidebar
-                  onClose={() => setMobileOpen(false)}
-                  showMobileClose
-                />
+                <SidebarSwipeClose onClose={() => setMobileOpen(false)}>
+                  <ChatSidebar
+                    onClose={() => setMobileOpen(false)}
+                    showMobileClose
+                  />
+                </SidebarSwipeClose>
               </SheetContent>
             </Sheet>
           </Suspense>
@@ -160,5 +163,58 @@ export function AppShell({ children }: AppShellProps) {
       </main>
     </div>
     </LanguageProvider>
+  );
+}
+
+const CLOSE_SWIPE_MIN_DISTANCE = 60;
+const CLOSE_SWIPE_MAX_VERTICAL_DRIFT = 80;
+
+function SidebarSwipeClose({
+  children,
+  onClose,
+}: {
+  children: React.ReactNode;
+  onClose: () => void;
+}) {
+  const startRef = useRef<{ x: number; y: number } | null>(null);
+
+  const handleTouchStart = (event: React.TouchEvent<HTMLDivElement>) => {
+    const touch = event.touches[0];
+    if (!touch) return;
+    startRef.current = { x: touch.clientX, y: touch.clientY };
+  };
+
+  const handleTouchMove = (event: React.TouchEvent<HTMLDivElement>) => {
+    const start = startRef.current;
+    if (!start) return;
+    const touch = event.touches[0];
+    if (!touch) return;
+    const deltaX = touch.clientX - start.x;
+    const deltaY = Math.abs(touch.clientY - start.y);
+    if (deltaY > CLOSE_SWIPE_MAX_VERTICAL_DRIFT || deltaX > 12) {
+      startRef.current = null;
+      return;
+    }
+    if (-deltaX >= CLOSE_SWIPE_MIN_DISTANCE) {
+      startRef.current = null;
+      onClose();
+    }
+  };
+
+  const reset = () => {
+    startRef.current = null;
+  };
+
+  return (
+    <div
+      className="flex h-full w-full flex-col"
+      style={{ touchAction: "pan-y" }}
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={reset}
+      onTouchCancel={reset}
+    >
+      {children}
+    </div>
   );
 }
