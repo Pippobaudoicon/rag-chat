@@ -31,7 +31,7 @@ export function EmptyState({ language, onSelect }: EmptyStateProps) {
       : "Ask a question about the scriptures, general conference, handbook, or Liahona.";
 
   return (
-    <div className="flex flex-col items-center justify-center h-full px-4 py-16 text-center">
+    <div className="flex min-h-full flex-col items-center justify-center px-4 py-8 text-center sm:py-16">
       {/* Logo / icon */}
       <div className="mb-6 flex h-12 w-12 items-center justify-center rounded-xl bg-indigo-500/10 border border-indigo-500/20">
         <svg

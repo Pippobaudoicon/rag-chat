@@ -523,7 +523,10 @@ export function ChatInterface({
       {/* Message list */}
       <div className="flex-1 min-h-0 overflow-hidden">
         <Conversation className="h-full px-4 py-6 max-w-3xl mx-auto">
-          <ConversationContent>
+          <ConversationContent
+            className={messages.length === 0 ? "h-full gap-0 p-0" : undefined}
+            scrollClassName={messages.length === 0 ? "[scrollbar-gutter:auto!important]" : undefined}
+          >
             {messages.length === 0 ? (
               <EmptyState language={language} onSelect={handleSubmit} />
             ) : (
