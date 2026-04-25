@@ -920,7 +920,7 @@ export function ChatInterface({
       </div>
 
       {/* Input area */}
-      <div className="border-t border-border/50 bg-linear-to-b from-background to-muted/20 backdrop-blur-sm px-4 py-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+      <div className="border-t border-border/50 bg-linear-to-b from-background to-muted/20 backdrop-blur-sm px-4 py-4 pb-[max(0.75rem,calc(env(safe-area-inset-bottom)*0.5))]">
         <div className="max-w-3xl mx-auto">
           <PromptInput
             onSubmit={handlePromptSubmit}
