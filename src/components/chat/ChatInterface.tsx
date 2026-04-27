@@ -930,8 +930,8 @@ export function ChatInterface({
               className="min-h-14 max-h-44 px-4 pt-4 pb-2 text-[15px] leading-6 placeholder:text-muted-foreground/80"
               placeholder={
                 language === "ita"
-                  ? "Fai una domanda sulle scritture, la conferenza o il manuale…"
-                  : "Ask a question about scriptures, conference, or handbook…"
+                  ? "Fai una domanda a LDS helper..."
+                  : "Ask a question to LDS helper..."
               }
             />
             <PromptInputSubmit
