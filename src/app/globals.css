@@ -49,6 +49,7 @@
 }
 
 :root {
+  --app-safe-area-bottom: env(safe-area-inset-bottom, 0px);
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
@@ -165,8 +166,32 @@ body {
   overscroll-behavior: none;
 }
 
+/* Fill the viewport reliably in iOS PWA mode (fixes bottom ghost gap). */
+.app-shell-height {
+  height: 100dvh;
+  min-height: 100dvh;
+}
+
+/* Shared safe-area helpers to avoid repeating env() math in components. */
+.pb-safe {
+  padding-bottom: max(0.75rem, var(--app-safe-area-bottom));
+}
+
+.pb-safe-compact {
+  padding-bottom: max(0.75rem, calc(var(--app-safe-area-bottom) * 0.5));
+}
+
 /* Prevent pull-to-refresh / rubber band in standalone PWA */
 @media (display-mode: standalone) {
+  :root {
+    --app-safe-area-bottom: min(env(safe-area-inset-bottom, 0px), 8px);
+  }
+
+  .app-shell-height {
+    height: -webkit-fill-available;
+    min-height: -webkit-fill-available;
+  }
+
   body {
     overscroll-behavior-y: contain;
   }

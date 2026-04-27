@@ -191,7 +191,7 @@ export function ChatSidebar({ onClose, showMobileClose = false }: ChatSidebarPro
       </div>
 
       {/* Footer — account */}
-      <div className="border-t border-border/40 px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] flex items-center gap-3">
+      <div className="pb-safe border-t border-border/40 px-4 py-3 flex items-center gap-3">
         <span>
           <UserButton />
         </span>

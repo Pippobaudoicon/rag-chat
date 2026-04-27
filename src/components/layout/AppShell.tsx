@@ -107,7 +107,7 @@ export function AppShell({ children }: AppShellProps) {
 
   return (
     <LanguageProvider>
-    <div className="flex h-dvh w-full overflow-hidden bg-background overscroll-none">
+    <div className="app-shell-height flex w-full overflow-hidden bg-background overscroll-none">
       {/* Desktop sidebar — fixed, always visible */}
       <aside className="hidden md:flex w-64 shrink-0 flex-col">
         <ChatSidebar />
