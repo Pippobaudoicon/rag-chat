@@ -11,9 +11,25 @@ import { badRequestFromZod, chatRequestSchema } from "@/lib/api/validation";
 import type { AssistantVersion, SourceType, Language, SourceChunk, MessageDetails } from "@/lib/types";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+const DEFAULT_MAX_DURATION_SECONDS = 180;
+const DEFAULT_MAX_OUTPUT_TOKENS = 6000;
+
+const getPositiveInt = (value: string | undefined, fallback: number): number => {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+};
+
+export const maxDuration = getPositiveInt(
+  process.env.CHAT_MAX_DURATION_SECONDS,
+  DEFAULT_MAX_DURATION_SECONDS
+);
 
 const CHAT_MODEL = process.env.CHAT_MODEL ?? "deepseek/deepseek-v4-flash";
+const MAX_OUTPUT_TOKENS = getPositiveInt(
+  process.env.CHAT_MAX_OUTPUT_TOKENS,
+  DEFAULT_MAX_OUTPUT_TOKENS
+);
+const MAX_RESPONSE_SOURCES = getPositiveInt(process.env.CHAT_MAX_RESPONSE_SOURCES, 40);
 
 export async function POST(req: Request) {
   const startTime = Date.now();
@@ -69,10 +85,10 @@ export async function POST(req: Request) {
   };
 
   const getResponseSources = (): SourceChunk[] => {
-    const merged = [...chunks, ...toolChunksUsed];
+    const merged = [...toolChunksUsed, ...chunks];
     return merged.filter(
       (chunk, idx, arr) => arr.findIndex((c) => c.id === chunk.id) === idx
-    );
+    ).slice(0, MAX_RESPONSE_SOURCES);
   };
 
   // ── 4. Conversation ownership ─────────────────────────────────────────────
@@ -193,7 +209,7 @@ export async function POST(req: Request) {
     model: gateway(CHAT_MODEL),
     system: SYSTEM_PROMPT,
     messages: chatMessages,
-    maxOutputTokens: 1500,
+    maxOutputTokens: MAX_OUTPUT_TOKENS,
     stopWhen: stepCountIs(5),
     tools: createRagTools(language, chunks, addToolChunks),
     experimental_transform: smoothStream({

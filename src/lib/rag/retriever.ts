@@ -284,7 +284,7 @@ export async function retrieve(
   }
 
   if (scriptureSelection && chapterChunks.length > 0) {
-    const limit = Math.max(topK, Math.min(120, chapterChunks.length));
+    const limit = Math.max(topK, Math.min(topK * 2, chapterChunks.length));
     return chapterChunks.slice(0, limit);
   }
 
@@ -318,7 +318,7 @@ export async function retrieve(
   );
 
   const limit = chapterChunks.length
-    ? Math.max(topK, Math.min(80, chapterChunks.length))
+    ? Math.max(topK, Math.min(topK * 2, chapterChunks.length))
     : topK;
 
   // Flatten, sort by score descending, return top topK overall.
