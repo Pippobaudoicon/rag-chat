@@ -123,7 +123,7 @@ Notes:
 - `UPSTASH_REDIS_REST_TOKEN`
 - `VOYAGE_API_KEY`
 - `PINECONE_API_KEY`
-- `CHAT_MODEL` (optional; defaults to `openai/gpt-4o-mini`)
+- `CHAT_MODEL` (optional; defaults to `deepseek/deepseek-v4-flash`)
 
 Reference template: `.env.example`.
 
@@ -157,7 +157,7 @@ Reference template: `.env.example`.
 
 ## 10) Known constraints and non-features
 
-- Current generation model defaults to `openai/gpt-4o-mini` and can be overridden with `CHAT_MODEL`.
+- Current generation model defaults to `deepseek/deepseek-v4-flash` and can be overridden with `CHAT_MODEL`.
 - Embedding model must remain compatible with index dimensions.
 - Chat route uses a limited recent history window for context size control.
 

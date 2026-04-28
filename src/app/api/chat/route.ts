@@ -13,7 +13,7 @@ import type { AssistantVersion, SourceType, Language, SourceChunk, MessageDetail
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-const CHAT_MODEL = process.env.CHAT_MODEL ?? "openai/gpt-4o-mini";
+const CHAT_MODEL = process.env.CHAT_MODEL ?? "deepseek/deepseek-v4-flash";
 
 export async function POST(req: Request) {
   const startTime = Date.now();
