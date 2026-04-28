@@ -1,16 +1,45 @@
+import { useEffect, useMemo, useState } from "react";
 import type { Language } from "@/lib/types";
 
-const SUGGESTIONS_IT = [
+const SUGGESTION_COUNT = 3;
+
+const SUGGESTION_OPTIONS_IT = [
   "Qual è lo scopo del sacramento nella Chiesa?",
   "Cosa insegna 2 Nefi 2?",
   "Cosa dice il Manuale generale sui doveri del vescovo?",
+  "Come posso prepararmi spiritualmente per la conferenza generale?",
+  "Quali insegnamenti ci sono in Alma 32 sulla fede?",
+  "Cosa insegna Dottrina e Alleanze 121 sulla leadership?",
+  "Come posso studiare le Scritture in modo più efficace?",
+  "Cosa insegna Mosia 18 sul battesimo e sulle alleanze?",
+  "Qual è il ruolo del consiglio di rione secondo il Manuale generale?",
 ];
 
-const SUGGESTIONS_EN = [
+const SUGGESTION_OPTIONS_EN = [
   "What is the purpose of the sacrament in the Church?",
   "What does 2 Nephi 2 teach?",
   "What does the General Handbook say about the bishop's duties?",
+  "How can I prepare spiritually for general conference?",
+  "What does Alma 32 teach about faith?",
+  "What does Doctrine and Covenants 121 teach about leadership?",
+  "How can I study the scriptures more effectively?",
+  "What does Mosiah 18 teach about baptism and covenants?",
+  "What is the role of the ward council according to the General Handbook?",
 ];
+
+function pickRandomSuggestions(options: string[], count: number) {
+  if (options.length <= count) {
+    return options;
+  }
+
+  const shuffled = [...options];
+  for (let i = shuffled.length - 1; i > 0; i -= 1) {
+    const randomIndex = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[randomIndex]] = [shuffled[randomIndex], shuffled[i]];
+  }
+
+  return shuffled.slice(0, count);
+}
 
 interface EmptyStateProps {
   language: Language;
@@ -18,7 +47,20 @@ interface EmptyStateProps {
 }
 
 export function EmptyState({ language, onSelect }: EmptyStateProps) {
-  const suggestions = language === "ita" ? SUGGESTIONS_IT : SUGGESTIONS_EN;
+  const options = useMemo(
+    () => (language === "ita" ? SUGGESTION_OPTIONS_IT : SUGGESTION_OPTIONS_EN),
+    [language]
+  );
+
+  // Keep the first server/client render deterministic, then randomize on mount.
+  const [suggestions, setSuggestions] = useState<string[]>(() =>
+    options.slice(0, SUGGESTION_COUNT)
+  );
+
+  useEffect(() => {
+    setSuggestions(pickRandomSuggestions(options, SUGGESTION_COUNT));
+  }, [options]);
+
   const title =
     language === "ita"
       ? "Come posso aiutarti oggi?"
