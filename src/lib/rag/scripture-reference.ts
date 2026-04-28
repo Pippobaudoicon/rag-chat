@@ -199,7 +199,9 @@ function parseChapterExpression(rest: string, maxChapters: number): {
   hasVerse: boolean;
 } {
   const cleaned = rest
+    .replace(/^.*?\b(capitolo|capitoli|chapter|chapters|cap)\b\s*/i, "")
     .replace(/^(capitolo|capitoli|chapter|chapters|cap)\s+/i, "")
+    .replace(/\b(di|del|della|dello|dei|degli|of|in)\s*$/i, "")
     .trim();
 
   // Example: 2:1-8
@@ -230,6 +232,20 @@ function parseChapterExpression(rest: string, maxChapters: number): {
   if (listRef) {
     const chapters = listRef[1]
       .split(",")
+      .map((n) => Number(n.trim()))
+      .filter((n) => Number.isInteger(n) && n > 0 && n <= maxChapters);
+    return {
+      chapters: dedupeSorted(chapters),
+      hasVerse: false,
+    };
+  }
+
+  // Example: 2 3 4 5 6
+  const spacedListRef = cleaned.match(/^(\d+(?:\s+\d+)+)\b/);
+  if (spacedListRef) {
+    const chapters = spacedListRef[1]
+      .trim()
+      .split(/\s+/)
       .map((n) => Number(n.trim()))
       .filter((n) => Number.isInteger(n) && n > 0 && n <= maxChapters);
     return {
@@ -280,7 +296,12 @@ export function parseScriptureSelection(
       if (!m || m.index === undefined) continue;
 
       const afterAlias = normalized.slice(m.index + m[0].length).trim();
-      const parsed = parseChapterExpression(afterAlias, book.maxChapters);
+      const beforeAlias = normalized.slice(0, m.index).trim();
+      const parsedAfter = parseChapterExpression(afterAlias, book.maxChapters);
+      const parsedBefore = parseChapterExpression(beforeAlias, book.maxChapters);
+      const parsed = parsedAfter.chapters.length > 0 || parsedAfter.hasVerse
+        ? parsedAfter
+        : parsedBefore;
 
       const wholeBook =
         parsed.chapters.length === 0 && isWholeBookIntentForBook(query, book.canonicalBook);

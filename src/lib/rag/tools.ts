@@ -1,6 +1,7 @@
 import { tool } from "ai";
 import { z } from "zod";
 import { retrieve } from "@/lib/rag/retriever";
+import { parseScriptureSelection } from "@/lib/rag/scripture-reference";
 import type { Language, SourceChunk } from "@/lib/types";
 
 type ToolSourceListener = (chunks: SourceChunk[]) => void;
@@ -13,6 +14,10 @@ function normalizeForMatch(value: string): string {
     .replace(/[^a-z0-9\s]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function normalizeBookForStrictMatch(value: string): string {
+  return normalizeForMatch(value).replace(/\s+/g, " ").trim();
 }
 
 function uniqueById(chunks: SourceChunk[]): SourceChunk[] {
@@ -97,12 +102,26 @@ export function createRagTools(
       }),
       execute: async ({ reference, topK }) => {
         const chunks = await retrieve(reference, ["scriptures"], language, topK);
-        registerToolChunks(chunks);
+        const selection = parseScriptureSelection(reference, language);
+
+        const strictChunks = selection
+          ? chunks.filter((chunk) => {
+              const sameBook =
+                normalizeBookForStrictMatch(chunk.book ?? "") ===
+                normalizeBookForStrictMatch(selection.canonicalBook);
+              const sameChapter = selection.chapters.includes(chunk.chapter ?? -1);
+              return sameBook && sameChapter;
+            })
+          : chunks;
+
+        const finalChunks = (strictChunks.length > 0 ? strictChunks : chunks).slice(0, topK);
+
+        registerToolChunks(finalChunks);
         return {
           reference,
           language,
-          total: chunks.length,
-          chunks: chunks.map(toToolChunk),
+          total: finalChunks.length,
+          chunks: finalChunks.map(toToolChunk),
         };
       },
     }),
