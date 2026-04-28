@@ -54,7 +54,7 @@ import { parseScriptureSelection } from "@/lib/rag/scripture-reference";
 import { useLanguage } from "./language-context";
 
 interface ChatInterfaceProps {
-  conversationId?: number;
+  conversationId?: string;
   initialMessages?: UIMessage[];
   initialMessageVersions?: Record<string, AssistantVersion[]>;
   initialAssistantVersions?: AssistantVersion[][];
@@ -201,7 +201,7 @@ export function ChatInterface({
   });
 
   // Track the resolved conversation ID (may be created on first send)
-  const conversationIdRef = useRef<number | undefined>(initialConversationId);
+  const conversationIdRef = useRef<string | undefined>(initialConversationId);
   const pendingRegenerationRef = useRef<
     | {
         targetMessageId: string;
@@ -232,7 +232,7 @@ export function ChatInterface({
       });
       if (res.ok) {
         const convo = await res.json();
-        convId = convo.id as number;
+        convId = convo.id as string;
         conversationIdRef.current = convId;
         // Update URL bar silently — no remount, keeps optimistic messages intact.
         window.history.replaceState(null, "", `/chat/${convId}`);

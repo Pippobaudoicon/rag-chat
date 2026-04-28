@@ -4,6 +4,7 @@ import { and, asc, eq } from "drizzle-orm";
 import { getDb } from "@/lib/db";
 import { conversations, messageFeedback, messages } from "@/lib/db/schema";
 import { ChatInterface } from "@/components/chat/ChatInterface";
+import { uuidSchema } from "@/lib/api/validation";
 import type { AssistantVersion } from "@/lib/types";
 import type { UIMessage } from "ai";
 
@@ -16,11 +17,12 @@ export default async function ConversationPage({ params }: Props) {
   const { userId } = await auth();
 
   if (!userId) notFound();
+  if (!uuidSchema.safeParse(id).success) notFound();
 
   const db = getDb();
   const convo = await db.query.conversations.findFirst({
     where: and(
-      eq(conversations.id, Number(id)),
+      eq(conversations.id, id),
       eq(conversations.clerkUserId, userId)
     ),
   });

@@ -25,7 +25,7 @@ interface ConversationPage {
 const memoryCache = new Map<string, ConversationCache>();
 
 interface ConversationItem {
-  id: number;
+  id: string;
   title: string | null;
   updatedAt: string;
 }
@@ -39,7 +39,7 @@ function mergeConversationPages(
   existing: ConversationItem[],
   incoming: ConversationItem[]
 ) {
-  const seen = new Set<number>();
+  const seen = new Set<string>();
   const merged: ConversationItem[] = [];
 
   for (const conversation of [...existing, ...incoming]) {
@@ -94,7 +94,7 @@ export function ChatSidebar({ onClose, showMobileClose = false }: ChatSidebarPro
   const loadingPageRef = useRef(false);
   const conversationCountRef = useRef(0);
   // Optimistic active ID — set immediately on click, before the route resolves
-  const [pendingId, setPendingId] = useState<number | null>(null);
+  const [pendingId, setPendingId] = useState<string | null>(null);
   const cacheKey = user?.id ? `chat:conversations:${user.id}` : null;
 
   useEffect(() => {
@@ -242,7 +242,7 @@ export function ChatSidebar({ onClose, showMobileClose = false }: ChatSidebarPro
     });
   }
 
-  function handleSelect(id: number) {
+  function handleSelect(id: string) {
     setPendingId(id);
     startTransition(() => {
       router.push(`/chat/${id}`);
@@ -250,7 +250,7 @@ export function ChatSidebar({ onClose, showMobileClose = false }: ChatSidebarPro
     });
   }
 
-  async function handleDelete(e: React.MouseEvent, id: number) {
+  async function handleDelete(e: React.MouseEvent, id: string) {
     e.stopPropagation();
     await fetch(`/api/conversations/${id}`, { method: "DELETE" });
     setConversations((prev) => {
@@ -263,7 +263,7 @@ export function ChatSidebar({ onClose, showMobileClose = false }: ChatSidebarPro
     }
   }
 
-  const activeId = currentPath?.match(/\/chat\/(\d+)/)?.[1];
+  const activeId = currentPath?.match(/\/chat\/([^/]+)/)?.[1];
 
   return (
     <div className="flex flex-col h-full w-full bg-sidebar border-r border-border/40">

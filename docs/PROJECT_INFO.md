@@ -1,6 +1,6 @@
 # LDS rag-chat Project Knowledge Base
 
-Last updated: 2026-04-06
+Last updated: 2026-04-28
 
 This document is the single source of truth for project context.
 Read this first before deep code exploration.
@@ -36,6 +36,7 @@ Read this first before deep code exploration.
 - Inline numeric citations linked to source cards.
 - Sources panel with scripture coverage behavior for chapter/book requests.
 - Conversation CRUD in sidebar (create/list/open/delete) and title updates.
+- UUID conversation URLs and API identifiers.
 - Semantic search endpoint (`/api/search`) for retrieval-only use cases.
 - Tool-assisted answer refinement for:
   - scripture passage lookup
@@ -76,9 +77,13 @@ Read this first before deep code exploration.
 ## 6) Data model summary
 
 - `rag_conversations`
-  - owner (`clerk_user_id`), title, language, sources, timestamps.
+  - UUID primary key, owner (`clerk_user_id`), title, language, sources, timestamps.
 - `rag_messages`
-  - conversation FK, role (`user|assistant`), content, `sources_json`, timestamp.
+  - UUID conversation FK, integer message id, role (`user|assistant`), content,
+    `sources_json`, timestamp.
+- `rag_message_feedback`
+  - UUID conversation FK, optional assistant message FK, owner, rating/comment,
+    copied answer context, timestamp.
 
 Notes:
 
@@ -118,6 +123,7 @@ Notes:
 - `UPSTASH_REDIS_REST_TOKEN`
 - `VOYAGE_API_KEY`
 - `PINECONE_API_KEY`
+- `CHAT_MODEL` (optional; defaults to `openai/gpt-4o-mini`)
 
 Reference template: `.env.example`.
 
@@ -151,15 +157,18 @@ Reference template: `.env.example`.
 
 ## 10) Known constraints and non-features
 
-- Current generation model is pinned in code (`openai/gpt-4o-mini`).
+- Current generation model defaults to `openai/gpt-4o-mini` and can be overridden with `CHAT_MODEL`.
 - Embedding model must remain compatible with index dimensions.
 - Chat route uses a limited recent history window for context size control.
 
 ## 11) Operations quick start
 
 - Dev: `npm run dev`
+- Typecheck: `npm run typecheck`
 - Build: `npm run build`
 - Start: `npm run start`
+- Generate migrations: `npm run db:generate`
+- Apply migrations: `npm run db:migrate`
 - Docs guard: `npm run docs:guard`
 
 ## 12) Update policy for agents

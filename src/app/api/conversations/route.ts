@@ -3,8 +3,11 @@ import { and, desc, eq, lt, or } from "drizzle-orm";
 import type { NextRequest } from "next/server";
 import { getDb } from "@/lib/db";
 import { conversations } from "@/lib/db/schema";
-import { DEFAULT_SOURCES } from "@/lib/types";
-import type { SourceType, Language } from "@/lib/types";
+import {
+  badRequestFromZod,
+  createConversationSchema,
+  uuidSchema,
+} from "@/lib/api/validation";
 
 export const runtime = "nodejs";
 
@@ -17,7 +20,7 @@ function clampLimit(value: string | null) {
   return Math.min(Math.floor(parsed), MAX_LIMIT);
 }
 
-function encodeCursor(item: { id: number; updatedAt: Date }) {
+function encodeCursor(item: { id: string; updatedAt: Date }) {
   return `${item.updatedAt.toISOString()}_${item.id}`;
 }
 
@@ -28,9 +31,9 @@ function parseCursor(value: string | null) {
   if (separatorIndex === -1) return null;
 
   const updatedAt = new Date(value.slice(0, separatorIndex));
-  const id = Number(value.slice(separatorIndex + 1));
+  const id = value.slice(separatorIndex + 1);
 
-  if (Number.isNaN(updatedAt.getTime()) || !Number.isInteger(id)) {
+  if (Number.isNaN(updatedAt.getTime()) || !uuidSchema.safeParse(id).success) {
     return null;
   }
 
@@ -93,9 +96,12 @@ export async function POST(req: Request) {
   const { userId } = await auth();
   if (!userId) return new Response("Unauthorized", { status: 401 });
 
-  const body = await req.json().catch(() => ({}));
-  const language: Language = body.language ?? "ita";
-  const sources: SourceType[] = body.sources ?? DEFAULT_SOURCES;
+  const parsedBody = createConversationSchema.safeParse(await req.json().catch(() => ({})));
+  if (!parsedBody.success) {
+    return badRequestFromZod(parsedBody.error);
+  }
+
+  const { language, sources } = parsedBody.data;
 
   const db = getDb();
   const [convo] = await db

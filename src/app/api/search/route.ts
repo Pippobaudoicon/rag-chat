@@ -1,7 +1,10 @@
 import { auth } from "@clerk/nextjs/server";
 import { retrieve } from "@/lib/rag/retriever";
-import { DEFAULT_SOURCES } from "@/lib/types";
-import type { SourceType, Language } from "@/lib/types";
+import {
+  badRequestFromZod,
+  parseSourcesParam,
+  searchParamsSchema,
+} from "@/lib/api/validation";
 
 export const runtime = "nodejs";
 
@@ -12,15 +15,17 @@ export async function GET(req: Request) {
   if (!userId) return new Response("Unauthorized", { status: 401 });
 
   const { searchParams } = new URL(req.url);
-  const query = searchParams.get("q")?.trim();
-  if (!query) return new Response("Bad Request: q param required", { status: 400 });
+  const parsedParams = searchParamsSchema.safeParse({
+    q: searchParams.get("q") ?? "",
+    language: searchParams.get("language") ?? undefined,
+    sources: parseSourcesParam(searchParams.get("sources")),
+    topK: searchParams.get("topK") ?? undefined,
+  });
+  if (!parsedParams.success) {
+    return badRequestFromZod(parsedParams.error);
+  }
 
-  const language = (searchParams.get("language") ?? "ita") as Language;
-  const sourcesParam = searchParams.get("sources");
-  const sources: SourceType[] = sourcesParam
-    ? (sourcesParam.split(",").filter(Boolean) as SourceType[])
-    : DEFAULT_SOURCES;
-  const topK = Math.min(Number(searchParams.get("topK") ?? 20), 20);
+  const { q: query, sources, language, topK } = parsedParams.data;
 
   const chunks = await retrieve(query, sources, language, topK);
 

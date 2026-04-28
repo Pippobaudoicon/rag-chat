@@ -97,8 +97,6 @@ export function SourcesPanel({
   const [canScrollRight, setCanScrollRight] = useState(false);
   const railRef = useRef<HTMLDivElement | null>(null);
 
-  if (!chunks || chunks.length === 0) return null;
-
   const shown = expanded ? chunks : chunks.slice(0, 3);
   const label = language === "ita" ? "fonti" : "sources";
   const scriptureCoverage = showScriptureCoverage
@@ -129,6 +127,8 @@ export function SourcesPanel({
       window.removeEventListener("resize", updateScrollButtons);
     };
   }, [expanded, shown.length]);
+
+  if (!chunks || chunks.length === 0) return null;
 
   const scrollCards = (direction: "left" | "right") => {
     const rail = railRef.current;

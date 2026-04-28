@@ -7,7 +7,7 @@ import { retrieve } from "@/lib/rag/retriever";
 import { SYSTEM_PROMPT, buildUserMessage } from "@/lib/rag/system-prompt";
 import { cacheKey, getFromCache, setInCache } from "@/lib/rag/cache";
 import { createRagTools } from "@/lib/rag/tools";
-import { DEFAULT_SOURCES } from "@/lib/types";
+import { badRequestFromZod, chatRequestSchema } from "@/lib/api/validation";
 import type { AssistantVersion, SourceType, Language, SourceChunk, MessageDetails } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -24,18 +24,22 @@ export async function POST(req: Request) {
   }
 
   // ── 2. Parse body ─────────────────────────────────────────────────────────
-  const body = await req.json();
+  const parsedBody = chatRequestSchema.safeParse(await req.json().catch(() => null));
+  if (!parsedBody.success) {
+    return badRequestFromZod(parsedBody.error);
+  }
+
   const {
     messages: uiMessages = [],
     conversationId,
-    language = "ita" as Language,
-    sources = DEFAULT_SOURCES as SourceType[],
-    topK = 20,
+    language,
+    sources,
+    topK,
     fixedChunks,
     regenerateQuestion,
     trigger,
     messageId,
-  } = body;
+  } = parsedBody.data;
 
   const isRegenerateRequest = trigger === "regenerate-message" || !!messageId;
 
@@ -51,9 +55,7 @@ export async function POST(req: Request) {
   const hasFixedChunks =
     Array.isArray(fixedChunks) &&
     fixedChunks.length > 0;
-  const validatedFixedChunks: SourceChunk[] = hasFixedChunks
-    ? (fixedChunks as SourceChunk[])
-    : [];
+  const validatedFixedChunks: SourceChunk[] = hasFixedChunks ? fixedChunks : [];
 
   const key = cacheKey(question, language, sources, topK);
   const cached = hasFixedChunks ? null : await getFromCache(key);

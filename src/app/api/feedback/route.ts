@@ -2,11 +2,9 @@ import { auth } from "@clerk/nextjs/server";
 import { and, desc, eq } from "drizzle-orm";
 import { getDb } from "@/lib/db";
 import { conversations, messageFeedback, messages } from "@/lib/db/schema";
-import type { SourceChunk } from "@/lib/types";
+import { badRequestFromZod, feedbackRequestSchema } from "@/lib/api/validation";
 
 export const runtime = "nodejs";
-
-type FeedbackValue = "up" | "down";
 
 export async function POST(req: Request) {
   const { userId } = await auth();
@@ -14,34 +12,21 @@ export async function POST(req: Request) {
     return new Response("Unauthorized", { status: 401 });
   }
 
-  const body = await req.json().catch(() => ({}));
-  const conversationId = Number(body.conversationId);
-  const feedback = body.feedback as FeedbackValue;
-  const clientMessageId =
-    typeof body.clientMessageId === "string" && body.clientMessageId.trim().length > 0
-      ? body.clientMessageId.trim().slice(0, 200)
-      : null;
-  const question =
-    typeof body.question === "string" && body.question.trim().length > 0
-      ? body.question.trim().slice(0, 2000)
-      : null;
-  const comment =
-    typeof body.comment === "string" && body.comment.trim().length > 0
-      ? body.comment.trim().slice(0, 2000)
-      : null;
-  const answerText =
-    typeof body.answerText === "string" && body.answerText.trim().length > 0
-      ? body.answerText.trim().slice(0, 12000)
-      : null;
-  const sources = Array.isArray(body.sources) ? (body.sources as SourceChunk[]) : null;
-
-  if (!Number.isInteger(conversationId) || conversationId <= 0) {
-    return new Response("Bad Request: invalid conversationId", { status: 400 });
+  const parsedBody = feedbackRequestSchema.safeParse(await req.json().catch(() => ({})));
+  if (!parsedBody.success) {
+    return badRequestFromZod(parsedBody.error);
   }
 
-  if (feedback !== "up" && feedback !== "down") {
-    return new Response("Bad Request: invalid feedback value", { status: 400 });
-  }
+  const {
+    conversationId,
+    assistantMessageId: rawAssistantMessageId,
+    clientMessageId = null,
+    feedback,
+    comment = null,
+    question = null,
+    answerText = null,
+    sources = null,
+  } = parsedBody.data;
 
   const db = getDb();
 
@@ -54,15 +39,10 @@ export async function POST(req: Request) {
   }
 
   let assistantMessageId: number | null = null;
-  if (body.assistantMessageId != null && body.assistantMessageId !== "") {
-    const numericMessageId = Number(body.assistantMessageId);
-    if (!Number.isInteger(numericMessageId) || numericMessageId <= 0) {
-      return new Response("Bad Request: invalid assistantMessageId", { status: 400 });
-    }
-
+  if (rawAssistantMessageId != null) {
     const assistantMessage = await db.query.messages.findFirst({
       where: and(
-        eq(messages.id, numericMessageId),
+        eq(messages.id, rawAssistantMessageId),
         eq(messages.conversationId, conversationId),
         eq(messages.role, "assistant")
       ),
@@ -72,7 +52,7 @@ export async function POST(req: Request) {
       return new Response("Bad Request: assistant message not found", { status: 400 });
     }
 
-    assistantMessageId = numericMessageId;
+    assistantMessageId = rawAssistantMessageId;
   }
 
   if (assistantMessageId) {

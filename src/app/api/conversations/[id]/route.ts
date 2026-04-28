@@ -2,12 +2,15 @@ import { auth } from "@clerk/nextjs/server";
 import { and, asc, eq } from "drizzle-orm";
 import { getDb } from "@/lib/db";
 import { conversations, messages } from "@/lib/db/schema";
+import { uuidSchema } from "@/lib/api/validation";
 
 export const runtime = "nodejs";
 
 type Params = { params: Promise<{ id: string }> };
 
-async function getOwnedConversation(id: number, userId: string) {
+async function getOwnedConversation(id: string, userId: string) {
+  if (!uuidSchema.safeParse(id).success) return null;
+
   const db = getDb();
   return (
     (await db.query.conversations.findFirst({
@@ -25,7 +28,7 @@ export async function GET(_: Request, { params }: Params) {
   if (!userId) return new Response("Unauthorized", { status: 401 });
 
   const { id } = await params;
-  const convo = await getOwnedConversation(Number(id), userId);
+  const convo = await getOwnedConversation(id, userId);
   if (!convo) return new Response("Not Found", { status: 404 });
 
   const db = getDb();
@@ -48,7 +51,7 @@ export async function PATCH(req: Request, { params }: Params) {
   const title = body.title?.trim();
   if (!title) return new Response("Bad Request: title required", { status: 400 });
 
-  const convo = await getOwnedConversation(Number(id), userId);
+  const convo = await getOwnedConversation(id, userId);
   if (!convo) return new Response("Not Found", { status: 404 });
 
   const db = getDb();
@@ -67,7 +70,7 @@ export async function DELETE(_: Request, { params }: Params) {
   if (!userId) return new Response("Unauthorized", { status: 401 });
 
   const { id } = await params;
-  const convo = await getOwnedConversation(Number(id), userId);
+  const convo = await getOwnedConversation(id, userId);
   if (!convo) return new Response("Not Found", { status: 404 });
 
   const db = getDb();
