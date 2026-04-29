@@ -224,8 +224,6 @@ export async function POST(req: Request) {
       ...(conversation
         ? createMemoryTools({
             clerkUserId: userId,
-            conversationId: conversation.id,
-            language,
           })
         : {}),
     },

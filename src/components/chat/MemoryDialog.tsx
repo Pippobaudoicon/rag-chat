@@ -182,7 +182,14 @@ export function MemoryDialog() {
 
           {refreshResult && (
             <div className="shrink-0 rounded-md border border-border/50 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
-              Refreshed recent conversation memory from {refreshResult.conversationsScanned} conversations{refreshResult.conversationsSkipped > 0 ? ", already up-to-date" : ""}{refreshResult.conversationsFailed > 0 ? `, left for a later retry` : ""}, and updated {refreshResult.periodsUpdated} rollup{refreshResult.periodsUpdated === 1 ? "" : "s"}.
+              {refreshResult.conversationsFailed > 0
+                ? `Could not refresh recent-conversations memory from ${refreshResult.conversationsScanned} conversations; will retry later.`
+                : refreshResult.conversationsSkipped > 0
+                  ? `Recent-conversations memory already up-to-date across ${refreshResult.conversationsScanned} conversations.`
+                  : refreshResult.conversationsUpdated > 0
+                    ? `Refreshed recent-conversations memory from ${refreshResult.conversationsScanned} conversations.`
+                    : `Scanned ${refreshResult.conversationsScanned} recent conversations; nothing to summarize yet.`}{" "}
+              Updated {refreshResult.periodsUpdated} rollup{refreshResult.periodsUpdated === 1 ? "" : "s"}.
             </div>
           )}
 

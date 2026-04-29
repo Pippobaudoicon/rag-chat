@@ -9,7 +9,6 @@ import {
   userMemoryPeriods,
   userMemoryProfiles,
 } from "@/lib/db/schema";
-import type { Language } from "@/lib/types";
 
 type MemoryCadence = "weekly" | "monthly";
 type ConversationRefreshStatus = "updated" | "skipped" | "empty" | "failed";
@@ -179,17 +178,23 @@ async function loadConversationMemoryInput({
     .orderBy(desc(conversations.updatedAt))
     .limit(limit);
 
+  const messagesPerConversation = await Promise.all(
+    recentConversations.map((conversation) =>
+      db
+        .select({ role: messages.role, content: messages.content, createdAt: messages.createdAt })
+        .from(messages)
+        .where(eq(messages.conversationId, conversation.id))
+        .orderBy(desc(messages.createdAt))
+        .limit(MANUAL_REFRESH_MESSAGE_LIMIT)
+    )
+  );
+
   const sections: string[] = [];
   let messagesIncluded = 0;
 
-  for (const conversation of recentConversations) {
-    const storedMessages = await db
-      .select({ role: messages.role, content: messages.content, createdAt: messages.createdAt })
-      .from(messages)
-      .where(eq(messages.conversationId, conversation.id))
-      .orderBy(desc(messages.createdAt))
-      .limit(MANUAL_REFRESH_MESSAGE_LIMIT);
-
+  for (let index = 0; index < recentConversations.length; index += 1) {
+    const conversation = recentConversations[index];
+    const storedMessages = messagesPerConversation[index];
     if (storedMessages.length === 0) continue;
 
     const orderedMessages = storedMessages.reverse();
@@ -724,8 +729,6 @@ export function createMemoryTools({
   clerkUserId,
 }: {
   clerkUserId: string;
-  conversationId: string;
-  language: Language;
 }) {
   return {
     update_personal_memory: tool({
