@@ -11,25 +11,25 @@ import { badRequestFromZod, chatRequestSchema } from "@/lib/api/validation";
 import type { AssistantVersion, SourceType, Language, SourceChunk, MessageDetails } from "@/lib/types";
 
 export const runtime = "nodejs";
-const DEFAULT_MAX_DURATION_SECONDS = 180;
+export const maxDuration = 180;
+
 const DEFAULT_MAX_OUTPUT_TOKENS = 6000;
+const DEFAULT_MAX_RESPONSE_SOURCES = 40;
 
 const getPositiveInt = (value: string | undefined, fallback: number): number => {
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 };
 
-export const maxDuration = getPositiveInt(
-  process.env.CHAT_MAX_DURATION_SECONDS,
-  DEFAULT_MAX_DURATION_SECONDS
-);
-
 const CHAT_MODEL = process.env.CHAT_MODEL ?? "deepseek/deepseek-v4-flash";
 const MAX_OUTPUT_TOKENS = getPositiveInt(
   process.env.CHAT_MAX_OUTPUT_TOKENS,
   DEFAULT_MAX_OUTPUT_TOKENS
 );
-const MAX_RESPONSE_SOURCES = getPositiveInt(process.env.CHAT_MAX_RESPONSE_SOURCES, 40);
+const MAX_RESPONSE_SOURCES = getPositiveInt(
+  process.env.CHAT_MAX_RESPONSE_SOURCES,
+  DEFAULT_MAX_RESPONSE_SOURCES
+);
 
 export async function POST(req: Request) {
   const startTime = Date.now();
@@ -163,7 +163,7 @@ export async function POST(req: Request) {
 
   // ── 5. Load conversation history for multi-turn memory ────────────────────
   // This is the key improvement over the Python single-turn RAG:
-  // Claude sees the full conversation history + fresh RAG context each turn.
+  // AI sees the full conversation history + fresh RAG context each turn.
   type ChatMessage = { role: "user" | "assistant"; content: string };
   const modelHistory: ChatMessage[] = [];
 
@@ -199,7 +199,7 @@ export async function POST(req: Request) {
 
   // ── 6. Build RAG-augmented message ────────────────────────────────────────
   // Inject retrieved context into the final user turn only.
-  // History messages are sent as-is — Claude uses them for memory.
+  // History messages are sent as-is — AI uses them for memory.
   const augmentedQuestion = buildUserMessage(question, chunks, language);
 
   const chatMessages: ChatMessage[] = [...modelHistory, { role: "user", content: augmentedQuestion }];
