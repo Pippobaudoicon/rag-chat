@@ -30,15 +30,14 @@ interface MemorySnapshot {
     conversationCount: number;
     refreshedAt: string;
   }>;
-  conversations: Array<{
-    conversationId: string;
-    title: string | null;
+  conversationMemory: {
     summary: string;
     topics: string[];
     preferences: string[];
+    messageCount: number;
     lastMessageAt: string | null;
     updatedAt: string;
-  }>;
+  } | null;
 }
 
 interface MemoryRefreshResult {
@@ -147,7 +146,7 @@ export function MemoryDialog() {
       snapshot?.profile?.feedbackPatterns.length
   );
   const hasAnyMemory = Boolean(
-    hasProfileMemory || snapshot?.periods.length || snapshot?.conversations.length
+    hasProfileMemory || snapshot?.periods.length || snapshot?.conversationMemory
   );
 
   return (
@@ -183,7 +182,7 @@ export function MemoryDialog() {
 
           {refreshResult && (
             <div className="shrink-0 rounded-md border border-border/50 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
-              Refreshed {refreshResult.conversationsUpdated} of {refreshResult.conversationsScanned} recent conversations, skipped {refreshResult.conversationsSkipped} already up-to-date{refreshResult.conversationsFailed > 0 ? `, left ${refreshResult.conversationsFailed} for a later retry` : ""}, and updated {refreshResult.periodsUpdated} rollup{refreshResult.periodsUpdated === 1 ? "" : "s"}.
+              Refreshed recent conversation memory from {refreshResult.conversationsScanned} conversations{refreshResult.conversationsSkipped > 0 ? ", already up-to-date" : ""}{refreshResult.conversationsFailed > 0 ? `, left for a later retry` : ""}, and updated {refreshResult.periodsUpdated} rollup{refreshResult.periodsUpdated === 1 ? "" : "s"}.
             </div>
           )}
 
@@ -243,35 +242,31 @@ export function MemoryDialog() {
                   </section>
                 )}
 
-                {snapshot.conversations.length > 0 && (
+                {snapshot.conversationMemory && (
                   <section className="space-y-2">
-                    <h3 className="text-sm font-medium">Recent conversation memories</h3>
-                    <div className="space-y-2">
-                      {snapshot.conversations.map((conversation) => (
-                        <article key={conversation.conversationId} className="rounded-md border border-border/50 bg-muted/10 p-3">
-                          <div className="mb-2 flex flex-wrap items-center gap-2">
-                            <h4 className="min-w-0 wrap-break-word text-sm font-medium">
-                              {conversation.title || "Untitled conversation"}
-                            </h4>
-                            {formatDate(conversation.updatedAt) && (
-                              <span className="text-xs text-muted-foreground">
-                                {formatDate(conversation.updatedAt)}
-                              </span>
-                            )}
-                          </div>
-                          <p className="whitespace-pre-wrap wrap-break-word text-sm leading-relaxed text-foreground/90">
-                            {conversation.summary}
-                          </p>
-                          {conversation.topics.length > 0 && (
-                            <div className="mt-2 flex flex-wrap gap-1.5">
-                              {conversation.topics.map((topic) => (
-                                <Badge key={topic} variant="outline" className="h-auto max-w-full whitespace-normal wrap-break-word py-1 text-left leading-snug">{topic}</Badge>
-                              ))}
-                            </div>
-                          )}
-                        </article>
-                      ))}
-                    </div>
+                    <h3 className="text-sm font-medium">Recent conversations memory</h3>
+                    <article className="rounded-md border border-border/50 bg-muted/10 p-3">
+                      <div className="mb-2 flex flex-wrap items-center gap-2">
+                        <span className="text-xs text-muted-foreground">
+                          {snapshot.conversationMemory.messageCount} message{snapshot.conversationMemory.messageCount === 1 ? "" : "s"} summarized
+                        </span>
+                        {formatDate(snapshot.conversationMemory.updatedAt) && (
+                          <span className="text-xs text-muted-foreground">
+                            Updated {formatDate(snapshot.conversationMemory.updatedAt)}
+                          </span>
+                        )}
+                      </div>
+                      <p className="whitespace-pre-wrap wrap-break-word text-sm leading-relaxed text-foreground/90">
+                        {snapshot.conversationMemory.summary}
+                      </p>
+                      {snapshot.conversationMemory.topics.length > 0 && (
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {snapshot.conversationMemory.topics.map((topic) => (
+                            <Badge key={topic} variant="outline" className="h-auto max-w-full whitespace-normal wrap-break-word py-1 text-left leading-snug">{topic}</Badge>
+                          ))}
+                        </div>
+                      )}
+                    </article>
                   </section>
                 )}
               </div>

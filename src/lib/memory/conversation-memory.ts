@@ -16,16 +16,10 @@ type ConversationRefreshStatus = "updated" | "skipped" | "empty" | "failed";
 
 interface RecordPersonalMemoryInput {
   clerkUserId: string;
-  conversationId: string;
-  language: Language;
   summary: string;
-  topics?: string[];
   preferences?: string[];
   facts?: string[];
   feedbackPatterns?: string[];
-  messageCount?: number;
-  replaceConversationSummary?: boolean;
-  refreshPeriods?: boolean;
   occurredAt?: Date;
 }
 
@@ -153,6 +147,70 @@ async function loadProfile(clerkUserId: string) {
   });
 }
 
+async function loadConversationMemoryInput({
+  clerkUserId,
+  limit,
+  periodStart,
+  periodEnd,
+}: {
+  clerkUserId: string;
+  limit: number;
+  periodStart?: Date;
+  periodEnd?: Date;
+}) {
+  const db = getDb();
+  const where = periodStart && periodEnd
+    ? and(
+        eq(conversations.clerkUserId, clerkUserId),
+        gte(conversations.updatedAt, periodStart),
+        lt(conversations.updatedAt, periodEnd)
+      )
+    : eq(conversations.clerkUserId, clerkUserId);
+
+  const recentConversations = await db
+    .select({
+      id: conversations.id,
+      title: conversations.title,
+      language: conversations.language,
+      updatedAt: conversations.updatedAt,
+    })
+    .from(conversations)
+    .where(where)
+    .orderBy(desc(conversations.updatedAt))
+    .limit(limit);
+
+  const sections: string[] = [];
+  let messagesIncluded = 0;
+
+  for (const conversation of recentConversations) {
+    const storedMessages = await db
+      .select({ role: messages.role, content: messages.content, createdAt: messages.createdAt })
+      .from(messages)
+      .where(eq(messages.conversationId, conversation.id))
+      .orderBy(desc(messages.createdAt))
+      .limit(MANUAL_REFRESH_MESSAGE_LIMIT);
+
+    if (storedMessages.length === 0) continue;
+
+    const orderedMessages = storedMessages.reverse();
+    messagesIncluded += orderedMessages.length;
+    sections.push([
+      `Conversation: ${conversation.title || "Untitled conversation"}`,
+      `Language: ${conversation.language}`,
+      `Updated: ${conversation.updatedAt.toISOString()}`,
+      formatMessagesForMemory(orderedMessages),
+    ].join("\n"));
+  }
+
+  return {
+    conversations: recentConversations,
+    conversationIds: recentConversations.map((conversation) => conversation.id),
+    latestConversationAt: recentConversations[0]?.updatedAt ?? null,
+    messagesIncluded,
+    sections,
+  };
+}
+
 async function refreshPeriodSummary(
   clerkUserId: string,
   cadence: MemoryCadence,
@@ -166,8 +224,7 @@ async function refreshPeriodSummary(
   const existing = await db.query.userMemoryPeriods.findFirst({
     where: and(
       eq(userMemoryPeriods.clerkUserId, clerkUserId),
-      eq(userMemoryPeriods.cadence, cadence),
-      eq(userMemoryPeriods.periodStart, periodStart)
+      eq(userMemoryPeriods.cadence, cadence)
     ),
   });
 
@@ -175,38 +232,24 @@ async function refreshPeriodSummary(
     return false;
   }
 
-  const conversations = await db
-    .select({
-      conversationId: conversationMemories.conversationId,
-      summary: conversationMemories.summary,
-      topicsJson: conversationMemories.topicsJson,
-      lastMessageAt: conversationMemories.lastMessageAt,
-    })
-    .from(conversationMemories)
-    .where(
-      and(
-        eq(conversationMemories.clerkUserId, clerkUserId),
-        gte(conversationMemories.lastMessageAt, periodStart),
-        lt(conversationMemories.lastMessageAt, periodEnd)
-      )
-    )
-    .orderBy(desc(conversationMemories.lastMessageAt))
-    .limit(50);
+  const input = await loadConversationMemoryInput({
+    clerkUserId,
+    limit: 50,
+    periodStart,
+    periodEnd,
+  });
 
-  if (conversations.length === 0) return false;
+  if (input.sections.length === 0) return false;
 
   const prompt = [
-    `Create a compact ${cadence} memory rollup for a personal LDS RAG assistant.`,
-    "Summarize durable user interests, recurring questions, preferences, and feedback patterns.",
+    `Update the ongoing ${cadence} memory rollup for a personal LDS RAG assistant.`,
+    "Preserve useful durable information from the existing rollup, add new recurring interests and preferences, and remove stale details when contradicted.",
     "Do not include private speculation. Do not quote full source text. Keep it useful for future personalization.",
     `Period: ${periodStart.toISOString()} to ${periodEnd.toISOString()}`,
-    "Conversation memories:",
-    conversations.map((conversation, index) => {
-      const topics = conversation.topicsJson?.length
-        ? `Topics: ${conversation.topicsJson.join(", ")}`
-        : "";
-      return `${index + 1}. ${truncate(conversation.summary, 900)} ${topics}`.trim();
-    }).join("\n"),
+    "Existing rollup:",
+    existing?.summary || "(none)",
+    "Recent conversations in this period:",
+    input.sections.join("\n\n---\n\n"),
   ].join("\n\n");
 
   let object: z.infer<typeof periodSummarySchema>;
@@ -235,19 +278,19 @@ async function refreshPeriodSummary(
       periodStart,
       periodEnd,
       summary: object.summary,
-      conversationRefsJson: conversations.map((conversation) => conversation.conversationId),
+      conversationRefsJson: input.conversationIds,
       refreshedAt: now,
     })
     .onConflictDoUpdate({
       target: [
         userMemoryPeriods.clerkUserId,
         userMemoryPeriods.cadence,
-        userMemoryPeriods.periodStart,
       ],
       set: {
+        periodStart,
         periodEnd,
         summary: object.summary,
-        conversationRefsJson: conversations.map((conversation) => conversation.conversationId),
+        conversationRefsJson: input.conversationIds,
         refreshedAt: now,
         updatedAt: now,
       },
@@ -260,20 +303,17 @@ export async function getUserMemoryContext(clerkUserId: string): Promise<string>
   if (!MEMORY_ENABLED) return "";
 
   const db = getDb();
-  const [profile, periods, recentConversations] = await Promise.all([
+  const [profile, periods, recentConversationMemory] = await Promise.all([
     loadProfile(clerkUserId),
     db
       .select({ cadence: userMemoryPeriods.cadence, summary: userMemoryPeriods.summary })
       .from(userMemoryPeriods)
       .where(eq(userMemoryPeriods.clerkUserId, clerkUserId))
       .orderBy(desc(userMemoryPeriods.periodStart))
-      .limit(4),
-    db
-      .select({ summary: conversationMemories.summary, topicsJson: conversationMemories.topicsJson })
-      .from(conversationMemories)
-      .where(eq(conversationMemories.clerkUserId, clerkUserId))
-      .orderBy(desc(conversationMemories.updatedAt))
-      .limit(5),
+      .limit(2),
+    db.query.conversationMemories.findFirst({
+      where: eq(conversationMemories.clerkUserId, clerkUserId),
+    }),
   ]);
 
   const sections: string[] = [];
@@ -302,19 +342,12 @@ export async function getUserMemoryContext(clerkUserId: string): Promise<string>
     );
   }
 
-  const usefulConversations = recentConversations.filter((conversation) => conversation.summary.trim());
-  if (usefulConversations.length) {
-    sections.push("Recent conversation memories:");
-    sections.push(
-      usefulConversations
-        .map((conversation) => {
-          const topics = conversation.topicsJson?.length
-            ? ` Topics: ${conversation.topicsJson.slice(0, 5).join(", ")}.`
-            : "";
-          return `- ${truncate(conversation.summary, 450)}${topics}`;
-        })
-        .join("\n")
-    );
+  if (recentConversationMemory?.summary.trim()) {
+    sections.push("Recent conversations memory:");
+    const topics = recentConversationMemory.topicsJson.length
+      ? ` Topics: ${recentConversationMemory.topicsJson.slice(0, 8).join(", ")}.`
+      : "";
+    sections.push(`${truncate(recentConversationMemory.summary, 900)}${topics}`);
   }
 
   if (sections.length === 0) return "";
@@ -331,7 +364,7 @@ export async function getUserMemoryContext(clerkUserId: string): Promise<string>
 
 export async function getUserMemorySnapshot(clerkUserId: string) {
   const db = getDb();
-  const [profile, periods, recentConversations] = await Promise.all([
+  const [profile, periods, recentConversationMemory] = await Promise.all([
     loadProfile(clerkUserId),
     db
       .select({
@@ -346,22 +379,10 @@ export async function getUserMemorySnapshot(clerkUserId: string) {
       .from(userMemoryPeriods)
       .where(eq(userMemoryPeriods.clerkUserId, clerkUserId))
       .orderBy(desc(userMemoryPeriods.periodStart))
-      .limit(12),
-    db
-      .select({
-        conversationId: conversationMemories.conversationId,
-        title: conversations.title,
-        summary: conversationMemories.summary,
-        topicsJson: conversationMemories.topicsJson,
-        preferencesJson: conversationMemories.preferencesJson,
-        lastMessageAt: conversationMemories.lastMessageAt,
-        updatedAt: conversationMemories.updatedAt,
-      })
-      .from(conversationMemories)
-      .leftJoin(conversations, eq(conversations.id, conversationMemories.conversationId))
-      .where(eq(conversationMemories.clerkUserId, clerkUserId))
-      .orderBy(desc(conversationMemories.updatedAt))
-      .limit(20),
+      .limit(2),
+    db.query.conversationMemories.findFirst({
+      where: eq(conversationMemories.clerkUserId, clerkUserId),
+    }),
   ]);
 
   return {
@@ -385,15 +406,16 @@ export async function getUserMemorySnapshot(clerkUserId: string) {
       conversationCount: period.conversationRefsJson.length,
       refreshedAt: period.refreshedAt,
     })),
-    conversations: recentConversations.map((conversation) => ({
-      conversationId: conversation.conversationId,
-      title: conversation.title,
-      summary: conversation.summary,
-      topics: conversation.topicsJson,
-      preferences: conversation.preferencesJson,
-      lastMessageAt: conversation.lastMessageAt,
-      updatedAt: conversation.updatedAt,
-    })),
+    conversationMemory: recentConversationMemory
+      ? {
+          summary: recentConversationMemory.summary,
+          topics: recentConversationMemory.topicsJson,
+          preferences: recentConversationMemory.preferencesJson,
+          messageCount: recentConversationMemory.messageCount,
+          lastMessageAt: recentConversationMemory.lastMessageAt,
+          updatedAt: recentConversationMemory.updatedAt,
+        }
+      : null,
   };
 }
 
@@ -414,48 +436,41 @@ function isConversationMemoryFresh(
   return trackedAt.getTime() >= conversationUpdatedAt.getTime();
 }
 
-async function refreshConversationMemoryFromMessages({
+async function refreshRecentConversationMemory({
   clerkUserId,
-  conversationId,
-  title,
-  language,
-  updatedAt,
   force,
+  conversationLimit,
 }: {
   clerkUserId: string;
-  conversationId: string;
-  title: string | null;
-  language: Language;
-  updatedAt: Date;
   force: boolean;
-}): Promise<ConversationRefreshStatus> {
+  conversationLimit: number;
+}): Promise<{ status: ConversationRefreshStatus; conversationsScanned: number }> {
   const db = getDb();
   const existing = await db.query.conversationMemories.findFirst({
-    where: eq(conversationMemories.conversationId, conversationId),
+    where: eq(conversationMemories.clerkUserId, clerkUserId),
+  });
+  const input = await loadConversationMemoryInput({
+    clerkUserId,
+    limit: conversationLimit,
   });
 
-  if (existing && !force && isConversationMemoryFresh(existing, updatedAt)) {
-    return "skipped";
+  if (!input.latestConversationAt || input.sections.length === 0) {
+    return { status: "empty", conversationsScanned: input.conversations.length };
   }
 
-  const storedMessages = await db
-    .select({ role: messages.role, content: messages.content, createdAt: messages.createdAt })
-    .from(messages)
-    .where(eq(messages.conversationId, conversationId))
-    .orderBy(desc(messages.createdAt))
-    .limit(MANUAL_REFRESH_MESSAGE_LIMIT);
+  if (existing && !force && isConversationMemoryFresh(existing, input.latestConversationAt)) {
+    return { status: "skipped", conversationsScanned: input.conversations.length };
+  }
 
-  if (storedMessages.length === 0) return "empty";
-
-  const orderedMessages = storedMessages.reverse();
   const prompt = [
-    "Create a compact durable memory summary for this conversation in a personal LDS RAG assistant.",
+    "Update one compact recent-conversations memory for a personal LDS RAG assistant.",
     "Capture only personalization signals: user interests, recurring goals, explicit preferences, durable corrections, and stable user facts intentionally shared.",
-    "Do not store source text, citations, doctrinal claims, private speculation, or sensitive inferences.",
-    `Conversation title: ${title || "Untitled conversation"}`,
-    `Conversation language: ${language}`,
-    "Messages:",
-    formatMessagesForMemory(orderedMessages),
+    "Preserve useful existing memory, add new useful signals, and remove stale details if contradicted.",
+    "Do not store source text, citations, doctrinal claims, private speculation, or sensitive inferences. Keep this as one ongoing summary, not one note per conversation.",
+    "Existing recent-conversations memory:",
+    existing?.summary || "(none)",
+    "Recent conversations:",
+    input.sections.join("\n\n---\n\n"),
   ].join("\n\n");
 
   let object: z.infer<typeof conversationMemorySchema>;
@@ -470,30 +485,79 @@ async function refreshConversationMemoryFromMessages({
   } catch (error) {
     console.error("Failed to refresh conversation memory", {
       clerkUserId,
-      conversationId,
       error,
     });
-    return "failed";
+    return { status: "failed", conversationsScanned: input.conversations.length };
   }
 
-  if (!object.summary.trim()) return "empty";
+  if (!object.summary.trim()) {
+    return { status: "empty", conversationsScanned: input.conversations.length };
+  }
 
-  await recordPersonalMemory({
-    clerkUserId,
-    conversationId,
-    language,
-    summary: object.summary,
-    topics: object.topics,
-    preferences: object.preferences,
-    facts: object.facts,
-    feedbackPatterns: object.feedbackPatterns,
-    messageCount: orderedMessages.length,
-    replaceConversationSummary: true,
-    refreshPeriods: false,
-    occurredAt: updatedAt,
-  });
+  const profile = await loadProfile(clerkUserId);
+  const now = new Date();
 
-  return "updated";
+  await db
+    .insert(conversationMemories)
+    .values({
+      clerkUserId,
+      summary: truncate(object.summary.trim().replace(/\s+/g, " "), 1500),
+      topicsJson: compactItems(object.topics, 16),
+      preferencesJson: compactItems(object.preferences, 16),
+      messageCount: input.messagesIncluded,
+      lastMessageAt: input.latestConversationAt,
+      summarizedAt: now,
+    })
+    .onConflictDoUpdate({
+      target: conversationMemories.clerkUserId,
+      set: {
+        summary: truncate(object.summary.trim().replace(/\s+/g, " "), 1500),
+        topicsJson: compactItems(object.topics, 16),
+        preferencesJson: compactItems(object.preferences, 16),
+        messageCount: input.messagesIncluded,
+        lastMessageAt: input.latestConversationAt,
+        summarizedAt: now,
+        updatedAt: now,
+      },
+    });
+
+  await db
+    .insert(userMemoryProfiles)
+    .values({
+      clerkUserId,
+      profileSummary: mergeSummary(profile?.profileSummary, object.summary, 1400),
+      preferencesJson: compactItems([
+        ...object.preferences,
+        ...(profile?.preferencesJson ?? []),
+      ], 24),
+      factsJson: compactItems([...object.facts, ...(profile?.factsJson ?? [])], 24),
+      feedbackPatternsJson: compactItems([
+        ...object.feedbackPatterns,
+        ...(profile?.feedbackPatternsJson ?? []),
+      ], 20),
+      lastConversationAt: input.latestConversationAt,
+      lastProfiledAt: now,
+    })
+    .onConflictDoUpdate({
+      target: userMemoryProfiles.clerkUserId,
+      set: {
+        profileSummary: mergeSummary(profile?.profileSummary, object.summary, 1400),
+        preferencesJson: compactItems([
+          ...object.preferences,
+          ...(profile?.preferencesJson ?? []),
+        ], 24),
+        factsJson: compactItems([...object.facts, ...(profile?.factsJson ?? [])], 24),
+        feedbackPatternsJson: compactItems([
+          ...object.feedbackPatterns,
+          ...(profile?.feedbackPatternsJson ?? []),
+        ], 20),
+        lastConversationAt: input.latestConversationAt,
+        lastProfiledAt: now,
+        updatedAt: now,
+      },
+    });
+
+  return { status: "updated", conversationsScanned: input.conversations.length };
 }
 
 export async function refreshUserMemory(
@@ -511,41 +575,15 @@ export async function refreshUserMemory(
     };
   }
 
-  const db = getDb();
   const now = new Date();
   const force = options.force ?? true;
   const forcePeriods = options.forcePeriods ?? force;
   const conversationLimit = options.conversationLimit ?? MANUAL_REFRESH_CONVERSATION_LIMIT;
-  const recentConversations = await db
-    .select({
-      id: conversations.id,
-      title: conversations.title,
-      language: conversations.language,
-      updatedAt: conversations.updatedAt,
-    })
-    .from(conversations)
-    .where(eq(conversations.clerkUserId, clerkUserId))
-    .orderBy(desc(conversations.updatedAt))
-    .limit(conversationLimit);
-
-  let conversationsUpdated = 0;
-  let conversationsSkipped = 0;
-  let conversationsFailed = 0;
-
-  for (const conversation of recentConversations) {
-    const status = await refreshConversationMemoryFromMessages({
-      clerkUserId,
-      conversationId: conversation.id,
-      title: conversation.title,
-      language: conversation.language as Language,
-      updatedAt: conversation.updatedAt,
-      force,
-    });
-
-    if (status === "updated") conversationsUpdated += 1;
-    if (status === "skipped") conversationsSkipped += 1;
-    if (status === "failed") conversationsFailed += 1;
-  }
+  const conversationMemoryResult = await refreshRecentConversationMemory({
+    clerkUserId,
+    force,
+    conversationLimit,
+  });
 
   const periodResults = await Promise.all([
     refreshPeriodSummary(clerkUserId, "weekly", now, { force: forcePeriods }),
@@ -554,10 +592,10 @@ export async function refreshUserMemory(
 
   return {
     enabled: true,
-    conversationsScanned: recentConversations.length,
-    conversationsUpdated,
-    conversationsSkipped,
-    conversationsFailed,
+    conversationsScanned: conversationMemoryResult.conversationsScanned,
+    conversationsUpdated: conversationMemoryResult.status === "updated" ? 1 : 0,
+    conversationsSkipped: conversationMemoryResult.status === "skipped" ? 1 : 0,
+    conversationsFailed: conversationMemoryResult.status === "failed" ? 1 : 0,
     periodsUpdated: periodResults.filter(Boolean).length,
   };
 }
@@ -627,67 +665,18 @@ export async function refreshActiveUsersMemory(options: { userLimit?: number } =
 
 export async function recordPersonalMemory({
   clerkUserId,
-  conversationId,
-  language,
   summary,
-  topics = [],
   preferences = [],
   facts = [],
   feedbackPatterns = [],
-  messageCount,
-  replaceConversationSummary = false,
-  refreshPeriods = true,
   occurredAt = new Date(),
 }: RecordPersonalMemoryInput): Promise<void> {
   if (!MEMORY_ENABLED) return;
 
   try {
     const db = getDb();
-    const [existingConversationMemory, profile] = await Promise.all([
-      db.query.conversationMemories.findFirst({
-        where: eq(conversationMemories.conversationId, conversationId),
-      }),
-      loadProfile(clerkUserId),
-    ]);
-
-    const mergedTopics = compactItems(
-      [...topics, ...(existingConversationMemory?.topicsJson ?? [])],
-      16
-    );
-    const conversationPreferences = compactItems(
-      [...preferences, ...(existingConversationMemory?.preferencesJson ?? [])],
-      16
-    );
-    const conversationSummary = replaceConversationSummary
-      ? truncate(summary.trim().replace(/\s+/g, " "), 1500)
-      : mergeSummary(existingConversationMemory?.summary, summary, 1500);
+    const profile = await loadProfile(clerkUserId);
     const profileSummary = mergeSummary(profile?.profileSummary, summary, 1400);
-    const nextMessageCount = messageCount ?? (existingConversationMemory?.messageCount ?? 0) + 1;
-
-    await db
-      .insert(conversationMemories)
-      .values({
-        conversationId,
-        clerkUserId,
-        summary: conversationSummary,
-        topicsJson: mergedTopics,
-        preferencesJson: conversationPreferences,
-        messageCount: nextMessageCount,
-        lastMessageAt: occurredAt,
-        summarizedAt: occurredAt,
-      })
-      .onConflictDoUpdate({
-        target: conversationMemories.conversationId,
-        set: {
-          summary: conversationSummary,
-          topicsJson: mergedTopics,
-          preferencesJson: conversationPreferences,
-          messageCount: nextMessageCount,
-          lastMessageAt: occurredAt,
-          summarizedAt: occurredAt,
-          updatedAt: occurredAt,
-        },
-      });
 
     await db
       .insert(userMemoryProfiles)
@@ -725,20 +714,14 @@ export async function recordPersonalMemory({
         },
       });
 
-    if (refreshPeriods) {
-      await refreshPeriodSummary(clerkUserId, "weekly", occurredAt);
-      await refreshPeriodSummary(clerkUserId, "monthly", occurredAt);
-    }
   } catch (error) {
-    console.error("Failed to update conversation memory", error);
+    console.error("Failed to update user memory profile", error);
   }
 }
 
 
 export function createMemoryTools({
   clerkUserId,
-  conversationId,
-  language,
 }: {
   clerkUserId: string;
   conversationId: string;
@@ -754,11 +737,6 @@ export function createMemoryTools({
           .min(1)
           .max(700)
           .describe("A concise durable memory note, written as a neutral third-person summary."),
-        topics: z
-          .array(z.string().trim().min(1).max(80))
-          .max(8)
-          .default([])
-          .describe("Recurring topics or interests this memory is about."),
         preferences: z
           .array(z.string().trim().min(1).max(160))
           .max(8)
@@ -775,13 +753,10 @@ export function createMemoryTools({
           .default([])
           .describe("Durable answer-quality feedback patterns, if explicitly stated."),
       }),
-      execute: async ({ summary, topics, preferences, facts, feedbackPatterns }) => {
+      execute: async ({ summary, preferences, facts, feedbackPatterns }) => {
         await recordPersonalMemory({
           clerkUserId,
-          conversationId,
-          language,
           summary,
-          topics,
           preferences,
           facts,
           feedbackPatterns,

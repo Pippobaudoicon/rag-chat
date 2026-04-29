@@ -101,14 +101,11 @@ export const userMemoryProfiles = pgTable("rag_user_memory_profiles", {
     .$onUpdate(() => new Date()),
 });
 
-// Compact per-conversation memory. Source text is intentionally omitted.
+// Compact recent-conversations memory. Source text is intentionally omitted.
 export const conversationMemories = pgTable(
   "rag_conversation_memories",
   {
-    conversationId: uuid("conversation_id")
-      .primaryKey()
-      .references(() => conversations.id, { onDelete: "cascade" }),
-    clerkUserId: text("clerk_user_id").notNull(),
+    clerkUserId: text("clerk_user_id").primaryKey(),
     summary: text("summary").notNull().default(""),
     topicsJson: jsonb("topics_json").$type<string[]>().notNull().default([]),
     preferencesJson: jsonb("preferences_json").$type<string[]>().notNull().default([]),
@@ -129,7 +126,7 @@ export const conversationMemories = pgTable(
   ]
 );
 
-// Weekly/monthly rollups derived from compact conversation memories.
+// Weekly/monthly rolling summaries derived from recent conversations.
 export const userMemoryPeriods = pgTable(
   "rag_user_memory_periods",
   {
@@ -150,8 +147,7 @@ export const userMemoryPeriods = pgTable(
   (table) => [
     uniqueIndex("rag_user_memory_periods_unique_idx").on(
       table.clerkUserId,
-      table.cadence,
-      table.periodStart
+      table.cadence
     ),
     index("rag_user_memory_periods_user_cadence_idx").on(
       table.clerkUserId,
