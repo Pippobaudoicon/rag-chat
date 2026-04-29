@@ -46,6 +46,7 @@ interface MemoryRefreshResult {
   conversationsScanned: number;
   conversationsUpdated: number;
   conversationsSkipped: number;
+  conversationsFailed: number;
   periodsUpdated: number;
 }
 
@@ -182,7 +183,7 @@ export function MemoryDialog() {
 
           {refreshResult && (
             <div className="shrink-0 rounded-md border border-border/50 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
-              Refreshed {refreshResult.conversationsUpdated} of {refreshResult.conversationsScanned} recent conversations, skipped {refreshResult.conversationsSkipped} already up-to-date, and updated {refreshResult.periodsUpdated} rollup{refreshResult.periodsUpdated === 1 ? "" : "s"}.
+              Refreshed {refreshResult.conversationsUpdated} of {refreshResult.conversationsScanned} recent conversations, skipped {refreshResult.conversationsSkipped} already up-to-date{refreshResult.conversationsFailed > 0 ? `, left ${refreshResult.conversationsFailed} for a later retry` : ""}, and updated {refreshResult.periodsUpdated} rollup{refreshResult.periodsUpdated === 1 ? "" : "s"}.
             </div>
           )}
 

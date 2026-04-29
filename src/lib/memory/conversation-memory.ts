@@ -12,7 +12,7 @@ import {
 import type { Language } from "@/lib/types";
 
 type MemoryCadence = "weekly" | "monthly";
-type ConversationRefreshStatus = "updated" | "skipped" | "empty";
+type ConversationRefreshStatus = "updated" | "skipped" | "empty" | "failed";
 
 interface RecordPersonalMemoryInput {
   clerkUserId: string;
@@ -59,7 +59,11 @@ const MANUAL_REFRESH_MESSAGE_LIMIT = getPositiveInt(
 );
 const CRON_REFRESH_USER_LIMIT = getPositiveInt(
   process.env.CHAT_MEMORY_CRON_USER_LIMIT,
-  10
+  2
+);
+const CRON_REFRESH_CONVERSATION_LIMIT = getPositiveInt(
+  process.env.CHAT_MEMORY_CRON_CONVERSATION_LIMIT,
+  2
 );
 
 const periodSummarySchema = z.object({
@@ -205,12 +209,23 @@ async function refreshPeriodSummary(
     }).join("\n"),
   ].join("\n\n");
 
-  const { object } = await generateObject({
-    model: gateway(MEMORY_MODEL),
-    schema: periodSummarySchema,
-    system: "You write concise durable memory summaries for personalization. Return only fields matching the schema.",
-    prompt: truncate(prompt, MAX_SUMMARY_INPUT_CHARS),
-  });
+  let object: z.infer<typeof periodSummarySchema>;
+  try {
+    const result = await generateObject({
+      model: gateway(MEMORY_MODEL),
+      schema: periodSummarySchema,
+      system: "You write concise durable memory summaries for personalization. Return only fields matching the schema.",
+      prompt: truncate(prompt, MAX_SUMMARY_INPUT_CHARS),
+    });
+    object = result.object;
+  } catch (error) {
+    console.error("Failed to refresh memory period summary", {
+      clerkUserId,
+      cadence,
+      error,
+    });
+    return false;
+  }
 
   await db
     .insert(userMemoryPeriods)
@@ -443,12 +458,23 @@ async function refreshConversationMemoryFromMessages({
     formatMessagesForMemory(orderedMessages),
   ].join("\n\n");
 
-  const { object } = await generateObject({
-    model: gateway(MEMORY_MODEL),
-    schema: conversationMemorySchema,
-    system: "You write concise durable memory for personalization. Return only fields matching the schema.",
-    prompt: truncate(prompt, MAX_SUMMARY_INPUT_CHARS),
-  });
+  let object: z.infer<typeof conversationMemorySchema>;
+  try {
+    const result = await generateObject({
+      model: gateway(MEMORY_MODEL),
+      schema: conversationMemorySchema,
+      system: "You write concise durable memory for personalization. Return only fields matching the schema.",
+      prompt: truncate(prompt, MAX_SUMMARY_INPUT_CHARS),
+    });
+    object = result.object;
+  } catch (error) {
+    console.error("Failed to refresh conversation memory", {
+      clerkUserId,
+      conversationId,
+      error,
+    });
+    return "failed";
+  }
 
   if (!object.summary.trim()) return "empty";
 
@@ -472,7 +498,7 @@ async function refreshConversationMemoryFromMessages({
 
 export async function refreshUserMemory(
   clerkUserId: string,
-  options: { force?: boolean; forcePeriods?: boolean } = {}
+  options: { force?: boolean; forcePeriods?: boolean; conversationLimit?: number } = {}
 ) {
   if (!MEMORY_ENABLED) {
     return {
@@ -480,6 +506,7 @@ export async function refreshUserMemory(
       conversationsScanned: 0,
       conversationsUpdated: 0,
       conversationsSkipped: 0,
+      conversationsFailed: 0,
       periodsUpdated: 0,
     };
   }
@@ -488,6 +515,7 @@ export async function refreshUserMemory(
   const now = new Date();
   const force = options.force ?? true;
   const forcePeriods = options.forcePeriods ?? force;
+  const conversationLimit = options.conversationLimit ?? MANUAL_REFRESH_CONVERSATION_LIMIT;
   const recentConversations = await db
     .select({
       id: conversations.id,
@@ -498,10 +526,11 @@ export async function refreshUserMemory(
     .from(conversations)
     .where(eq(conversations.clerkUserId, clerkUserId))
     .orderBy(desc(conversations.updatedAt))
-    .limit(MANUAL_REFRESH_CONVERSATION_LIMIT);
+    .limit(conversationLimit);
 
   let conversationsUpdated = 0;
   let conversationsSkipped = 0;
+  let conversationsFailed = 0;
 
   for (const conversation of recentConversations) {
     const status = await refreshConversationMemoryFromMessages({
@@ -515,6 +544,7 @@ export async function refreshUserMemory(
 
     if (status === "updated") conversationsUpdated += 1;
     if (status === "skipped") conversationsSkipped += 1;
+    if (status === "failed") conversationsFailed += 1;
   }
 
   const periodResults = await Promise.all([
@@ -527,6 +557,7 @@ export async function refreshUserMemory(
     conversationsScanned: recentConversations.length,
     conversationsUpdated,
     conversationsSkipped,
+    conversationsFailed,
     periodsUpdated: periodResults.filter(Boolean).length,
   };
 }
@@ -540,6 +571,7 @@ export async function refreshActiveUsersMemory(options: { userLimit?: number } =
       conversationsScanned: 0,
       conversationsUpdated: 0,
       conversationsSkipped: 0,
+      conversationsFailed: 0,
       periodsUpdated: 0,
       results: [],
     };
@@ -561,6 +593,7 @@ export async function refreshActiveUsersMemory(options: { userLimit?: number } =
     const result = await refreshUserMemory(userId, {
       force: false,
       forcePeriods: false,
+      conversationLimit: CRON_REFRESH_CONVERSATION_LIMIT,
     });
     results.push({ userId, ...result });
   }
@@ -581,6 +614,10 @@ export async function refreshActiveUsersMemory(options: { userLimit?: number } =
     ),
     conversationsSkipped: results.reduce(
       (total, result) => total + result.conversationsSkipped,
+      0
+    ),
+    conversationsFailed: results.reduce(
+      (total, result) => total + result.conversationsFailed,
       0
     ),
     periodsUpdated: results.reduce((total, result) => total + result.periodsUpdated, 0),
