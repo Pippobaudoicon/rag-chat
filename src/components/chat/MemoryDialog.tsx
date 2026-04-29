@@ -161,8 +161,8 @@ export function MemoryDialog() {
       </button>
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-h-[85vh] overflow-hidden sm:max-w-2xl">
-          <DialogHeader>
+        <DialogContent className="flex max-h-[calc(100dvh-2rem)] min-h-0 flex-col overflow-hidden sm:max-w-2xl">
+          <DialogHeader className="shrink-0">
             <div className="flex items-center justify-between gap-3 pr-8">
               <DialogTitle className="text-sm">User memory</DialogTitle>
               <button
@@ -181,12 +181,12 @@ export function MemoryDialog() {
           </DialogHeader>
 
           {refreshResult && (
-            <div className="rounded-md border border-border/50 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+            <div className="shrink-0 rounded-md border border-border/50 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
               Refreshed {refreshResult.conversationsUpdated} of {refreshResult.conversationsScanned} recent conversations, skipped {refreshResult.conversationsSkipped} already up-to-date, and updated {refreshResult.periodsUpdated} rollup{refreshResult.periodsUpdated === 1 ? "" : "s"}.
             </div>
           )}
 
-          <div className="min-h-0 overflow-y-auto pr-1">
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pr-2">
             {loading && !snapshot ? (
               <div className="flex items-center gap-2 rounded-md border border-border/50 bg-muted/20 px-3 py-6 text-sm text-muted-foreground">
                 <RefreshCwIcon className="h-4 w-4 animate-spin" />
@@ -199,7 +199,7 @@ export function MemoryDialog() {
             ) : !snapshot || !hasAnyMemory ? (
               <EmptyMemory />
             ) : (
-              <div className="space-y-5">
+              <div className="space-y-5 pb-1">
                 {hasProfileMemory && snapshot.profile && (
                   <section className="space-y-3 rounded-md border border-border/50 bg-muted/10 p-3">
                     <div className="flex flex-wrap items-center gap-2">
@@ -211,7 +211,7 @@ export function MemoryDialog() {
                       )}
                     </div>
                     {snapshot.profile.profileSummary && (
-                      <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground/90">
+                      <p className="whitespace-pre-wrap wrap-break-word text-sm leading-relaxed text-foreground/90">
                         {snapshot.profile.profileSummary}
                       </p>
                     )}
@@ -233,7 +233,7 @@ export function MemoryDialog() {
                               {period.conversationCount} conversation{period.conversationCount === 1 ? "" : "s"}
                             </span>
                           </div>
-                          <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground/90">
+                          <p className="whitespace-pre-wrap wrap-break-word text-sm leading-relaxed text-foreground/90">
                             {period.summary}
                           </p>
                         </article>
@@ -249,7 +249,7 @@ export function MemoryDialog() {
                       {snapshot.conversations.map((conversation) => (
                         <article key={conversation.conversationId} className="rounded-md border border-border/50 bg-muted/10 p-3">
                           <div className="mb-2 flex flex-wrap items-center gap-2">
-                            <h4 className="text-sm font-medium">
+                            <h4 className="min-w-0 wrap-break-word text-sm font-medium">
                               {conversation.title || "Untitled conversation"}
                             </h4>
                             {formatDate(conversation.updatedAt) && (
@@ -258,13 +258,13 @@ export function MemoryDialog() {
                               </span>
                             )}
                           </div>
-                          <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground/90">
+                          <p className="whitespace-pre-wrap wrap-break-word text-sm leading-relaxed text-foreground/90">
                             {conversation.summary}
                           </p>
                           {conversation.topics.length > 0 && (
                             <div className="mt-2 flex flex-wrap gap-1.5">
                               {conversation.topics.map((topic) => (
-                                <Badge key={topic} variant="outline">{topic}</Badge>
+                                <Badge key={topic} variant="outline" className="h-auto max-w-full whitespace-normal wrap-break-word py-1 text-left leading-snug">{topic}</Badge>
                               ))}
                             </div>
                           )}
