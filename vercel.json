@@ -3,6 +3,18 @@
   "functions": {
     "src/app/api/chat/route.ts": {
       "maxDuration": 180
+    },
+    "src/app/api/memory/route.ts": {
+      "maxDuration": 180
+    },
+    "src/app/api/cron/memory/route.ts": {
+      "maxDuration": 180
     }
-  }
+  },
+  "crons": [
+    {
+      "path": "/api/cron/memory",
+      "schedule": "0 3 * * 0"
+    }
+  ]
 }

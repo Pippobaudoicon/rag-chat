@@ -43,6 +43,13 @@
       "when": 1777370049552,
       "tag": "0005_conversation_uuid_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1777449077958,
+      "tag": "0006_broken_daimon_hellstrom",
+      "breakpoints": true
     }
   ]
 }

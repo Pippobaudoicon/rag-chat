@@ -5,6 +5,7 @@ import { useRouter, usePathname } from "next/navigation";
 import { useUser, UserButton } from "@clerk/nextjs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
+import { MemoryDialog } from "./MemoryDialog";
 
 const CONVERSATION_PAGE_SIZE = 20;
 const CONVERSATION_CACHE_TTL_MS = 2 * 60 * 1000;
@@ -369,12 +370,15 @@ export function ChatSidebar({ onClose, showMobileClose = false }: ChatSidebarPro
         )}
       </div>
 
-      {/* Footer — account */}
-      <div className="pb-safe border-t border-border/40 px-4 py-3 flex items-center gap-3">
-        <span>
-          <UserButton />
-        </span>
-        <span className="text-xs text-muted-foreground truncate">Account</span>
+      {/* Footer — memory + account */}
+      <div className="pb-safe space-y-2 border-t border-border/40 px-3 py-3">
+        <MemoryDialog />
+        <div className="flex items-center gap-3 px-1">
+          <span>
+            <UserButton />
+          </span>
+          <span className="text-xs text-muted-foreground truncate">Account</span>
+        </div>
       </div>
     </div>
   );

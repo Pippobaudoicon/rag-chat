@@ -8,6 +8,10 @@ import { SYSTEM_PROMPT, buildUserMessage } from "@/lib/rag/system-prompt";
 import { cacheKey, getFromCache, setInCache } from "@/lib/rag/cache";
 import { createRagTools } from "@/lib/rag/tools";
 import { badRequestFromZod, chatRequestSchema } from "@/lib/api/validation";
+import {
+  createMemoryTools,
+  getUserMemoryContext,
+} from "@/lib/memory/conversation-memory";
 import type { AssistantVersion, SourceType, Language, SourceChunk, MessageDetails } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -203,15 +207,28 @@ export async function POST(req: Request) {
   const augmentedQuestion = buildUserMessage(question, chunks, language);
 
   const chatMessages: ChatMessage[] = [...modelHistory, { role: "user", content: augmentedQuestion }];
+  const memoryContext = await getUserMemoryContext(userId);
+  const systemPrompt = memoryContext
+    ? `${SYSTEM_PROMPT}\n\n${memoryContext}`
+    : SYSTEM_PROMPT;
 
   // ── 7. Stream with AI SDK v6 ──────────────────────────────────────────────
   const result = streamText({
     model: gateway(CHAT_MODEL),
-    system: SYSTEM_PROMPT,
+    system: systemPrompt,
     messages: chatMessages,
     maxOutputTokens: MAX_OUTPUT_TOKENS,
     stopWhen: stepCountIs(5),
-    tools: createRagTools(language, chunks, addToolChunks),
+    tools: {
+      ...createRagTools(language, chunks, addToolChunks),
+      ...(conversation
+        ? createMemoryTools({
+            clerkUserId: userId,
+            conversationId: conversation.id,
+            language,
+          })
+        : {}),
+    },
     experimental_transform: smoothStream({
       delayInMs: 20,
       chunking: "word",

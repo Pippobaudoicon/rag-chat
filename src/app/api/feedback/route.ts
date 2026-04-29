@@ -3,6 +3,7 @@ import { and, desc, eq } from "drizzle-orm";
 import { getDb } from "@/lib/db";
 import { conversations, messageFeedback, messages } from "@/lib/db/schema";
 import { badRequestFromZod, feedbackRequestSchema } from "@/lib/api/validation";
+import { recordFeedbackMemory } from "@/lib/memory/conversation-memory";
 
 export const runtime = "nodejs";
 
@@ -79,6 +80,14 @@ export async function POST(req: Request) {
         })
         .where(eq(messageFeedback.id, existing.id));
 
+      await recordFeedbackMemory({
+        clerkUserId: userId,
+        feedback,
+        comment,
+        question,
+        answerText,
+      });
+
       return Response.json({ ok: true });
     }
   }
@@ -93,6 +102,14 @@ export async function POST(req: Request) {
     question,
     answerText,
     sourcesJson: sources,
+  });
+
+  await recordFeedbackMemory({
+    clerkUserId: userId,
+    feedback,
+    comment,
+    question,
+    answerText,
   });
 
   return Response.json({ ok: true });
