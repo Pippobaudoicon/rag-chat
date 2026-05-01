@@ -103,8 +103,11 @@ Notes:
   - `lookup_scripture_passage`
   - `search_conference_talks`
   - `citation_verifier`
-- `search_conference_talks` uses strict speaker/year filtering first, then relaxed fallback,
-  to avoid false "not found" outcomes when metadata is partial.
+- `search_conference_talks` uses strict speaker/year/title filtering first, retries title-focused
+  query variants, and returns a title-not-found result instead of unrelated same-speaker talks
+  when a requested title is not present in conference metadata.
+- Tool-returned chunks include citation indices, and persisted/UI source ordering matches the
+  citation-verifier order: original RAG context first, then newly retrieved tool chunks.
 - System prompt enforces:
   - same-language answers,
   - no unsupported claims,
@@ -124,6 +127,7 @@ Notes:
 - `VOYAGE_API_KEY`
 - `PINECONE_API_KEY`
 - `CHAT_MODEL` (optional; defaults to `deepseek/deepseek-v4-flash`)
+- `CHAT_MAX_RESPONSE_SOURCES` (optional; defaults to 120)
 
 Reference template: `.env.example`.
 

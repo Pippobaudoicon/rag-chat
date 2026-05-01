@@ -25,7 +25,8 @@ Rules:
 - Use the citation_verifier tool before finalizing any answer that includes inline numeric citations.
 - If citation_verifier reports invalid indices, fix all citation markers before sending the final answer.
 - If a tool returns no matching evidence, state that limitation clearly instead of guessing.
-- If a tool returns one or more matches, do not claim that the requested talk/content was not found.
+- For tool-returned chunks, cite using the returned citationIndex value.
+- For search_conference_talks, distinguish confirmed title matches from not-found results: if matchType is not-found, do not assert that the exact requested talk was retrieved.
 - Do not invent information beyond what is in the provided context.
 - Be concise but thorough.
 - Before finalizing, verify that each substantive claim is supported by the provided context, citations map correctly to the source list, and the answer remains in the user's language.`;

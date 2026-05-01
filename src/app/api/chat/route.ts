@@ -18,7 +18,7 @@ export const runtime = "nodejs";
 export const maxDuration = 180;
 
 const DEFAULT_MAX_OUTPUT_TOKENS = 6000;
-const DEFAULT_MAX_RESPONSE_SOURCES = 40;
+const DEFAULT_MAX_RESPONSE_SOURCES = 120;
 
 const getPositiveInt = (value: string | undefined, fallback: number): number => {
   const parsed = Number(value);
@@ -89,7 +89,7 @@ export async function POST(req: Request) {
   };
 
   const getResponseSources = (): SourceChunk[] => {
-    const merged = [...toolChunksUsed, ...chunks];
+    const merged = [...chunks, ...toolChunksUsed];
     return merged.filter(
       (chunk, idx, arr) => arr.findIndex((c) => c.id === chunk.id) === idx
     ).slice(0, MAX_RESPONSE_SOURCES);

@@ -5,6 +5,7 @@ import { parseScriptureSelection } from "@/lib/rag/scripture-reference";
 import type { Language, SourceChunk } from "@/lib/types";
 
 type ToolSourceListener = (chunks: SourceChunk[]) => void;
+type IndexedToolChunk = { chunk: SourceChunk; citationIndex: number };
 
 function normalizeForMatch(value: string): string {
   return value
@@ -20,6 +21,69 @@ function normalizeBookForStrictMatch(value: string): string {
   return normalizeForMatch(value).replace(/\s+/g, " ").trim();
 }
 
+function inferYearFromQuery(query: string): number | undefined {
+  const match = query.match(/\b(19\d{2}|20\d{2})\b/);
+  if (!match) return undefined;
+  const year = Number(match[1]);
+  if (!Number.isInteger(year) || year < 1900 || year > 2100) return undefined;
+  return year;
+}
+
+function inferSpeakerFromQuery(query: string): string | undefined {
+  // Supports patterns like "... di Uchtdorf" / "... by Dieter F. Uchtdorf".
+  const m = query.match(/\b(?:di|by)\s+([\p{L}][\p{L}\s.'-]{1,80})$/iu);
+  const candidate = m?.[1]?.trim();
+  if (!candidate) return undefined;
+  return candidate;
+}
+
+function inferTitleFromQuery(query: string): string | undefined {
+  const quoted = query.match(/["“”'‘’]([^"“”'‘’]{4,120})["“”'‘’]/u);
+  if (quoted?.[1]) {
+    return quoted[1].trim();
+  }
+
+  const beforeBy = query.match(/^(.+?)\b(?:di|by)\b\s+[\p{L}][\p{L}\s.'-]{1,80}$/iu);
+  if (!beforeBy?.[1]) return undefined;
+
+  let candidate = beforeBy[1]
+    .replace(/\b(approfondiamo|approfondisci|approfondire|cerca|search|talk|discorso)\b/giu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const words = candidate.split(" ").filter(Boolean);
+  if (words.length < 2 || words.length > 12) return undefined;
+
+  return candidate;
+}
+
+function titleMatchesRequested(chunkTitle: string | undefined, requestedTitle: string | undefined): boolean {
+  if (!requestedTitle) return true;
+  const title = normalizeForMatch(chunkTitle ?? "");
+  const requested = normalizeForMatch(requestedTitle);
+  if (!title || !requested) return false;
+  return title.includes(requested) || requested.includes(title);
+}
+
+function hasExactTitleEvidence(chunkTitle: string | undefined, requestedTitle: string | undefined): boolean {
+  if (!requestedTitle) return false;
+  const title = normalizeForMatch(chunkTitle ?? "");
+  const requested = normalizeForMatch(requestedTitle);
+  if (!title || !requested) return false;
+  return title === requested;
+}
+
+function hasConfirmedTitleEvidence(
+  chunkTitle: string | undefined,
+  requestedTitle: string | undefined
+): boolean {
+  if (!requestedTitle) return false;
+  const title = normalizeForMatch(chunkTitle ?? "");
+  const requested = normalizeForMatch(requestedTitle);
+  if (!title || !requested) return false;
+  return title === requested || title.startsWith(requested);
+}
+
 function uniqueById(chunks: SourceChunk[]): SourceChunk[] {
   const seen = new Set<string>();
   const out: SourceChunk[] = [];
@@ -31,14 +95,14 @@ function uniqueById(chunks: SourceChunk[]): SourceChunk[] {
   return out;
 }
 
-function mergeUniqueById(existing: SourceChunk[], incoming: SourceChunk[]): SourceChunk[] {
-  if (incoming.length === 0) return existing;
-  return uniqueById([...existing, ...incoming]);
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
 }
 
-function toToolChunk(chunk: SourceChunk) {
+function toToolChunk(chunk: SourceChunk, citationIndex?: number) {
   return {
     id: chunk.id,
+    citationIndex,
     source: chunk.source,
     score: chunk.score,
     title: chunk.title,
@@ -78,9 +142,24 @@ export function createRagTools(
 ) {
   let liveChunks = uniqueById(contextChunks);
 
-  const registerToolChunks = (chunks: SourceChunk[]) => {
-    liveChunks = mergeUniqueById(liveChunks, chunks);
+  const registerToolChunks = (chunks: SourceChunk[]): IndexedToolChunk[] => {
+    const nextLiveChunks = [...liveChunks];
+    const indexed = chunks.map((chunk) => {
+      const existingIndex = nextLiveChunks.findIndex((existing) => existing.id === chunk.id);
+      if (existingIndex >= 0) {
+        return { chunk, citationIndex: existingIndex + 1 };
+      }
+
+      nextLiveChunks.push(chunk);
+      return {
+        chunk,
+        citationIndex: nextLiveChunks.length,
+      };
+    });
+
+    liveChunks = nextLiveChunks;
     onToolSources?.(chunks);
+    return indexed;
   };
 
   return {
@@ -116,12 +195,14 @@ export function createRagTools(
 
         const finalChunks = (strictChunks.length > 0 ? strictChunks : chunks).slice(0, topK);
 
-        registerToolChunks(finalChunks);
+        const indexedChunks = registerToolChunks(finalChunks);
         return {
           reference,
           language,
           total: finalChunks.length,
-          chunks: finalChunks.map(toToolChunk),
+          chunks: indexedChunks.map(({ chunk, citationIndex }) =>
+            toToolChunk(chunk, citationIndex)
+          ),
         };
       },
     }),
@@ -131,6 +212,10 @@ export function createRagTools(
         "Search General Conference talks by topic with optional speaker and year filters.",
       inputSchema: z.object({
         query: z.string().min(1).describe("The thematic query to search conference talks for"),
+        title: z
+          .string()
+          .optional()
+          .describe("Optional exact or near-exact talk title"),
         speaker: z
           .string()
           .optional()
@@ -150,11 +235,37 @@ export function createRagTools(
           .optional()
           .default(12),
       }),
-      execute: async ({ query, speaker, year, topK }) => {
-        const chunks = await retrieve(query, ["conference"], language, Math.max(topK * 3, 30));
+      execute: async ({ query, title, speaker, year, topK }) => {
+        const inferredSpeaker = inferSpeakerFromQuery(query);
+        const effectiveSpeaker = speaker ?? inferredSpeaker;
+        const normalizedSpeaker = effectiveSpeaker ? normalizeForMatch(effectiveSpeaker) : undefined;
 
-        const normalizedSpeaker = speaker ? normalizeForMatch(speaker) : undefined;
-        const yearString = year ? String(year) : undefined;
+        const inferredYear = inferYearFromQuery(query);
+        const effectiveYear = year ?? inferredYear;
+        const yearString = effectiveYear ? String(effectiveYear) : undefined;
+
+        const requestedTitle = title ?? inferTitleFromQuery(query);
+
+        const queryCandidates = uniqueStrings([
+          query,
+          ...(requestedTitle
+            ? [
+                requestedTitle,
+                effectiveSpeaker ? `${requestedTitle} ${effectiveSpeaker}` : "",
+                effectiveYear ? `${requestedTitle} ${effectiveYear}` : "",
+              ]
+            : []),
+        ]);
+
+        const chunks = uniqueById(
+          (
+            await Promise.all(
+              queryCandidates.map((candidate) =>
+                retrieve(candidate, ["conference"], language, Math.max(topK * 3, 30))
+              )
+            )
+          ).flat()
+        );
 
         const speakerMatches = (chunk: SourceChunk) => {
           if (!normalizedSpeaker) return true;
@@ -180,36 +291,81 @@ export function createRagTools(
           return dateText.includes(yearString) || titleText.includes(yearString);
         };
 
-        const strict = chunks.filter((chunk) => speakerMatches(chunk) && yearMatches(chunk));
+        const titleMatches = (chunk: SourceChunk) =>
+          titleMatchesRequested(chunk.title, requestedTitle);
 
-        // If strict filters produce no results, relax gracefully instead of returning empty.
-        // This avoids false negatives when metadata is incomplete/noisy.
+        const strict = chunks.filter(
+          (chunk) => speakerMatches(chunk) && yearMatches(chunk) && titleMatches(chunk)
+        );
+
+        // If a title was requested, never fall back to unrelated same-speaker talks.
+        // For topical searches without a title, relax speaker/year filters gracefully.
+        const titleOnly = requestedTitle ? chunks.filter(titleMatches) : [];
         const relaxed =
           strict.length > 0
             ? strict
-            : uniqueById([
-                ...(normalizedSpeaker ? chunks.filter(speakerMatches) : []),
-                ...(yearString ? chunks.filter(yearMatches) : []),
-              ]);
+            : requestedTitle
+              ? titleOnly.filter((chunk) => speakerMatches(chunk) && yearMatches(chunk))
+              : uniqueById([
+                  ...(normalizedSpeaker ? chunks.filter(speakerMatches) : []),
+                  ...(yearString ? chunks.filter(yearMatches) : []),
+                ]);
 
-        const final = strict.length > 0 ? strict : relaxed.length > 0 ? relaxed : chunks;
+        const final =
+          strict.length > 0
+            ? strict
+            : relaxed.length > 0
+              ? relaxed
+              : requestedTitle
+                ? []
+                : chunks;
+        const exactTitleMatch =
+          !!requestedTitle && final.some((chunk) => hasExactTitleEvidence(chunk.title, requestedTitle));
+        const confirmedTitleMatch =
+          !!requestedTitle &&
+          final.some((chunk) => hasConfirmedTitleEvidence(chunk.title, requestedTitle));
+
         const strategy =
-          strict.length > 0 ? "strict" : relaxed.length > 0 ? "relaxed" : "semantic-only";
-        registerToolChunks(final);
+          strict.length > 0
+            ? "strict"
+            : relaxed.length > 0
+              ? "relaxed"
+              : requestedTitle
+                ? "title-not-found"
+                : "semantic-only";
+        const returned = final.slice(0, topK);
+        const indexedChunks = registerToolChunks(returned);
 
         return {
           query,
-          speaker,
-          year,
+          queryCandidates,
+          speaker: effectiveSpeaker,
+          year: effectiveYear,
           language,
           strategy,
+          requestedTitle,
+          matchType: exactTitleMatch
+            ? "exact-title"
+            : confirmedTitleMatch
+              ? "confirmed-title"
+              : requestedTitle
+                ? "not-found"
+                : "semantic",
           strictMatches: strict.length,
-          total: final.length,
+          total: returned.length,
           note:
-            final.length > 0
-              ? "Results found. Do not state that the talk was not found."
-              : "No conference matches found in current retrieval results.",
-          chunks: final.slice(0, topK).map(toToolChunk),
+            returned.length > 0
+              ? exactTitleMatch
+                ? "Results include at least one exact title match."
+                : confirmedTitleMatch
+                  ? "Results include chunks whose metadata title matches the requested title."
+                  : "Results found based on semantic conference retrieval."
+              : requestedTitle
+                ? "No conference talk matching the requested title was found in the conference namespace. Do not answer as if the exact requested talk was retrieved."
+                : "No conference matches found in current retrieval results.",
+          chunks: indexedChunks.map(({ chunk, citationIndex }) =>
+            toToolChunk(chunk, citationIndex)
+          ),
         };
       },
     }),
