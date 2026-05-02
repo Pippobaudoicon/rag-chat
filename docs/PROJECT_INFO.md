@@ -107,6 +107,8 @@ Notes:
 - Sidebar conversation actions use a hover menu with rename and delete, and
   renames persist through `PATCH /api/conversations/[id]` while updating the
   local sidebar cache immediately.
+- Sidebar conversations are grouped client-side by `updatedAt` into Recent,
+  More than a week ago, and More than a month ago sections.
 
 ## 7) Retrieval and prompting behavior
 

@@ -59,6 +59,12 @@ interface ChatSidebarProps {
   showMobileClose?: boolean;
 }
 
+interface ConversationGroup {
+  key: string;
+  label: string;
+  items: ConversationItem[];
+}
+
 function mergeConversationPages(
   existing: ConversationItem[],
   incoming: ConversationItem[]
@@ -106,6 +112,39 @@ function upsertConversationItem(
   return merged.sort(
     (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
   );
+}
+
+function groupConversationsByAge(conversations: ConversationItem[]): ConversationGroup[] {
+  const now = Date.now();
+  const oneDayAgo = now - 24 * 60 * 60 * 1000;
+  const oneWeekAgo = now - 7 * 24 * 60 * 60 * 1000;
+  const oneMonthAgo = now - 30 * 24 * 60 * 60 * 1000;
+
+  const today: ConversationItem[] = [];
+  const thisWeek: ConversationItem[] = [];
+  const thisMonth: ConversationItem[] = [];
+  const older: ConversationItem[] = [];
+
+  for (const conversation of conversations) {
+    const updatedAt = new Date(conversation.updatedAt).getTime();
+
+    if (updatedAt > oneDayAgo) {
+      today.push(conversation);
+    } else if (updatedAt > oneWeekAgo) {
+      thisWeek.push(conversation);
+    } else if (updatedAt > oneMonthAgo) {
+      thisMonth.push(conversation);
+    } else {
+      older.push(conversation);
+    }
+  }
+
+  return [
+    { key: "today", label: "Today", items: today },
+    { key: "this-week", label: "This week", items: thisWeek },
+    { key: "this-month", label: "This month", items: thisMonth },
+    { key: "older", label: "More than a month ago", items: older },
+  ].filter((group) => group.items.length > 0);
 }
 
 function readConversationCache(key: string) {
@@ -391,6 +430,7 @@ export function ChatSidebar({ onClose, showMobileClose = false }: ChatSidebarPro
   }
 
   const activeId = currentPath?.match(/\/chat\/([^/]+)/)?.[1];
+  const conversationGroups = groupConversationsByAge(conversations);
 
   return (
     <div className="flex flex-col h-full w-full bg-sidebar border-r border-border/40">
@@ -446,69 +486,74 @@ export function ChatSidebar({ onClose, showMobileClose = false }: ChatSidebarPro
           </p>
         ) : (
           <>
-            {conversations.map((convo) => {
-              // Show active state immediately on click (pendingId),
-              // fall back to the real URL match (activeId) once loaded
-              const isActive =
-                pendingId === convo.id ||
-                (!pendingId && String(convo.id) === activeId);
-
-              return (
-                <div
-                  key={convo.id}
-                  onClick={() => handleSelect(convo.id)}
-                  className={cn(
-                    "group flex items-center gap-2 px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors",
-                    isActive
-                      ? "bg-accent text-foreground"
-                      : "text-muted-foreground hover:text-foreground hover:bg-accent/60"
-                  )}
-                >
-                  <span className="flex-1 truncate text-xs leading-snug">
-                    {convo.title ?? (
-                      <span className="italic text-muted-foreground/60">Nuova chat</span>
-                    )}
-                  </span>
-                  <DropdownMenu
-                    open={menuOpenId === convo.id}
-                    onOpenChange={(open) => setMenuOpenId(open ? convo.id : null)}
-                  >
-                    <DropdownMenuTrigger
-                      render={
-                        <button
-                          type="button"
-                          aria-label="Conversation actions"
-                          className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 data-[popup-open]:opacity-100 transition-opacity p-0.5 rounded hover:bg-accent/80 hover:text-foreground"
-                          onClick={(event) => event.stopPropagation()}
-                        />
-                      }
-                    >
-                      <EllipsisVerticalIcon className="h-3.5 w-3.5" />
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-40">
-                      <DropdownMenuItem
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          openRenameDialog(convo);
-                        }}
-                      >
-                        <PencilIcon className="h-3.5 w-3.5" />
-                        Rename
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        variant="destructive"
-                        onClick={(event) => {
-                          void handleDelete(event as unknown as React.MouseEvent, convo.id);
-                        }}
-                      >
-                        <Trash2Icon className="h-3.5 w-3.5" />
-                        Delete
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+            {conversationGroups.map((group) => (
+              <div key={group.key} className="space-y-0.5">
+                <div className="px-2 pb-1 pt-3 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/70 first:pt-0">
+                  {group.label}
                 </div>
-              );
-            })}
+                {group.items.map((convo) => {
+                  const isActive =
+                    pendingId === convo.id ||
+                    (!pendingId && String(convo.id) === activeId);
+
+                  return (
+                    <div
+                      key={convo.id}
+                      onClick={() => handleSelect(convo.id)}
+                      className={cn(
+                        "group flex items-center gap-2 px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors",
+                        isActive
+                          ? "bg-accent text-foreground"
+                          : "text-muted-foreground hover:text-foreground hover:bg-accent/60"
+                      )}
+                    >
+                      <span className="flex-1 truncate text-xs leading-snug">
+                        {convo.title ?? (
+                          <span className="italic text-muted-foreground/60">Nuova chat</span>
+                        )}
+                      </span>
+                      <DropdownMenu
+                        open={menuOpenId === convo.id}
+                        onOpenChange={(open) => setMenuOpenId(open ? convo.id : null)}
+                      >
+                        <DropdownMenuTrigger
+                          render={
+                            <button
+                              type="button"
+                              aria-label="Conversation actions"
+                              className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 data-[popup-open]:opacity-100 transition-opacity p-0.5 rounded hover:bg-accent/80 hover:text-foreground"
+                              onClick={(event) => event.stopPropagation()}
+                            />
+                          }
+                        >
+                          <EllipsisVerticalIcon className="h-3.5 w-3.5" />
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-40">
+                          <DropdownMenuItem
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              openRenameDialog(convo);
+                            }}
+                          >
+                            <PencilIcon className="h-3.5 w-3.5" />
+                            Rename
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            variant="destructive"
+                            onClick={(event) => {
+                              void handleDelete(event as unknown as React.MouseEvent, convo.id);
+                            }}
+                          >
+                            <Trash2Icon className="h-3.5 w-3.5" />
+                            Delete
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
             {hasMore && (
               <div ref={loadMoreRef} className="space-y-1 py-2">
                 {loadingMore ? (
