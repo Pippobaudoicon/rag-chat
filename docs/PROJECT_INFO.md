@@ -100,6 +100,10 @@ Notes:
 
 - Assistant messages may include `sources_json` used by UI source panel.
 - Conversation auto-title is derived from first user message.
+- New conversations are inserted into the sidebar immediately with an optimistic
+  client title. The sidebar waits to refetch until after the first assistant
+  response, so the optimistic title is not overwritten by the just-created DB
+  row that still has `title = null`.
 
 ## 7) Retrieval and prompting behavior
 

@@ -69,6 +69,18 @@ type FeedbackFollowUp = { messageId: string; value: "up" | "down" } | null;
 const FEEDBACK_FOLLOWUP_TIMEOUT_MS = 6000;
 const FEEDBACK_FOLLOWUP_FADE_MS = 300;
 
+function deriveConversationTitle(question: string): string {
+  const normalized = question.trim();
+  let title = normalized.slice(0, 60);
+
+  if (normalized.length > 60) {
+    const lastSpace = title.lastIndexOf(" ");
+    title = (lastSpace > 20 ? title.slice(0, lastSpace) : title) + "…";
+  }
+
+  return title;
+}
+
 const isTextPart = (part: UIMessage["parts"][number]): part is TextMessagePart =>
   part.type === "text";
 
@@ -241,7 +253,6 @@ export function ChatInterface({
             detail: { path: `/chat/${convId}` },
           })
         );
-        window.dispatchEvent(new CustomEvent("chat:conversations-changed"));
       }
     }
 
@@ -258,15 +269,29 @@ export function ChatInterface({
       if (!text.trim() || isStreaming) return;
 
       const convId = await ensureConversation();
+      const trimmedText = text.trim();
+
+      if (convId && messages.length === 0) {
+        const title = deriveConversationTitle(trimmedText);
+        window.dispatchEvent(
+          new CustomEvent("chat:conversation-updated", {
+            detail: {
+              id: convId,
+              title,
+              updatedAt: new Date().toISOString(),
+            },
+          })
+        );
+      }
 
       sendMessage(
-        { text },
+        { text: trimmedText },
         {
           body: { conversationId: convId, language, sources, topK: 20 },
         }
       );
     },
-    [ensureConversation, isStreaming, language, sendMessage, sources]
+    [ensureConversation, isStreaming, language, messages.length, sendMessage, sources]
   );
 
   const handleRegenerate = useCallback(
@@ -508,6 +533,18 @@ export function ChatInterface({
       }
     };
   }, [feedbackFollowUp]);
+
+  useEffect(() => {
+    if (status !== "ready") return;
+
+    const convId = conversationIdRef.current;
+    if (!convId) return;
+
+    const lastMessage = messages[messages.length - 1];
+    if (!lastMessage || lastMessage.role !== "assistant") return;
+
+    window.dispatchEvent(new CustomEvent("chat:conversations-changed"));
+  }, [messages, status]);
 
   return (
     <div className="flex flex-col h-full min-h-0">

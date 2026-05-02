@@ -31,6 +31,12 @@ interface ConversationItem {
   updatedAt: string;
 }
 
+interface ConversationUpdatedDetail {
+  id: string;
+  title?: string | null;
+  updatedAt?: string;
+}
+
 interface ChatSidebarProps {
   onClose?: () => void;
   showMobileClose?: boolean;
@@ -50,6 +56,39 @@ function mergeConversationPages(
   }
 
   return merged;
+}
+
+function upsertConversationItem(
+  conversations: ConversationItem[],
+  update: ConversationUpdatedDetail
+) {
+  const updatedAt = update.updatedAt ?? new Date().toISOString();
+  const existing = conversations.find((conversation) => conversation.id === update.id);
+
+  if (!existing) {
+    return [
+      {
+        id: update.id,
+        title: update.title ?? null,
+        updatedAt,
+      },
+      ...conversations,
+    ];
+  }
+
+  const merged = conversations.map((conversation) =>
+    conversation.id === update.id
+      ? {
+          ...conversation,
+          title: update.title === undefined ? conversation.title : update.title,
+          updatedAt,
+        }
+      : conversation
+  );
+
+  return merged.sort(
+    (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+  );
 }
 
 function readConversationCache(key: string) {
@@ -219,14 +258,28 @@ export function ChatSidebar({ onClose, showMobileClose = false }: ChatSidebarPro
       loadConversations({ replace: true });
     };
 
+    const onConversationUpdated = (event: Event) => {
+      const customEvent = event as CustomEvent<ConversationUpdatedDetail>;
+      const detail = customEvent.detail;
+      if (!detail?.id) return;
+
+      setConversations((prev) => {
+        const nextItems = upsertConversationItem(prev, detail);
+        persistConversationState(nextItems, nextCursor, hasMore);
+        return nextItems;
+      });
+    };
+
     window.addEventListener("chat:path-changed", onPathChanged as EventListener);
     window.addEventListener("chat:conversations-changed", onConversationsChanged);
+    window.addEventListener("chat:conversation-updated", onConversationUpdated as EventListener);
 
     return () => {
       window.removeEventListener("chat:path-changed", onPathChanged as EventListener);
       window.removeEventListener("chat:conversations-changed", onConversationsChanged);
+      window.removeEventListener("chat:conversation-updated", onConversationUpdated as EventListener);
     };
-  }, [loadConversations]);
+  }, [hasMore, loadConversations, nextCursor, persistConversationState]);
 
   // Clear pending selection once the route actually changes
   useEffect(() => {
