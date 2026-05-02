@@ -1,6 +1,6 @@
 # LDS rag-chat Project Knowledge Base
 
-Last updated: 2026-04-28
+Last updated: 2026-05-02
 
 This document is the single source of truth for project context.
 Read this first before deep code exploration.
@@ -47,12 +47,23 @@ Read this first before deep code exploration.
 ## 4) Runtime architecture flow
 
 1. Client sends chat message to `POST /api/chat` with selected language/sources/topK.
-2. Server verifies auth, extracts latest user question, and checks Redis cache.
-3. If needed, server embeds query with Voyage AI and retrieves from Pinecone namespaces.
-4. Retrieved chunks are formatted and injected into the final user turn.
-5. LLM response is streamed back via AI SDK.
-6. Assistant text + source chunks are persisted to DB and returned as metadata.
-7. UI renders message, inline citations, and source cards.
+2. Server verifies auth and extracts the latest user question.
+3. Server does NOT pre-fetch context. Instead it constructs an AI SDK `streamText`
+   call with the RAG tool set and lets the model decide how to retrieve.
+4. The model calls one or more retrieval tools per turn as it sees fit:
+   - `semantic_search` for general topical queries (caches via Upstash Redis).
+   - `lookup_scripture_passage` for scripture references.
+   - `search_conference_talks` for talks by title / speaker / year.
+   Multiple tools (and repeated calls to the same tool with different
+   arguments) are allowed when the question benefits from it.
+5. Tool results register chunks in a shared per-turn `RagToolContext` so all
+   citation indices remain stable across multiple tool calls.
+6. The model generates the final answer and may call `citation_verifier`
+   before completing.
+7. LLM response is streamed back via AI SDK.
+8. Assistant text + collected tool chunks are persisted to DB and returned as
+   metadata. The Redis cache entry is updated with the final answer text.
+9. UI renders message, inline citations, and source cards.
 
 ## 5) API surface (internal app API)
 
@@ -99,21 +110,41 @@ Notes:
   - enforces chapter-oriented retrieval,
   - sorts by verse start,
   - boosts chapter coverage in returned chunks.
-- Chat runtime also exposes AI function tools for targeted retrieval:
-  - `lookup_scripture_passage`
-  - `search_conference_talks`
-  - `citation_verifier`
-- `search_conference_talks` uses strict speaker/year/title filtering first, retries title-focused
-  query variants, and returns a title-not-found result instead of unrelated same-speaker talks
-  when a requested title is not present in conference metadata.
-- Tool-returned chunks include citation indices, and persisted/UI source ordering matches the
-  citation-verifier order: original RAG context first, then newly retrieved tool chunks.
+- Retrieval is **tool-driven** end-to-end. The chat route does not call
+  `retrieve()` eagerly; the model decides which retrieval tools to invoke
+  via the AI SDK tools API and may chain multiple tools per turn when the
+  question benefits from it. This eliminates the previous double-retrieval
+  (eager + tool) and lets the cache live entirely inside the
+  `semantic_search` tool. `stopWhen: stepCountIs(8)` in the chat route caps
+  the number of model + tool steps per turn.
+- AI function tools available in the chat runtime:
+  - `semantic_search` — general topical retrieval over the user's selected
+    sources, with Upstash Redis caching.
+  - `lookup_scripture_passage` — scripture-by-reference retrieval with strict
+    book/chapter filtering.
+  - `search_conference_talks` — conference-talk retrieval with optional
+    speaker / year / title filters; uses strict speaker/year/title filtering
+    first, retries title-focused query variants, and returns a
+    title-not-found result instead of unrelated same-speaker talks when a
+    requested title is not present in conference metadata.
+  - `citation_verifier` — validates inline numeric citations against the
+    chunks accumulated during the turn.
+- Tool source code lives under `src/lib/rag/tools/`, one folder per tool plus
+  a `shared/` folder for cross-cutting infrastructure (`tool-context.ts`,
+  `chunk-formatting.ts`, `text-normalize.ts`). The package entry point is
+  `src/lib/rag/tools/index.ts` which exposes `createRagTools()`.
+- All tools share a per-turn `RagToolContext` so citation indices are stable
+  across multiple tool calls. Persisted/UI source ordering matches the
+  citation-verifier order: chunks are listed in the order they were first
+  registered by tools.
 - System prompt enforces:
+  - tool-first retrieval (at least one retrieval tool for any substantive
+    question; multiple tools allowed when justified),
   - same-language answers,
   - no unsupported claims,
   - no fabricated citations,
-  - citation mapping to provided chunks only,
-  - include canonical links only when present.
+  - citation mapping to tool-returned chunks only,
+  - include canonical links only when present in chunk metadata.
 
 ## 8) Environment variables
 
@@ -154,6 +185,12 @@ Reference template: `.env.example`.
   - `src/lib/rag/cache.ts`
   - `src/lib/rag/scripture-reference.ts`
   - `src/lib/rag/citation-links.ts`
+  - `src/lib/rag/tools/index.ts` (factory)
+  - `src/lib/rag/tools/shared/` (tool-context, chunk-formatting, text-normalize)
+  - `src/lib/rag/tools/semantic-search/`
+  - `src/lib/rag/tools/lookup-scripture-passage/`
+  - `src/lib/rag/tools/search-conference-talks/`
+  - `src/lib/rag/tools/citation-verifier/`
 - DB:
   - `src/lib/db/schema.ts`
   - `src/lib/db/index.ts`

@@ -3,16 +3,15 @@ import { streamText, generateId, gateway, stepCountIs, smoothStream } from "ai";
 import { eq, and, asc } from "drizzle-orm";
 import { getDb } from "@/lib/db";
 import { conversations, messages } from "@/lib/db/schema";
-import { retrieve } from "@/lib/rag/retriever";
 import { SYSTEM_PROMPT, buildUserMessage } from "@/lib/rag/system-prompt";
-import { cacheKey, getFromCache, setInCache } from "@/lib/rag/cache";
+import { cacheKey, setInCache } from "@/lib/rag/cache";
 import { createRagTools } from "@/lib/rag/tools";
 import { badRequestFromZod, chatRequestSchema } from "@/lib/api/validation";
 import {
   createMemoryTools,
   getUserMemoryContext,
 } from "@/lib/memory/conversation-memory";
-import type { AssistantVersion, SourceType, Language, SourceChunk, MessageDetails } from "@/lib/types";
+import type { AssistantVersion, Language, SourceChunk, MessageDetails } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const maxDuration = 180;
@@ -71,17 +70,24 @@ export async function POST(req: Request) {
     regenerateQuestion ??
     "";
 
-  // ── 3. Source selection / cache check ─────────────────────────────────────
+  // ── 3. Source selection (no eager retrieval) ─────────────────────────────
+  // Retrieval is delegated to RAG tools (`semantic_search`,
+  // `lookup_scripture_passage`, `search_conference_talks`). The model decides
+  // which retrieval path is appropriate for the question and runs it exactly
+  // once per turn — eliminating the previous double-retrieval (eager + tool).
+  // The only path that still bypasses tools is the "fixed chunks" regenerate
+  // case, where the user explicitly wants to reuse previously retrieved
+  // sources.
   const hasFixedChunks =
-    Array.isArray(fixedChunks) &&
-    fixedChunks.length > 0;
+    Array.isArray(fixedChunks) && fixedChunks.length > 0;
   const validatedFixedChunks: SourceChunk[] = hasFixedChunks ? fixedChunks : [];
 
+  // Cache key for the final answer (chunks come from tool calls).
   const key = cacheKey(question, language, sources, topK);
-  const cached = hasFixedChunks ? null : await getFromCache(key);
-  const chunks: SourceChunk[] = hasFixedChunks
-    ? validatedFixedChunks
-    : (cached?.chunks ?? await retrieve(question, sources, language, topK));
+
+  // Chunks injected into the user message. Empty in the default flow; the
+  // model populates the source list by calling tools during streaming.
+  const initialChunks: SourceChunk[] = hasFixedChunks ? validatedFixedChunks : [];
   const toolChunksUsed: SourceChunk[] = [];
 
   const addToolChunks = (newChunks: SourceChunk[]) => {
@@ -89,7 +95,7 @@ export async function POST(req: Request) {
   };
 
   const getResponseSources = (): SourceChunk[] => {
-    const merged = [...chunks, ...toolChunksUsed];
+    const merged = [...initialChunks, ...toolChunksUsed];
     return merged.filter(
       (chunk, idx, arr) => arr.findIndex((c) => c.id === chunk.id) === idx
     ).slice(0, MAX_RESPONSE_SOURCES);
@@ -201,10 +207,11 @@ export async function POST(req: Request) {
     }
   }
 
-  // ── 6. Build RAG-augmented message ────────────────────────────────────────
-  // Inject retrieved context into the final user turn only.
-  // History messages are sent as-is — AI uses them for memory.
-  const augmentedQuestion = buildUserMessage(question, chunks, language);
+  // ── 6. Build (optionally) RAG-augmented message ───────────────────────────
+  // In the default flow `initialChunks` is empty and the model is expected to
+  // call a retrieval tool. Only the regenerate-with-fixed-chunks path injects
+  // pre-selected context up front.
+  const augmentedQuestion = buildUserMessage(question, initialChunks, language);
 
   const chatMessages: ChatMessage[] = [...modelHistory, { role: "user", content: augmentedQuestion }];
   const memoryContext = await getUserMemoryContext(userId);
@@ -218,9 +225,15 @@ export async function POST(req: Request) {
     system: systemPrompt,
     messages: chatMessages,
     maxOutputTokens: MAX_OUTPUT_TOKENS,
-    stopWhen: stepCountIs(5),
+    stopWhen: stepCountIs(8),
     tools: {
-      ...createRagTools(language, chunks, addToolChunks),
+      ...createRagTools({
+        language,
+        sources,
+        topK,
+        initialChunks,
+        onSources: addToolChunks,
+      }),
       ...(conversation
         ? createMemoryTools({
             clerkUserId: userId,
@@ -244,8 +257,12 @@ export async function POST(req: Request) {
         finishReason,
       };
 
-      // Update cache with complete answer
-      if (!cached && !hasFixedChunks) {
+      // Update cache with the final assistant answer + tool-collected chunks.
+      // The semantic_search tool warms the cache with chunks during retrieval;
+      // here we overwrite that entry to also include the streamed answer text.
+      // Skip caching for the regenerate-with-fixed-chunks path because the
+      // cache key was not derived from a real retrieval in that case.
+      if (!hasFixedChunks) {
         await setInCache(key, { chunks: getResponseSources(), answer: text });
       }
 
