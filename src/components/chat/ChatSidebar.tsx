@@ -469,7 +469,7 @@ export function ChatSidebar({ onClose, showMobileClose = false }: ChatSidebarPro
           <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
           </svg>
-          Nuova chat
+          New Chat
           {/* <span className="ml-auto font-mono text-[10px] text-muted-foreground/50">⌘K</span> */}
         </button>
       </div>
