@@ -104,6 +104,9 @@ Notes:
   client title. The sidebar waits to refetch until after the first assistant
   response, so the optimistic title is not overwritten by the just-created DB
   row that still has `title = null`.
+- Sidebar conversation actions use a hover menu with rename and delete, and
+  renames persist through `PATCH /api/conversations/[id]` while updating the
+  local sidebar cache immediately.
 
 ## 7) Retrieval and prompting behavior
 

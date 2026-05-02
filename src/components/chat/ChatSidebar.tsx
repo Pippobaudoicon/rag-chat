@@ -3,6 +3,23 @@
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { useUser, UserButton } from "@clerk/nextjs";
+import { EllipsisVerticalIcon, PencilIcon, Trash2Icon } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { MemoryDialog } from "./MemoryDialog";
@@ -129,6 +146,11 @@ export function ChatSidebar({ onClose, showMobileClose = false }: ChatSidebarPro
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const [currentPath, setCurrentPath] = useState(pathname ?? "/chat");
+  const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
+  const [renameTarget, setRenameTarget] = useState<ConversationItem | null>(null);
+  const [renameDraft, setRenameDraft] = useState("");
+  const [renameError, setRenameError] = useState<string | null>(null);
+  const [isRenaming, setIsRenaming] = useState(false);
   const listRef = useRef<HTMLDivElement | null>(null);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
   const loadingPageRef = useRef(false);
@@ -317,6 +339,57 @@ export function ChatSidebar({ onClose, showMobileClose = false }: ChatSidebarPro
     }
   }
 
+  function openRenameDialog(conversation: ConversationItem) {
+    setRenameTarget(conversation);
+    setRenameDraft(conversation.title ?? "");
+    setRenameError(null);
+    setMenuOpenId(null);
+  }
+
+  async function handleRenameSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!renameTarget || isRenaming) return;
+
+    const title = renameDraft.trim();
+    if (!title) {
+      setRenameError("Title is required.");
+      return;
+    }
+
+    setIsRenaming(true);
+    setRenameError(null);
+
+    try {
+      const response = await fetch(`/api/conversations/${renameTarget.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Rename failed with status ${response.status}`);
+      }
+
+      const updated = (await response.json()) as ConversationItem;
+      setConversations((prev) => {
+        const nextItems = upsertConversationItem(prev, {
+          id: updated.id,
+          title: updated.title,
+          updatedAt: updated.updatedAt,
+        });
+        persistConversationState(nextItems, nextCursor, hasMore);
+        return nextItems;
+      });
+      setRenameTarget(null);
+      setRenameDraft("");
+    } catch (error) {
+      console.error("Failed to rename conversation", error);
+      setRenameError("Could not rename the conversation.");
+    } finally {
+      setIsRenaming(false);
+    }
+  }
+
   const activeId = currentPath?.match(/\/chat\/([^/]+)/)?.[1];
 
   return (
@@ -396,15 +469,43 @@ export function ChatSidebar({ onClose, showMobileClose = false }: ChatSidebarPro
                       <span className="italic text-muted-foreground/60">Nuova chat</span>
                     )}
                   </span>
-                  {/* Delete button — only visible on hover */}
-                  <button
-                    onClick={(e) => handleDelete(e, convo.id)}
-                    className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded hover:text-red-400"
+                  <DropdownMenu
+                    open={menuOpenId === convo.id}
+                    onOpenChange={(open) => setMenuOpenId(open ? convo.id : null)}
                   >
-                    <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
+                    <DropdownMenuTrigger
+                      render={
+                        <button
+                          type="button"
+                          aria-label="Conversation actions"
+                          className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 data-[popup-open]:opacity-100 transition-opacity p-0.5 rounded hover:bg-accent/80 hover:text-foreground"
+                          onClick={(event) => event.stopPropagation()}
+                        />
+                      }
+                    >
+                      <EllipsisVerticalIcon className="h-3.5 w-3.5" />
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-40">
+                      <DropdownMenuItem
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          openRenameDialog(convo);
+                        }}
+                      >
+                        <PencilIcon className="h-3.5 w-3.5" />
+                        Rename
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        variant="destructive"
+                        onClick={(event) => {
+                          void handleDelete(event as unknown as React.MouseEvent, convo.id);
+                        }}
+                      >
+                        <Trash2Icon className="h-3.5 w-3.5" />
+                        Delete
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </div>
               );
             })}
@@ -433,6 +534,60 @@ export function ChatSidebar({ onClose, showMobileClose = false }: ChatSidebarPro
           <span className="text-xs text-muted-foreground truncate">Account</span>
         </div>
       </div>
+
+      <Dialog
+        open={!!renameTarget}
+        onOpenChange={(open) => {
+          if (!open && !isRenaming) {
+            setRenameTarget(null);
+            setRenameDraft("");
+            setRenameError(null);
+          }
+        }}
+      >
+        <DialogContent>
+          <form className="space-y-4" onSubmit={handleRenameSubmit}>
+            <DialogHeader>
+              <DialogTitle className="text-sm">Rename conversation</DialogTitle>
+              <DialogDescription className="text-xs">
+                Update the conversation title shown in the sidebar.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-2">
+              <Input
+                value={renameDraft}
+                maxLength={200}
+                placeholder="Conversation title"
+                onChange={(event) => setRenameDraft(event.target.value)}
+                disabled={isRenaming}
+                autoFocus
+              />
+              {renameError ? (
+                <p className="text-xs text-destructive">{renameError}</p>
+              ) : null}
+            </div>
+
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  if (isRenaming) return;
+                  setRenameTarget(null);
+                  setRenameDraft("");
+                  setRenameError(null);
+                }}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" disabled={isRenaming}>
+                {isRenaming ? "Saving..." : "Save"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
