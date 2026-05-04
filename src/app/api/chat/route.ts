@@ -234,6 +234,8 @@ export async function POST(req: Request) {
     : SYSTEM_PROMPT;
 
   // ── 7. Stream with AI SDK v6 ──────────────────────────────────────────────
+  const toolNamesUsed: string[] = [];
+
   const result = streamText({
     model: gateway(CHAT_MODEL),
     system: systemPrompt,
@@ -258,6 +260,18 @@ export async function POST(req: Request) {
       delayInMs: 20,
       chunking: "word",
     }),
+
+    onStepFinish: ({ toolCalls }) => {
+      // Collect tool names as they execute during streaming
+      (toolCalls ?? []).forEach((toolCall) => {
+        if (toolCall && typeof toolCall === "object") {
+          const { toolName } = toolCall as { toolName?: unknown };
+          if (typeof toolName === "string" && toolName.trim() && !toolNamesUsed.includes(toolName)) {
+            toolNamesUsed.push(toolName);
+          }
+        }
+      });
+    },
 
     onFinish: async ({ text, totalUsage, finishReason, steps }) => {
       // Build details object for persistence
@@ -356,6 +370,7 @@ export async function POST(req: Request) {
           latencyMs: Date.now() - startTime,
           model: CHAT_MODEL,
           finishReason: part.finishReason,
+          toolNames: toolNamesUsed,
         };
         return { sources: getResponseSources(), details };
       }
