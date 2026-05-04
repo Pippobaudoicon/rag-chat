@@ -4,6 +4,8 @@ import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { ChatSidebar } from "@/components/chat/ChatSidebar";
 import { LanguageProvider } from "@/components/chat/language-context";
 import { LanguageToggle } from "@/components/chat/LanguageToggle";
+import { useLanguage } from "@/components/chat/language-context";
+import { uiText } from "@/components/chat/i18n";
 
 const Sheet = lazy(() =>
   import("@/components/ui/sheet").then((m) => ({ default: m.Sheet }))
@@ -21,7 +23,17 @@ const OPEN_SWIPE_MIN_DISTANCE = 70;
 const OPEN_SWIPE_HORIZONTAL_RATIO = 1.5; // |dx| must dominate |dy| by this factor
 
 export function AppShell({ children }: AppShellProps) {
+  return (
+    <LanguageProvider>
+      <AppShellContent>{children}</AppShellContent>
+    </LanguageProvider>
+  );
+}
+
+function AppShellContent({ children }: AppShellProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const { language } = useLanguage();
+  const text = uiText(language);
   const swipeStartRef = useRef<
     | {
         x: number;
@@ -106,7 +118,6 @@ export function AppShell({ children }: AppShellProps) {
   }, [mobileOpen]);
 
   return (
-    <LanguageProvider>
     <div className="app-shell-height flex w-full overflow-hidden bg-background overscroll-none">
       {/* Desktop sidebar — fixed, always visible */}
       <aside className="hidden md:flex w-64 shrink-0 flex-col">
@@ -127,7 +138,7 @@ export function AppShell({ children }: AppShellProps) {
           <button
             type="button"
             onClick={() => setMobileOpen(true)}
-            aria-label="Open menu"
+            aria-label={text.app.openMenu}
             className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-border/50 bg-card text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
           >
             <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -171,7 +182,6 @@ export function AppShell({ children }: AppShellProps) {
         <div className="flex-1 min-h-0 overflow-hidden">{children}</div>
       </main>
     </div>
-    </LanguageProvider>
   );
 }
 

@@ -1,6 +1,6 @@
 # LDS rag-chat Project Knowledge Base
 
-Last updated: 2026-05-02
+Last updated: 2026-05-04
 
 This document is the single source of truth for project context.
 Read this first before deep code exploration.
@@ -32,7 +32,7 @@ Read this first before deep code exploration.
   - Conference
   - Handbook
   - Liahona
-- Language switch: Italian (`ita`) and English (`eng`).
+- Language switch: Italian (`ita`) and English (`eng`) for unified UI labels and answer-language defaults.
 - Inline numeric citations linked to source cards.
 - Sources panel with scripture coverage behavior for chapter/book requests.
 - Conversation CRUD in sidebar (create/list/open/delete) and title updates.
@@ -113,7 +113,7 @@ Notes:
 ## 7) Retrieval and prompting behavior
 
 - Uses Pinecone index `lds-rag` and per-source namespaces.
-- Filters retrieval by `language` metadata.
+- Retrieval searches all currently indexed corpus languages (`ita`, `eng`) while preserving each chunk's source-language metadata; the UI language controls labels and the default answer instruction, not corpus availability.
 - Special scripture handling for whole chapter/book requests:
   - parses scripture references,
   - enforces chapter-oriented retrieval,
@@ -149,7 +149,7 @@ Notes:
 - System prompt enforces:
   - tool-first retrieval (at least one retrieval tool for any substantive
     question; multiple tools allowed when justified),
-  - same-language answers,
+  - same-language answers based on the user's latest question, even when source chunks are in another indexed language,
   - no unsupported claims,
   - no fabricated citations,
   - citation mapping to tool-returned chunks only,

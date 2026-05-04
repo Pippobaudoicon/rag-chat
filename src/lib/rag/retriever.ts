@@ -1,5 +1,6 @@
 import { Pinecone } from "@pinecone-database/pinecone";
 import { embedQuery } from "./embedder";
+import { INDEXED_LANGUAGES } from "@/lib/types";
 import type { SourceChunk, SourceType, Language } from "@/lib/types";
 import {
   parseScriptureSelection,
@@ -75,6 +76,29 @@ function parseVerseBounds(verse?: string): { start: number; end: number } | null
     start: Math.min(start, end),
     end: Math.max(start, end),
   };
+}
+
+function orderRetrievalLanguages(answerLanguage: Language): Language[] {
+  return [
+    answerLanguage,
+    ...INDEXED_LANGUAGES.filter((language) => language !== answerLanguage),
+  ];
+}
+
+function mergeChunks(chunks: SourceChunk[]): SourceChunk[] {
+  return chunks.filter(
+    (chunk, idx, arr) => arr.findIndex((candidate) => candidate.id === chunk.id) === idx
+  );
+}
+
+function sortRetrievedChunks(chunks: SourceChunk[], preferredLanguage: Language): SourceChunk[] {
+  return chunks.sort((a, b) => {
+    const scoreDelta = b.score - a.score;
+    if (Math.abs(scoreDelta) > 0.01) return scoreDelta;
+    if (a.language === preferredLanguage && b.language !== preferredLanguage) return -1;
+    if (b.language === preferredLanguage && a.language !== preferredLanguage) return 1;
+    return scoreDelta;
+  });
 }
 
 function verseOverlaps(
@@ -268,14 +292,31 @@ export async function retrieve(
   language: Language,
   topK = 20
 ): Promise<SourceChunk[]> {
+  const retrievalLanguages = orderRetrievalLanguages(language);
   const scriptureSelection = parseScriptureSelection(query, language);
   const verseChunks =
     sources.includes("scriptures")
-      ? await retrieveSpecificVerseChunks(query, language)
+      ? mergeChunks(
+          (
+            await Promise.all(
+              retrievalLanguages.map((retrievalLanguage) =>
+                retrieveSpecificVerseChunks(query, retrievalLanguage)
+              )
+            )
+          ).flat()
+        )
       : [];
   const chapterChunks =
     sources.includes("scriptures")
-      ? await retrieveWholeChapterChunks(query, language)
+      ? mergeChunks(
+          (
+            await Promise.all(
+              retrievalLanguages.map((retrievalLanguage) =>
+                retrieveWholeChapterChunks(query, retrievalLanguage)
+              )
+            )
+          ).flat()
+        )
       : [];
 
   if (scriptureSelection && verseChunks.length > 0) {
@@ -291,36 +332,36 @@ export async function retrieve(
   const [vector] = await Promise.all([embedQuery(query)]);
   const index = getPinecone().index(INDEX_NAME);
 
-  // Query all namespaces in PARALLEL — much faster than the Python serial loop
+  // Query all selected namespaces and indexed languages in parallel. The UI
+  // language controls the answer, but retrieval can use any corpus language.
   const results = await Promise.all(
-    sources.map((source) =>
-      index
-        .namespace(source)
-        .query({
-          vector,
-          topK,
-          includeMetadata: true,
-          // Matches Python: lang_filter = {"language": language.value}
-          filter: { language: { $eq: language } },
-        })
-        .then((res) =>
-          res.matches.map(
-            (match): SourceChunk =>
-              toChunk(source, language, match)
+    sources.flatMap((source) =>
+      retrievalLanguages.map((retrievalLanguage) =>
+        index
+          .namespace(source)
+          .query({
+            vector,
+            topK,
+            includeMetadata: true,
+            filter: { language: { $eq: retrievalLanguage } },
+          })
+          .then((res) =>
+            res.matches.map(
+              (match): SourceChunk =>
+                toChunk(source, retrievalLanguage, match)
+            )
           )
-        )
+      )
     )
   );
 
   const merged = [...verseChunks, ...chapterChunks, ...results.flat()];
-  const deduped = merged.filter(
-    (chunk, idx, arr) => arr.findIndex((c) => c.id === chunk.id) === idx
-  );
+  const deduped = mergeChunks(merged);
 
   const limit = chapterChunks.length
     ? Math.max(topK, Math.min(topK * 2, chapterChunks.length))
     : topK;
 
   // Flatten, sort by score descending, return top topK overall.
-  return deduped.sort((a, b) => b.score - a.score).slice(0, limit);
+  return sortRetrievedChunks(deduped, language).slice(0, limit);
 }

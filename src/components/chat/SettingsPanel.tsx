@@ -3,13 +3,13 @@
 import { Separator } from "@/components/ui/separator";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ZapIcon } from "lucide-react";
-import { ALL_SOURCES, SUPER_SOURCES, SOURCE_LABELS } from "@/lib/types";
+import { ALL_SOURCES, SUPER_SOURCES } from "@/lib/types";
 import type { SourceType, Language } from "@/lib/types";
 import { LanguageToggle } from "./LanguageToggle";
+import { sourceLabel, uiText } from "./i18n";
 
 interface SettingsPanelProps {
   language: Language;
-  onLanguageChange: (lang: Language) => void;
   sources: SourceType[];
   onSourcesChange: (sources: SourceType[]) => void;
   disabled?: boolean;
@@ -24,12 +24,12 @@ function arraysEqual(a: SourceType[], b: SourceType[]): boolean {
 
 export function SettingsPanel({
   language,
-  onLanguageChange,
   sources,
   onSourcesChange,
   disabled = false,
 }: SettingsPanelProps) {
   const isSuperActive = arraysEqual(sources, SUPER_SOURCES);
+  const text = uiText(language);
 
   function toggleSource(source: SourceType) {
     if (sources.includes(source)) {
@@ -50,18 +50,13 @@ export function SettingsPanel({
     }
   }
 
-  const superTooltipLabel =
-    language === "ita"
-      ? "Cerca in tutte le fonti:"
-      : "Search all sources:";
-
   return (
     <div className="flex flex-wrap items-center gap-3 border-b border-border/50 bg-background/50 py-2 px-3 pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] backdrop-blur-sm md:px-4">
       {/* Source toggles */}
       <div className="flex items-center gap-1.5 flex-wrap">
         {ALL_SOURCES.map((source) => {
           const active = sources.includes(source);
-          const label = SOURCE_LABELS[source][language === "ita" ? "it" : "en"];
+          const label = sourceLabel(source, language);
           return (
             <button
               key={source}
@@ -102,11 +97,11 @@ export function SettingsPanel({
           </TooltipTrigger>
           <TooltipContent side="bottom" className="max-w-xs text-xs leading-relaxed">
             <div>
-              <p className="mb-1 font-medium">{superTooltipLabel}</p>
+              <p className="mb-1 font-medium">{text.settings.searchAllSources}</p>
               <ul className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-muted-foreground">
                 {SUPER_SOURCES.map((s) => (
                   <li key={s}>
-                    {SOURCE_LABELS[s][language === "ita" ? "it" : "en"]}
+                    {sourceLabel(s, language)}
                   </li>
                 ))}
               </ul>

@@ -52,6 +52,7 @@ import type {
 import { linkifyInlineCitations } from "@/lib/rag/citation-links";
 import { parseScriptureSelection } from "@/lib/rag/scripture-reference";
 import { useLanguage } from "./language-context";
+import { uiText } from "./i18n";
 
 interface ChatInterfaceProps {
   conversationId?: string;
@@ -114,15 +115,10 @@ function hasVisibleAssistantText(message: UIMessage): boolean {
 }
 
 function getPendingLabel(language: Language, phase: PendingPhase): string {
-  if (language === "ita") {
-    if (phase === "queued") return "Invio della richiesta...";
-    if (phase === "tools") return "Sto usando i tool sulle fonti...";
-    return "Sto scrivendo la risposta...";
-  }
-
-  if (phase === "queued") return "Sending request...";
-  if (phase === "tools") return "Using tools on sources...";
-  return "Writing the response...";
+  const text = uiText(language);
+  if (phase === "queued") return text.chat.pendingQueued;
+  if (phase === "tools") return text.chat.pendingTools;
+  return text.chat.pendingDrafting;
 }
 
 function getLastAssistantMessageIndex(messages: UIMessage[]): number {
@@ -173,7 +169,8 @@ export function ChatInterface({
   initialAssistantVersions = [],
   initialFeedbackByMessageId = {},
 }: ChatInterfaceProps) {
-  const { language, setLanguage } = useLanguage();
+  const { language } = useLanguage();
+  const text = uiText(language);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [sources, setSources] = useState<SourceType[]>(DEFAULT_SOURCES);
 
@@ -551,7 +548,6 @@ export function ChatInterface({
       {/* Settings bar — language + source toggles */}
       <SettingsPanel
         language={language}
-        onLanguageChange={setLanguage}
         sources={sources}
         onSourcesChange={setSources}
         disabled={isStreaming}
@@ -625,12 +621,8 @@ export function ChatInterface({
                           >
                             <WrenchIcon size={12} />
                             {toolRunInProgress
-                              ? language === "ita"
-                                ? "Tool in uso"
-                                : "Using tools"
-                              : language === "ita"
-                                ? "Tool usati"
-                                : "Tools used"}
+                              ? text.chat.toolsUsing
+                              : text.chat.toolsUsed}
                           </Badge>
                           {toolUsage.map((toolName) => (
                             <Badge
@@ -661,7 +653,7 @@ export function ChatInterface({
                           {hasVersions && (
                             <>
                               <MessageAction
-                                tooltip={language === "ita" ? "Versione precedente" : "Previous version"}
+                                tooltip={text.chat.previousVersion}
                                 size="sm"
                                 disabled={currentVersionIndex === 0}
                                 className="cursor-pointer px-2 text-xs text-muted-foreground"
@@ -678,7 +670,7 @@ export function ChatInterface({
                                 {currentVersionIndex + 1}/{versions.length}
                               </span>
                               <MessageAction
-                                tooltip={language === "ita" ? "Versione successiva" : "Next version"}
+                                tooltip={text.chat.nextVersion}
                                 size="sm"
                                 disabled={currentVersionIndex >= versions.length - 1}
                                 className="cursor-pointer px-2 text-xs text-muted-foreground"
@@ -694,9 +686,7 @@ export function ChatInterface({
                             </>
                           )}
                           <MessageAction
-                            tooltip={
-                              language === "ita" ? "Risposta utile" : "Helpful answer"
-                            }
+                            tooltip={text.chat.helpful}
                             size="sm"
                             disabled={isSubmittingFeedback || !conversationIdRef.current}
                             className={`cursor-pointer gap-1.5 px-2 text-xs ${
@@ -721,9 +711,7 @@ export function ChatInterface({
                             <ThumbsUpIcon size={14} />
                           </MessageAction>
                           <MessageAction
-                            tooltip={
-                              language === "ita" ? "Risposta non utile" : "Unhelpful answer"
-                            }
+                            tooltip={text.chat.unhelpful}
                             size="sm"
                             disabled={isSubmittingFeedback || !conversationIdRef.current}
                             className={`cursor-pointer gap-1.5 px-2 text-xs ${
@@ -748,7 +736,7 @@ export function ChatInterface({
                             <ThumbsDownIcon size={14} />
                           </MessageAction>
                           <MessageAction
-                            tooltip="Copy message"
+                            tooltip={text.chat.copyMessage}
                             size="sm"
                             className="cursor-pointer gap-1.5 px-2 text-xs text-muted-foreground"
                             onClick={() => {
@@ -758,14 +746,14 @@ export function ChatInterface({
                             {copiedId === message.id ? (
                               <>
                                 <CheckIcon size={14} />
-                                <span>Copied!</span>
+                                <span>{text.chat.copied}</span>
                               </>
                             ) : (
                               <CopyIcon size={14} />
                             )}
                           </MessageAction>
                           <MessageAction
-                            tooltip={language === "ita" ? "Rigenera risposta" : "Regenerate answer"}
+                            tooltip={text.chat.regenerate}
                             size="sm"
                             disabled={
                               isStreaming || !previousUserQuery || !displayedSources || displayedSources.length === 0
@@ -782,7 +770,7 @@ export function ChatInterface({
                           </MessageAction>
                           {messageDetails && (
                             <MessageAction
-                              tooltip={language === "ita" ? "Dettagli" : "Details"}
+                              tooltip={text.chat.details}
                               size="sm"
                               className={`cursor-pointer gap-1.5 px-2 text-xs ${
                                 expandedDetailsId === message.id
@@ -814,12 +802,8 @@ export function ChatInterface({
                           <div className="mb-1 flex items-center justify-between gap-2">
                             <span>
                               {feedbackFollowUp?.value === "down"
-                                ? language === "ita"
-                                  ? "Aggiungere un motivo?"
-                                  : "Add a reason?"
-                                : language === "ita"
-                                  ? "Aggiungere una nota?"
-                                  : "Add a note?"}
+                                ? text.chat.addReason
+                                : text.chat.addNote}
                             </span>
                             <span className="tabular-nums text-[10px] text-muted-foreground/60">
                               {followUpSeconds}s
@@ -847,7 +831,7 @@ export function ChatInterface({
                                 setFeedbackCommentDraft(selectedFeedback?.comment ?? "");
                               }}
                             >
-                              {language === "ita" ? "Aggiungi" : "Add"}
+                              {text.chat.add}
                             </Button>
                             <Button
                               type="button"
@@ -858,7 +842,7 @@ export function ChatInterface({
                                 setFeedbackFollowUp(null);
                               }}
                             >
-                              {language === "ita" ? "Ignora" : "Dismiss"}
+                              {text.chat.dismiss}
                             </Button>
                           </div>
                         </div>
@@ -867,20 +851,14 @@ export function ChatInterface({
                         <div className="mt-2 rounded-md border border-border/60 bg-background/60 p-2.5">
                           <p className="mb-2 text-xs text-muted-foreground">
                             {feedbackComposer?.value === "up"
-                              ? language === "ita"
-                                ? "Cosa ha reso utile questa risposta? (opzionale)"
-                                : "What made this answer helpful? (optional)"
-                              : language === "ita"
-                                ? "Cosa non ha funzionato in questa risposta? (opzionale)"
-                                : "What did not work in this answer? (optional)"}
+                              ? text.chat.helpfulCommentPrompt
+                              : text.chat.unhelpfulCommentPrompt}
                           </p>
                           <Textarea
                             value={feedbackCommentDraft}
                             onChange={(event) => setFeedbackCommentDraft(event.target.value)}
                             placeholder={
-                              language === "ita"
-                                ? "Aggiungi un commento (facoltativo)"
-                                : "Add a comment (optional)"
+                              text.chat.commentPlaceholder
                             }
                             className="min-h-20"
                           />
@@ -896,7 +874,7 @@ export function ChatInterface({
                               }}
                               disabled={isSubmittingFeedback}
                             >
-                              {language === "ita" ? "Annulla" : "Cancel"}
+                              {text.chat.cancel}
                             </Button>
                             <Button
                               type="button"
@@ -919,7 +897,7 @@ export function ChatInterface({
                               }}
                               disabled={isSubmittingFeedback || !conversationIdRef.current}
                             >
-                              {language === "ita" ? "Invia feedback" : "Send feedback"}
+                              {text.chat.sendFeedback}
                             </Button>
                           </div>
                         </div>
@@ -965,11 +943,7 @@ export function ChatInterface({
           >
             <PromptInputTextarea
               className="min-h-14 max-h-44 px-4 pt-4 pb-2 text-[15px] leading-6 placeholder:text-muted-foreground/80"
-              placeholder={
-                language === "ita"
-                  ? "Fai una domanda a LDS helper..."
-                  : "Ask a question to LDS helper..."
-              }
+              placeholder={text.chat.placeholder}
             />
             <PromptInputSubmit
               status={status}
@@ -980,9 +954,7 @@ export function ChatInterface({
             />
           </PromptInput>
           <p className="mt-2 text-center text-[9px] text-muted-foreground/50">
-            {language === "ita"
-              ? "Le risposte sono basate su fonti ufficiali SUD, ma l'AI potrebbe non essere sempre accurata. Si prega quindi di consultare le fonti ufficiali SUD o parlare con i leader locali/missionari."
-              : "Answers are grounded in official LDS sources, but the AI may not always be accurate. For doctrinal or faith-related questions, please consult official LDS sources or contact local missionaries."}
+            {text.chat.disclaimer}
           </p>
         </div>
       </div>

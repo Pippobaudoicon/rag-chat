@@ -5,6 +5,7 @@ import { SourceCard } from "./SourceCard";
 import type { SourceChunk, Language } from "@/lib/types";
 import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { uiText } from "./i18n";
 
 interface SourcesPanelProps {
   chunks: SourceChunk[];
@@ -45,6 +46,7 @@ function getScriptureCoverageLabels(
   chunks: SourceChunk[],
   language: Language
 ): ScriptureCoverageLabels | null {
+  const text = uiText(language);
   const scriptureChunks = chunks.filter(
     (chunk) => chunk.source === "scriptures" && chunk.book && chunk.chapter
   );
@@ -62,7 +64,7 @@ function getScriptureCoverageLabels(
     .map(([book, chapters]) => ({ book, chapters: [...new Set(chapters)].sort((a, b) => a - b) }))
     .sort((a, b) => b.chapters.length - a.chapters.length);
 
-  const prefix = language === "ita" ? "Copertura" : "Coverage";
+  const prefix = text.sources.coverage;
   const full = `${prefix}: ${entries
     .map((entry) => `${entry.book} ${formatChapterCoverage(entry.chapters)}`)
     .join("; ")}`;
@@ -77,10 +79,7 @@ function getScriptureCoverageLabels(
   }
 
   const [main, ...rest] = entries;
-  const suffix =
-    language === "ita"
-      ? ` + ${rest.length} ${rest.length === 1 ? "altro libro" : "altri libri"}`
-      : ` + ${rest.length} ${rest.length === 1 ? "other book" : "other books"}`;
+  const suffix = ` + ${rest.length} ${rest.length === 1 ? text.sources.otherBook : text.sources.otherBooks}`;
   return {
     compact: `${prefix}: ${main.book} ${formatChapterCoverage(main.chapters)}${suffix}`,
     full,
@@ -96,9 +95,10 @@ export function SourcesPanel({
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
   const railRef = useRef<HTMLDivElement | null>(null);
+  const text = uiText(language);
 
   const shown = expanded ? chunks : chunks.slice(0, 3);
-  const label = language === "ita" ? "fonti" : "sources";
+  const label = text.sources.countLabel;
   const scriptureCoverage = showScriptureCoverage
     ? getScriptureCoverageLabels(chunks, language)
     : null;
@@ -178,9 +178,7 @@ export function SourcesPanel({
           <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground/90">
             <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/70 animate-pulse" />
             <span>
-              {language === "ita"
-                ? "Scorri in orizzontale per vedere tutte le fonti"
-                : "Scroll horizontally to see all sources"}
+              {text.sources.scrollHint}
             </span>
             <span className="text-muted-foreground/60">&lt;- -&gt;</span>
           </div>
@@ -192,7 +190,7 @@ export function SourcesPanel({
             <div className="pointer-events-none absolute inset-y-0 left-1 z-20 flex items-center">
               <button
                 type="button"
-                aria-label={language === "ita" ? "Scorri a sinistra" : "Scroll left"}
+                aria-label={text.sources.scrollLeft}
                 disabled={!canScrollLeft}
                 onClick={() => scrollCards("left")}
                 className="pointer-events-auto inline-flex h-7 w-7 items-center justify-center rounded-full border border-border/60 bg-background/90 text-muted-foreground shadow-sm backdrop-blur transition-all md:opacity-0 md:group-hover/rail:opacity-100 md:group-focus-within/rail:opacity-100 enabled:hover:bg-card enabled:hover:text-foreground disabled:cursor-not-allowed disabled:opacity-35"
@@ -204,7 +202,7 @@ export function SourcesPanel({
             <div className="pointer-events-none absolute inset-y-0 right-1 z-20 flex items-center">
               <button
                 type="button"
-                aria-label={language === "ita" ? "Scorri a destra" : "Scroll right"}
+                aria-label={text.sources.scrollRight}
                 disabled={!canScrollRight}
                 onClick={() => scrollCards("right")}
                 className="pointer-events-auto inline-flex h-7 w-7 items-center justify-center rounded-full border border-border/60 bg-background/90 text-muted-foreground shadow-sm backdrop-blur transition-all md:opacity-0 md:group-hover/rail:opacity-100 md:group-focus-within/rail:opacity-100 enabled:hover:bg-card enabled:hover:text-foreground disabled:cursor-not-allowed disabled:opacity-35"

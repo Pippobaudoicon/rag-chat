@@ -10,6 +10,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
+import { useLanguage } from "./language-context";
+import { formatText, uiText } from "./i18n";
 
 interface MemorySnapshot {
   profile: {
@@ -79,15 +81,17 @@ function MemoryList({ title, items }: { title: string; items: string[] }) {
   );
 }
 
-function EmptyMemory() {
+function EmptyMemory({ label }: { label: string }) {
   return (
     <div className="rounded-md border border-border/50 bg-muted/20 px-3 py-6 text-center text-sm text-muted-foreground">
-      No saved profile memory yet.
+      {label}
     </div>
   );
 }
 
 export function MemoryDialog() {
+  const { language } = useLanguage();
+  const text = uiText(language);
   const [open, setOpen] = useState(false);
   const [snapshot, setSnapshot] = useState<MemorySnapshot | null>(null);
   const [loading, setLoading] = useState(false);
@@ -104,7 +108,7 @@ export function MemoryDialog() {
       setSnapshot((await response.json()) as MemorySnapshot);
     } catch (err) {
       console.error("Failed to load memory", err);
-      setError("Unable to load memory right now.");
+      setError(text.memory.loadError);
     } finally {
       setLoading(false);
     }
@@ -129,7 +133,7 @@ export function MemoryDialog() {
       setSnapshot(data.snapshot);
     } catch (err) {
       console.error("Failed to refresh memory", err);
-      setError("Unable to refresh memory right now.");
+      setError(text.memory.refreshError);
     } finally {
       setRefreshing(false);
     }
@@ -157,14 +161,14 @@ export function MemoryDialog() {
         className="flex w-full items-center gap-2 rounded-lg border border-border/40 px-3 py-2 text-sm text-muted-foreground transition-colors hover:border-border/60 hover:bg-accent hover:text-foreground"
       >
         <BrainIcon className="h-3.5 w-3.5" />
-        Memory
+        {text.memory.button}
       </button>
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="flex max-h-[calc(100dvh-2rem)] min-h-0 flex-col overflow-hidden sm:max-w-2xl">
           <DialogHeader className="shrink-0">
             <div className="flex items-center justify-between gap-3 pr-8">
-              <DialogTitle className="text-sm">User memory</DialogTitle>
+              <DialogTitle className="text-sm">{text.memory.title}</DialogTitle>
               <button
                 type="button"
                 onClick={refreshMemory}
@@ -172,24 +176,26 @@ export function MemoryDialog() {
                 className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-border/50 px-2 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
               >
                 <RefreshCwIcon className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />
-                Refresh
+                {text.memory.refresh}
               </button>
             </div>
             <DialogDescription className="text-xs">
-              Profile notes, preferences, feedback patterns, and compact conversation memories saved for personalization.
+              {text.memory.description}
             </DialogDescription>
           </DialogHeader>
 
           {refreshResult && (
             <div className="shrink-0 rounded-md border border-border/50 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
               {refreshResult.conversationsFailed > 0
-                ? `Could not refresh recent-conversations memory from ${refreshResult.conversationsScanned} conversations; will retry later.`
+                ? formatText(text.memory.refreshFailed, { count: refreshResult.conversationsScanned })
                 : refreshResult.conversationsSkipped > 0
-                  ? `Recent-conversations memory already up-to-date across ${refreshResult.conversationsScanned} conversations.`
+                  ? formatText(text.memory.refreshSkipped, { count: refreshResult.conversationsScanned })
                   : refreshResult.conversationsUpdated > 0
-                    ? `Refreshed recent-conversations memory from ${refreshResult.conversationsScanned} conversations.`
-                    : `Scanned ${refreshResult.conversationsScanned} recent conversations; nothing to summarize yet.`}{" "}
-              Updated {refreshResult.periodsUpdated} rollup{refreshResult.periodsUpdated === 1 ? "" : "s"}.
+                    ? formatText(text.memory.refreshUpdated, { count: refreshResult.conversationsScanned })
+                    : formatText(text.memory.refreshEmpty, { count: refreshResult.conversationsScanned })}{" "}
+              {refreshResult.periodsUpdated === 1
+                ? text.memory.oneRollupUpdated
+                : formatText(text.memory.rollupsUpdated, { count: refreshResult.periodsUpdated })}
             </div>
           )}
 
@@ -197,23 +203,23 @@ export function MemoryDialog() {
             {loading && !snapshot ? (
               <div className="flex items-center gap-2 rounded-md border border-border/50 bg-muted/20 px-3 py-6 text-sm text-muted-foreground">
                 <RefreshCwIcon className="h-4 w-4 animate-spin" />
-                Loading memory...
+                {text.memory.loading}
               </div>
             ) : error ? (
               <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-3 text-sm text-destructive">
                 {error}
               </div>
             ) : !snapshot || !hasAnyMemory ? (
-              <EmptyMemory />
+              <EmptyMemory label={text.memory.empty} />
             ) : (
               <div className="space-y-5 pb-1">
                 {hasProfileMemory && snapshot.profile && (
                   <section className="space-y-3 rounded-md border border-border/50 bg-muted/10 p-3">
                     <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="text-sm font-medium">Profile</h3>
+                      <h3 className="text-sm font-medium">{text.memory.profile}</h3>
                       {formatDate(snapshot.profile.updatedAt) && (
                         <span className="text-xs text-muted-foreground">
-                          Updated {formatDate(snapshot.profile.updatedAt)}
+                          {text.memory.updated} {formatDate(snapshot.profile.updatedAt)}
                         </span>
                       )}
                     </div>
@@ -222,22 +228,22 @@ export function MemoryDialog() {
                         {snapshot.profile.profileSummary}
                       </p>
                     )}
-                    <MemoryList title="Preferences" items={snapshot.profile.preferences} />
-                    <MemoryList title="Facts" items={snapshot.profile.facts} />
-                    <MemoryList title="Feedback" items={snapshot.profile.feedbackPatterns} />
+                    <MemoryList title={text.memory.preferences} items={snapshot.profile.preferences} />
+                    <MemoryList title={text.memory.facts} items={snapshot.profile.facts} />
+                    <MemoryList title={text.memory.feedback} items={snapshot.profile.feedbackPatterns} />
                   </section>
                 )}
 
                 {snapshot.periods.length > 0 && (
                   <section className="space-y-2">
-                    <h3 className="text-sm font-medium">Weekly and monthly summaries</h3>
+                    <h3 className="text-sm font-medium">{text.memory.weeklyMonthly}</h3>
                     <div className="space-y-2">
                       {snapshot.periods.map((period) => (
                         <article key={period.id} className="rounded-md border border-border/50 bg-muted/10 p-3">
                           <div className="mb-2 flex flex-wrap items-center gap-2">
                             <Badge variant="secondary" className="capitalize">{period.cadence}</Badge>
                             <span className="text-xs text-muted-foreground">
-                              {period.conversationCount} conversation{period.conversationCount === 1 ? "" : "s"}
+                              {period.conversationCount} {period.conversationCount === 1 ? text.memory.conversation : text.memory.conversations}
                             </span>
                           </div>
                           <p className="whitespace-pre-wrap wrap-break-word text-sm leading-relaxed text-foreground/90">
@@ -251,15 +257,15 @@ export function MemoryDialog() {
 
                 {snapshot.conversationMemory && (
                   <section className="space-y-2">
-                    <h3 className="text-sm font-medium">Recent conversations memory</h3>
+                    <h3 className="text-sm font-medium">{text.memory.recentConversations}</h3>
                     <article className="rounded-md border border-border/50 bg-muted/10 p-3">
                       <div className="mb-2 flex flex-wrap items-center gap-2">
                         <span className="text-xs text-muted-foreground">
-                          {snapshot.conversationMemory.messageCount} message{snapshot.conversationMemory.messageCount === 1 ? "" : "s"} summarized
+                          {snapshot.conversationMemory.messageCount} {snapshot.conversationMemory.messageCount === 1 ? text.memory.oneMessageSummarized : text.memory.messagesSummarized}
                         </span>
                         {formatDate(snapshot.conversationMemory.updatedAt) && (
                           <span className="text-xs text-muted-foreground">
-                            Updated {formatDate(snapshot.conversationMemory.updatedAt)}
+                            {text.memory.updated} {formatDate(snapshot.conversationMemory.updatedAt)}
                           </span>
                         )}
                       </div>

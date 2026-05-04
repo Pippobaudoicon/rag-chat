@@ -7,7 +7,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import type { SourceChunk } from "@/lib/types";
+import type { Language, SourceChunk } from "@/lib/types";
+import { UI_LANGUAGE_NAMES, uiText } from "./i18n";
 
 interface SourceCardDialogProps {
   open: boolean;
@@ -15,6 +16,7 @@ interface SourceCardDialogProps {
   chunk: SourceChunk;
   index: number;
   label: string;
+  language: Language;
   openLabel: string;
 }
 
@@ -24,8 +26,10 @@ export default function SourceCardDialog({
   chunk,
   index,
   label,
+  language,
   openLabel,
 }: SourceCardDialogProps) {
+  const text = uiText(language);
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-2xl">
@@ -46,6 +50,12 @@ export default function SourceCardDialog({
               ? `${chunk.book}${chunk.chapter ? ` ${chunk.chapter}` : ""}${chunk.verse ? `:${chunk.verse}` : ""}`
               : ""}
             {chunk.section ? `${chunk.book ? " · " : ""}${chunk.section}` : ""}
+          </p>
+        )}
+
+        {chunk.language !== language && (
+          <p className="text-xs text-muted-foreground">
+            {text.sources.sourceLanguage}: {UI_LANGUAGE_NAMES[chunk.language]}
           </p>
         )}
 

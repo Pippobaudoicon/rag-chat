@@ -1,6 +1,7 @@
 "use client";
 
 import type { MessageDetails, Language } from "@/lib/types";
+import { uiText } from "./i18n";
 
 interface DetailRowsProps {
   details: MessageDetails;
@@ -13,47 +14,48 @@ function formatLatency(ms: number): string {
 }
 
 export function DetailRows({ details, language = "ita" }: DetailRowsProps) {
+  const text = uiText(language);
   const rows: { label: string; value: string }[] = [];
 
   if (details.model) {
     rows.push({
-      label: language === "ita" ? "Modello" : "Model",
+      label: text.details.model,
       value: details.model,
     });
   }
   if (details.inputTokens != null) {
     rows.push({
-      label: language === "ita" ? "Token input" : "Input tokens",
+      label: text.details.inputTokens,
       value: details.inputTokens.toLocaleString(),
     });
   }
   if (details.outputTokens != null) {
     rows.push({
-      label: language === "ita" ? "Token output" : "Output tokens",
+      label: text.details.outputTokens,
       value: details.outputTokens.toLocaleString(),
     });
   }
   if (details.reasoningTokens != null && details.reasoningTokens > 0) {
     rows.push({
-      label: language === "ita" ? "Token ragionamento" : "Reasoning tokens",
+      label: text.details.reasoningTokens,
       value: details.reasoningTokens.toLocaleString(),
     });
   }
   if (details.totalTokens != null) {
     rows.push({
-      label: language === "ita" ? "Token totali" : "Total tokens",
+      label: text.details.totalTokens,
       value: details.totalTokens.toLocaleString(),
     });
   }
   if (details.latencyMs != null) {
     rows.push({
-      label: language === "ita" ? "Latenza" : "Latency",
+      label: text.details.latency,
       value: formatLatency(details.latencyMs),
     });
   }
   if (details.finishReason) {
     rows.push({
-      label: language === "ita" ? "Fine generazione" : "Finish reason",
+      label: text.details.finishReason,
       value: details.finishReason,
     });
   }

@@ -23,6 +23,8 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { MemoryDialog } from "./MemoryDialog";
+import { useLanguage } from "./language-context";
+import { uiText } from "./i18n";
 import { version } from "../../../package.json";
 
 const CONVERSATION_PAGE_SIZE = 20;
@@ -65,6 +67,8 @@ interface ConversationGroup {
   label: string;
   items: ConversationItem[];
 }
+
+type SidebarText = ReturnType<typeof uiText>["sidebar"];
 
 function mergeConversationPages(
   existing: ConversationItem[],
@@ -115,7 +119,10 @@ function upsertConversationItem(
   );
 }
 
-function groupConversationsByAge(conversations: ConversationItem[]): ConversationGroup[] {
+function groupConversationsByAge(
+  conversations: ConversationItem[],
+  labels: Pick<SidebarText, "today" | "thisWeek" | "thisMonth" | "older">
+): ConversationGroup[] {
   const now = Date.now();
   const oneDayAgo = now - 24 * 60 * 60 * 1000;
   const oneWeekAgo = now - 7 * 24 * 60 * 60 * 1000;
@@ -141,10 +148,10 @@ function groupConversationsByAge(conversations: ConversationItem[]): Conversatio
   }
 
   return [
-    { key: "today", label: "Today", items: today },
-    { key: "this-week", label: "This week", items: thisWeek },
-    { key: "this-month", label: "This month", items: thisMonth },
-    { key: "older", label: "More than a month ago", items: older },
+    { key: "today", label: labels.today, items: today },
+    { key: "this-week", label: labels.thisWeek, items: thisWeek },
+    { key: "this-month", label: labels.thisMonth, items: thisMonth },
+    { key: "older", label: labels.older, items: older },
   ].filter((group) => group.items.length > 0);
 }
 
@@ -176,6 +183,8 @@ function writeConversationCache(key: string, cache: ConversationCache) {
 }
 
 export function ChatSidebar({ onClose, showMobileClose = false }: ChatSidebarProps) {
+  const { language } = useLanguage();
+  const text = uiText(language);
   const router = useRouter();
   const pathname = usePathname();
   const { isLoaded, user } = useUser();
@@ -392,7 +401,7 @@ export function ChatSidebar({ onClose, showMobileClose = false }: ChatSidebarPro
 
     const title = renameDraft.trim();
     if (!title) {
-      setRenameError("Title is required.");
+      setRenameError(text.sidebar.titleRequired);
       return;
     }
 
@@ -424,14 +433,14 @@ export function ChatSidebar({ onClose, showMobileClose = false }: ChatSidebarPro
       setRenameDraft("");
     } catch (error) {
       console.error("Failed to rename conversation", error);
-      setRenameError("Could not rename the conversation.");
+      setRenameError(text.sidebar.renameError);
     } finally {
       setIsRenaming(false);
     }
   }
 
   const activeId = currentPath?.match(/\/chat\/([^/]+)/)?.[1];
-  const conversationGroups = groupConversationsByAge(conversations);
+  const conversationGroups = groupConversationsByAge(conversations, text.sidebar);
 
   return (
     <div className="flex flex-col h-full w-full bg-sidebar border-r border-border/40">
@@ -451,7 +460,7 @@ export function ChatSidebar({ onClose, showMobileClose = false }: ChatSidebarPro
           <button
             type="button"
             onClick={onClose}
-            aria-label="Close sidebar"
+            aria-label={text.app.closeSidebar}
             className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border/50 text-muted-foreground transition-colors hover:text-foreground"
           >
             <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -471,7 +480,7 @@ export function ChatSidebar({ onClose, showMobileClose = false }: ChatSidebarPro
           <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
           </svg>
-          New Chat
+          {text.sidebar.newChat}
           {/* <span className="ml-auto font-mono text-[10px] text-muted-foreground/50">⌘K</span> */}
         </button>
       </div>
@@ -484,7 +493,7 @@ export function ChatSidebar({ onClose, showMobileClose = false }: ChatSidebarPro
           ))
         ) : conversations.length === 0 ? (
           <p className="px-2 py-4 text-xs text-muted-foreground text-center">
-            Nessuna conversazione ancora
+            {text.sidebar.noConversations}
           </p>
         ) : (
           <>
@@ -511,7 +520,7 @@ export function ChatSidebar({ onClose, showMobileClose = false }: ChatSidebarPro
                     >
                       <span className="flex-1 truncate text-xs leading-snug">
                         {convo.title ?? (
-                          <span className="italic text-muted-foreground/60">Nuova chat</span>
+                          <span className="italic text-muted-foreground/60">{text.sidebar.untitledChat}</span>
                         )}
                       </span>
                       <DropdownMenu
@@ -522,7 +531,7 @@ export function ChatSidebar({ onClose, showMobileClose = false }: ChatSidebarPro
                           render={
                             <button
                               type="button"
-                              aria-label="Conversation actions"
+                              aria-label={text.sidebar.actions}
                               className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 data-[popup-open]:opacity-100 transition-opacity p-0.5 rounded hover:bg-accent/80 hover:text-foreground"
                               onClick={(event) => event.stopPropagation()}
                             />
@@ -538,7 +547,7 @@ export function ChatSidebar({ onClose, showMobileClose = false }: ChatSidebarPro
                             }}
                           >
                             <PencilIcon className="h-3.5 w-3.5" />
-                            Rename
+                            {text.sidebar.rename}
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             variant="destructive"
@@ -547,7 +556,7 @@ export function ChatSidebar({ onClose, showMobileClose = false }: ChatSidebarPro
                             }}
                           >
                             <Trash2Icon className="h-3.5 w-3.5" />
-                            Delete
+                            {text.sidebar.delete}
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -578,7 +587,7 @@ export function ChatSidebar({ onClose, showMobileClose = false }: ChatSidebarPro
           <span>
             <UserButton />
           </span>
-          <span className="text-xs text-muted-foreground truncate">Account</span>
+          <span className="text-xs text-muted-foreground truncate">{text.app.account}</span>
         </div>
       </div>
 
@@ -595,9 +604,9 @@ export function ChatSidebar({ onClose, showMobileClose = false }: ChatSidebarPro
         <DialogContent>
           <form className="space-y-4" onSubmit={handleRenameSubmit}>
             <DialogHeader>
-              <DialogTitle className="text-sm">Rename conversation</DialogTitle>
+              <DialogTitle className="text-sm">{text.sidebar.renameTitle}</DialogTitle>
               <DialogDescription className="text-xs">
-                Update the conversation title shown in the sidebar.
+                {text.sidebar.renameDescription}
               </DialogDescription>
             </DialogHeader>
 
@@ -605,7 +614,7 @@ export function ChatSidebar({ onClose, showMobileClose = false }: ChatSidebarPro
               <Input
                 value={renameDraft}
                 maxLength={200}
-                placeholder="Conversation title"
+                placeholder={text.sidebar.titlePlaceholder}
                 onChange={(event) => setRenameDraft(event.target.value)}
                 disabled={isRenaming}
                 autoFocus
@@ -626,10 +635,10 @@ export function ChatSidebar({ onClose, showMobileClose = false }: ChatSidebarPro
                   setRenameError(null);
                 }}
               >
-                Cancel
+                {text.sidebar.cancel}
               </Button>
               <Button type="submit" disabled={isRenaming}>
-                {isRenaming ? "Saving..." : "Save"}
+                {isRenaming ? text.sidebar.saving : text.sidebar.save}
               </Button>
             </DialogFooter>
           </form>

@@ -2,8 +2,9 @@
 
 import { lazy, Suspense, useState } from "react";
 import { cn } from "@/lib/utils";
-import { SOURCE_COLORS, SOURCE_LABELS } from "@/lib/types";
+import { SOURCE_COLORS } from "@/lib/types";
 import type { SourceChunk, Language } from "@/lib/types";
+import { sourceLabel, uiText, UI_LANGUAGE_NAMES } from "./i18n";
 
 const SourceCardDialog = lazy(() => import("./SourceCardDialog"));
 
@@ -15,10 +16,9 @@ interface SourceCardProps {
 
 export function SourceCard({ chunk, index, language = "ita" }: SourceCardProps) {
   const [open, setOpen] = useState(false);
-  const label = SOURCE_LABELS[chunk.source][language === "ita" ? "it" : "en"];
+  const text = uiText(language);
+  const label = sourceLabel(chunk.source, language);
   const scorePercent = Math.round(chunk.score * 100);
-  const openLabel = language === "ita" ? "Apri fonte" : "Open source";
-  const tapLabel = language === "ita" ? "Tocca per aprire" : "Tap to open";
 
   return (
     <>
@@ -41,6 +41,11 @@ export function SourceCard({ chunk, index, language = "ita" }: SourceCardProps) 
               <span className="text-[10px] tabular-nums text-muted-foreground">
                 {scorePercent}%
               </span>
+              {chunk.language !== language && (
+                <span className="rounded border border-border/50 px-1 text-[10px] text-muted-foreground">
+                  {UI_LANGUAGE_NAMES[chunk.language]}
+                </span>
+              )}
             </div>
             <span className="text-[10px] text-muted-foreground">#{index + 1}</span>
           </div>
@@ -59,7 +64,7 @@ export function SourceCard({ chunk, index, language = "ita" }: SourceCardProps) 
 
           <p className="line-clamp-2 text-[11px] leading-relaxed text-muted-foreground">{chunk.text}</p>
 
-          <p className="text-[10px] text-muted-foreground/80">{tapLabel}</p>
+          <p className="text-[10px] text-muted-foreground/80">{text.sources.tapToOpen}</p>
         </div>
       </button>
 
@@ -71,7 +76,8 @@ export function SourceCard({ chunk, index, language = "ita" }: SourceCardProps) 
             chunk={chunk}
             index={index}
             label={label}
-            openLabel={openLabel}
+            language={language}
+            openLabel={text.sources.open}
           />
         </Suspense>
       )}

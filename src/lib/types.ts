@@ -17,6 +17,7 @@ export type SourceType =
   | "gospel_videos"
   | "gospel_handbook";
 export type Language = "ita" | "eng";
+export const INDEXED_LANGUAGES: Language[] = ["ita", "eng"];
 
 /** Sources shown as individual toggles in the settings bar. */
 export const ALL_SOURCES: SourceType[] = [
