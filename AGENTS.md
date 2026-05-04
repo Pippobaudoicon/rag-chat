@@ -14,6 +14,7 @@ env requirements, constraints, and operational commands).
 
 If you change core architecture, APIs, integrations, environment requirements,
 or major user flows, update `docs/PROJECT_INFO.md` in the same change.
+For each change, update version of the project in `package.json` and add a changelog entry in `CHANGELOG.md`.
 
 Core tooling files:
 
