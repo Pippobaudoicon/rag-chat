@@ -104,7 +104,9 @@ function getToolUsage(message: UIMessage): string[] {
     .map(getToolNameFromPart)
     .filter((name): name is string => !!name);
 
-  return [...new Set(toolNames)];
+  const metadataToolNames = (message.metadata as MessageMetadata | undefined)?.details?.toolNames ?? [];
+
+  return [...new Set([...toolNames, ...metadataToolNames])];
 }
 
 function hasVisibleAssistantText(message: UIMessage): boolean {

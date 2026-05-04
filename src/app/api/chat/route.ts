@@ -101,6 +101,20 @@ export async function POST(req: Request) {
     ).slice(0, MAX_RESPONSE_SOURCES);
   };
 
+  const getToolNames = (steps: readonly { toolCalls?: readonly unknown[] }[]): string[] => {
+    return [
+      ...new Set(
+        steps.flatMap((step) =>
+          (step.toolCalls ?? []).flatMap((toolCall) => {
+            if (!toolCall || typeof toolCall !== "object") return [];
+            const { toolName } = toolCall as { toolName?: unknown };
+            return typeof toolName === "string" && toolName.trim() ? [toolName] : [];
+          })
+        )
+      ),
+    ];
+  };
+
   // ── 4. Conversation ownership ─────────────────────────────────────────────
   const db = getDb();
   let conversation = null;
@@ -245,7 +259,7 @@ export async function POST(req: Request) {
       chunking: "word",
     }),
 
-    onFinish: async ({ text, totalUsage, finishReason }) => {
+    onFinish: async ({ text, totalUsage, finishReason, steps }) => {
       // Build details object for persistence
       const details: MessageDetails = {
         inputTokens: totalUsage.inputTokens ?? undefined,
@@ -255,6 +269,7 @@ export async function POST(req: Request) {
         latencyMs: Date.now() - startTime,
         model: CHAT_MODEL,
         finishReason,
+        toolNames: getToolNames(steps),
       };
 
       // Update cache with the final assistant answer + tool-collected chunks.

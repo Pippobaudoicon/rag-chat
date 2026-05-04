@@ -119,6 +119,7 @@ export interface MessageDetails {
   latencyMs?: number;
   model?: string;
   finishReason?: string;
+  toolNames?: string[];
 }
 
 // Type for UIMessage metadata that includes sources

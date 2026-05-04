@@ -106,6 +106,7 @@ export const UI_TEXT = {
       totalTokens: "Token totali",
       latency: "Latenza",
       finishReason: "Fine generazione",
+      toolsUsed: "Tool utilizzati",
     },
     memory: {
       button: "Memoria",
@@ -229,6 +230,7 @@ export const UI_TEXT = {
       totalTokens: "Total tokens",
       latency: "Latency",
       finishReason: "Finish reason",
+      toolsUsed: "Tools used",
     },
     memory: {
       button: "Memory",

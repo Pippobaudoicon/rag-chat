@@ -59,6 +59,12 @@ export function DetailRows({ details, language = "ita" }: DetailRowsProps) {
       value: details.finishReason,
     });
   }
+  if (details.toolNames && details.toolNames.length > 0) {
+    rows.push({
+      label: text.details.toolsUsed,
+      value: details.toolNames.join(", "),
+    });
+  }
 
   if (rows.length === 0) return null;
 

@@ -61,8 +61,9 @@ Read this first before deep code exploration.
 6. The model generates the final answer and may call `citation_verifier`
    before completing.
 7. LLM response is streamed back via AI SDK.
-8. Assistant text + collected tool chunks are persisted to DB and returned as
-   metadata. The Redis cache entry is updated with the final answer text.
+8. Assistant text + collected tool chunks + tool names used during the turn are
+   persisted to DB and returned as metadata. The Redis cache entry is updated
+   with the final answer text.
 9. UI renders message, inline citations, and source cards.
 
 ## 5) API surface (internal app API)
@@ -91,7 +92,7 @@ Read this first before deep code exploration.
   - UUID primary key, owner (`clerk_user_id`), title, language, sources, timestamps.
 - `rag_messages`
   - UUID conversation FK, integer message id, role (`user|assistant`), content,
-    `sources_json`, timestamp.
+    `sources_json`, `versions_json`, `details_json`, timestamp.
 - `rag_message_feedback`
   - UUID conversation FK, optional assistant message FK, owner, rating/comment,
     copied answer context, timestamp.
@@ -99,6 +100,8 @@ Read this first before deep code exploration.
 Notes:
 
 - Assistant messages may include `sources_json` used by UI source panel.
+- Assistant `details_json` stores response details and the `toolNames` list so
+  tool-use badges remain visible after reloading a conversation.
 - Conversation auto-title is derived from first user message.
 - New conversations are inserted into the sidebar immediately with an optimistic
   client title. The sidebar waits to refetch until after the first assistant
