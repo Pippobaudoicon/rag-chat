@@ -23,6 +23,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { MemoryDialog } from "./MemoryDialog";
+import { version } from "../../../package.json";
 
 const CONVERSATION_PAGE_SIZE = 20;
 const CONVERSATION_CACHE_TTL_MS = 2 * 60 * 1000;
@@ -445,6 +446,7 @@ export function ChatSidebar({ onClose, showMobileClose = false }: ChatSidebarPro
           </div>
           <span className="text-sm font-semibold tracking-tight truncate">LDS RAG</span>
         </div>
+        <span className="text-[9px] text-muted-foreground/50">v{version}</span>
         {showMobileClose && onClose && (
           <button
             type="button"

@@ -979,10 +979,10 @@ export function ChatInterface({
               className="mr-1.5 mb-1.5 self-end size-11 rounded-full border border-primary/20 bg-primary text-primary-foreground shadow-[0_10px_20px_-10px_hsl(var(--primary)/0.85)] transition-all hover:scale-[1.03] hover:bg-primary/90 active:scale-100 disabled:opacity-60"
             />
           </PromptInput>
-          <p className="mt-2 text-center text-[11px] text-muted-foreground/50">
+          <p className="mt-2 text-center text-[9px] text-muted-foreground/50">
             {language === "ita"
-              ? "Le risposte sono basate su fonti ufficiali della Chiesa SUD."
-              : "Answers are grounded in official LDS Church sources."}
+              ? "Le risposte sono basate su fonti ufficiali SUD, ma l'AI potrebbe non essere sempre accurata. Si prega quindi di consultare le fonti ufficiali SUD o parlare con i leader locali/missionari."
+              : "Answers are grounded in official LDS sources, but the AI may not always be accurate. For doctrinal or faith-related questions, please consult official LDS sources or contact local missionaries."}
           </p>
         </div>
       </div>
