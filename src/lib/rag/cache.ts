@@ -11,6 +11,7 @@ import type { SourceChunk, SourceType } from "@/lib/types";
 const CACHE_TTL_SECONDS = 3600; // 1 hour
 const ANSWER_CACHE_TTL_SECONDS = 6 * 3600; // 6 hours
 const TITLE_CACHE_TTL_SECONDS = 24 * 3600; // 24 hours
+const DEFAULT_RATE_LIMIT_WINDOW: Duration = "1 h";
 
 const RETRIEVAL_CACHE_PREFIX = "rag:v2:retrieval:";
 const TOOL_RESULT_CACHE_PREFIX = "rag:v1:tool-result:";
@@ -65,23 +66,38 @@ function stableSerialize(value: unknown): string {
 let _redis: Redis | null = null;
 let _chatRateLimit: Ratelimit | null = null;
 
+type RedisConfig = {
+  url: string;
+  token: string;
+};
+
+function resolveRedisConfig(): RedisConfig | null {
+  const url =
+    process.env.UPSTASH_REDIS_REST_URL ??
+    process.env.UPSTASH_KV_REST_API_URL ??
+    process.env.KV_REST_API_URL;
+  const token =
+    process.env.UPSTASH_REDIS_REST_TOKEN ??
+    process.env.UPSTASH_KV_REST_API_TOKEN ??
+    process.env.KV_REST_API_TOKEN;
+
+  return url && token ? { url, token } : null;
+}
+
 function hasRedisConfig() {
-  return !!process.env.UPSTASH_KV_REST_API_URL && !!process.env.UPSTASH_KV_REST_API_TOKEN;
+  return resolveRedisConfig() !== null;
 }
 
 export function getRedis(): Redis {
   if (!_redis) {
-    const url = process.env.UPSTASH_KV_REST_API_URL;
-    const token = process.env.UPSTASH_KV_REST_API_TOKEN;
-    
-    if (!url || !token) {
-      throw new Error("Redis configuration missing: UPSTASH_KV_REST_API_URL or UPSTASH_KV_REST_API_TOKEN not set");
+    const config = resolveRedisConfig();
+    if (!config) {
+      throw new Error(
+        "Redis configuration missing. Set UPSTASH_REDIS_REST_URL/TOKEN (or UPSTASH_KV_REST_API_URL/TOKEN, or KV_REST_API_URL/TOKEN)."
+      );
     }
-    
-    _redis = new Redis({
-      url,
-      token,
-    });
+
+    _redis = new Redis(config);
   }
   return _redis;
 }
@@ -90,7 +106,10 @@ export function getChatRateLimit(): Ratelimit | null {
   if (!hasRedisConfig()) return null;
   if (!_chatRateLimit) {
     const limit = getPositiveInt(process.env.CHAT_RATE_LIMIT_MAX_REQUESTS, 30);
-    const windowValue = (process.env.CHAT_RATE_LIMIT_WINDOW ?? "1 h") as Duration;
+    const windowValue = getRateLimitWindow(
+      process.env.CHAT_RATE_LIMIT_WINDOW,
+      DEFAULT_RATE_LIMIT_WINDOW
+    );
 
     _chatRateLimit = new Ratelimit({
       redis: getRedis(),
@@ -105,6 +124,17 @@ export function getChatRateLimit(): Ratelimit | null {
 function getPositiveInt(value: string | undefined, fallback: number): number {
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function getRateLimitWindow(value: string | undefined, fallback: Duration): Duration {
+  const normalized = value?.trim().toLowerCase().replace(/\s+/g, " ");
+  if (!normalized) return fallback;
+
+  if (!/^\d+\s?(ms|s|m|h|d)$/.test(normalized)) {
+    return fallback;
+  }
+
+  return normalized as Duration;
 }
 
 function hash(parts: Array<string | number | null | undefined>): string {

@@ -182,7 +182,7 @@ Notes:
 - `CHAT_MODEL` (optional; defaults to `deepseek/deepseek-v4-flash`)
 - `CHAT_MAX_RESPONSE_SOURCES` (optional; defaults to 120)
 - `CHAT_RATE_LIMIT_MAX_REQUESTS` (optional; defaults to 30)
-- `CHAT_RATE_LIMIT_WINDOW` (optional; defaults to `1 h`)
+- `CHAT_RATE_LIMIT_WINDOW` (optional; defaults to `1h`)
 
 Reference template: `.env.example`.
 
