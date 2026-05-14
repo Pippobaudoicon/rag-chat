@@ -23,13 +23,13 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "LDS RAG Chat",
+  title: "ChatLDS",
   description:
     "AI assistant grounded in LDS scriptures, conference talks, handbook and Liahona and so much more!",
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "LDS RAG Chat",
+    title: "ChatLDS",
   },
   other: {
     "mobile-web-app-capable": "yes",

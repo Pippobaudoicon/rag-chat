@@ -2,8 +2,8 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "LDS RAG Chat",
-    short_name: "LDS RAG",
+    name: "ChatLDS",
+    short_name: "ChatLDS",
     description:
       "AI assistant grounded in LDS scriptures, conference talks, handbook and Liahona",
     start_url: "/chat",

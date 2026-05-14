@@ -1,7 +1,7 @@
 /// <reference lib="webworker" />
 
 /**
- * Service Worker for LDS RAG Chat PWA.
+ * Service Worker for ChatLDS Chat PWA.
  *
  * Strategy:
  *  - App shell (HTML, CSS, JS, fonts, icons): cache-first with network fallback

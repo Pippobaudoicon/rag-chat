@@ -47,7 +47,7 @@ export const UI_TEXT = {
     },
     empty: {
       title: "Come posso aiutarti oggi?",
-      subtitle: "Fai una domanda a LDS helper...",
+      subtitle: "Fai una domanda a ChatLDS...",
       suggestions: [
         "Qual è lo scopo del sacramento nella Chiesa?",
         "Cosa insegna 2 Nefi 2?",
@@ -83,7 +83,7 @@ export const UI_TEXT = {
       commentPlaceholder: "Aggiungi un commento (facoltativo)",
       cancel: "Annulla",
       sendFeedback: "Invia feedback",
-      placeholder: "Fai una domanda a LDS helper...",
+      placeholder: "Fai una domanda a ChatLDS...",
       disclaimer: "Le risposte sono basate su fonti ufficiali SUD, ma l'AI potrebbe non essere sempre accurata. Si prega quindi di consultare le fonti ufficiali SUD o parlare con i leader locali/missionari.",
     },
     sources: {
@@ -171,7 +171,7 @@ export const UI_TEXT = {
     },
     empty: {
       title: "How can I help you today?",
-      subtitle: "Ask a question to LDS helper...",
+      subtitle: "Ask a question to ChatLDS...",
       suggestions: [
         "What is the purpose of the sacrament in the Church?",
         "What does 2 Nephi 2 teach?",
@@ -207,7 +207,7 @@ export const UI_TEXT = {
       commentPlaceholder: "Add a comment (optional)",
       cancel: "Cancel",
       sendFeedback: "Send feedback",
-      placeholder: "Ask a question to LDS helper...",
+      placeholder: "Ask a question to ChatLDS...",
       disclaimer: "Answers are grounded in official LDS sources, but the AI may not be accurate. For doctrinal/faith-related questions, please consult official LDS sources or contact local missionaries.",
     },
     sources: {

@@ -75,7 +75,7 @@ export function InstallPrompt() {
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium text-foreground">
-              Installa LDS RAG
+              Installa ChatLDS
             </p>
             <p className="mt-1 text-xs text-muted-foreground leading-relaxed">
               Tocca{" "}
@@ -106,7 +106,7 @@ export function InstallPrompt() {
           <DownloadIcon size={18} />
         </div>
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium text-foreground">Installa LDS RAG</p>
+          <p className="text-sm font-medium text-foreground">Installa ChatLDS</p>
           <p className="text-xs text-muted-foreground truncate">
             Accesso rapido dalla home
           </p>

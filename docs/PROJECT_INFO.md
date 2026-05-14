@@ -1,4 +1,4 @@
-# LDS rag-chat Project Knowledge Base
+# ChatLDS Project Knowledge Base
 
 Last updated: 2026-05-04
 

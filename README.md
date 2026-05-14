@@ -1,4 +1,4 @@
-# LDS RAG Chat
+# ChatLDS Chat
 
 Authenticated Next.js app for LDS-focused retrieval-augmented chat. It stores
 conversation history in Neon Postgres, retrieves source chunks from Pinecone,
