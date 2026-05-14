@@ -454,8 +454,17 @@ export function ChatSidebar({ onClose, showMobileClose = false }: ChatSidebarPro
       {/* Header */}
       <div className="flex items-center justify-between gap-2 border-b border-border/40 px-4 pb-1.5 pt-[max(0.75rem,calc(env(safe-area-inset-top)+0.5rem))]">
         <div className="flex items-center gap-2 min-w-0">
-          <Image src="/icons/logo-no-bg.png" alt="ChatLDS" width={24} height={24} className="shrink-0" />
-          <span className="text-sm font-semibold tracking-tight truncate">ChatLDS</span>
+            {/* FUTURE LOGO (still ugly) */}
+            {/* <Image src="/icons/logo-no-bg.png" alt="ChatLDS" width={24} height={24} className="shrink-0" /> */}
+            
+            {/* TEMP LOGO */}
+            <div className="h-6 w-6 shrink-0 rounded bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center">
+              <svg className="h-3.5 w-3.5 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                  d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" />
+              </svg>
+            </div>
+            <span className="text-sm font-semibold tracking-tight truncate">ChatLDS</span>
         </div>
         <span className="text-[9px] text-muted-foreground/50">v{version}</span>
         {showMobileClose && onClose && (
