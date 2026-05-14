@@ -207,6 +207,12 @@ export function ChatSidebar({ onClose, showMobileClose = false }: ChatSidebarPro
   // Optimistic active ID — set immediately on click, before the route resolves
   const [pendingId, setPendingId] = useState<string | null>(null);
   const cacheKey = user?.id ? `chat:conversations:${user.id}` : null;
+  const accountLabel =
+    user?.fullName ||
+    user?.firstName ||
+    user?.username ||
+    user?.primaryEmailAddress?.emailAddress ||
+    text.app.account;
 
   useEffect(() => {
     conversationCountRef.current = conversations.length;
@@ -581,13 +587,15 @@ export function ChatSidebar({ onClose, showMobileClose = false }: ChatSidebarPro
       </div>
 
       {/* Footer — memory + account */}
-      <div className="pb-safe space-y-2 border-t border-border/40 px-3 py-3">
-        <MemoryDialog />
-        <div className="flex items-center gap-3 px-1">
-          <span>
-            <UserButton />
-          </span>
-          <span className="text-xs text-muted-foreground truncate">{text.app.account}</span>
+      <div className="pb-safe border-t border-border/40 px-3 py-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <div className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-lg px-2 text-muted-foreground">
+            <span className="shrink-0">
+              <UserButton />
+            </span>
+            <span className="min-w-0 truncate text-xs">{accountLabel}</span>
+          </div>
+          <MemoryDialog className="h-9 w-9 shrink-0 justify-center rounded-lg border-0 bg-transparent px-0 py-0 hover:bg-accent" />
         </div>
       </div>
 

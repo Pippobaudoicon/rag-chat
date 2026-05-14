@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useEffect, useRef } from "react";
 import { useChat } from "@ai-sdk/react";
+import { useUser } from "@clerk/nextjs";
 import { DefaultChatTransport } from "ai";
 import type { UIMessage } from "ai";
 import {
@@ -171,6 +172,7 @@ export function ChatInterface({
   initialAssistantVersions = [],
   initialFeedbackByMessageId = {},
 }: ChatInterfaceProps) {
+  const { user } = useUser();
   const { language } = useLanguage();
   const text = uiText(language);
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -229,6 +231,12 @@ export function ChatInterface({
   const isStreaming = status === "streaming" || status === "submitted";
   const hasAnyVisibleAssistantText = messages.some(hasVisibleAssistantText);
   const lastAssistantMessageIndex = getLastAssistantMessageIndex(messages);
+  const userDisplayName =
+    user?.firstName ||
+    user?.fullName ||
+    user?.username ||
+    user?.primaryEmailAddress?.emailAddress ||
+    null;
 
   const ensureConversation = useCallback(async () => {
     // If there's no conversation yet, create one so history is always persisted.
@@ -563,7 +571,7 @@ export function ChatInterface({
             scrollClassName={messages.length === 0 ? "[scrollbar-gutter:auto!important]" : undefined}
           >
             {messages.length === 0 ? (
-              <EmptyState language={language} onSelect={handleSubmit} />
+              <EmptyState language={language} onSelect={handleSubmit} userName={userDisplayName} />
             ) : (
               messages.map((message, messageIndex) => {
                 const textParts = message.parts.filter(isTextPart);

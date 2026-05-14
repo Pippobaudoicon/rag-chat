@@ -10,6 +10,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 import { useLanguage } from "./language-context";
 import { formatText, uiText } from "./i18n";
 
@@ -51,6 +52,10 @@ interface MemoryRefreshResult {
   periodsUpdated: number;
 }
 
+interface MemoryDialogProps {
+  className?: string;
+}
+
 function formatDate(value: string | null | undefined) {
   if (!value) return null;
   const date = new Date(value);
@@ -89,7 +94,7 @@ function EmptyMemory({ label }: { label: string }) {
   );
 }
 
-export function MemoryDialog() {
+export function MemoryDialog({ className }: MemoryDialogProps) {
   const { language } = useLanguage();
   const text = uiText(language);
   const [open, setOpen] = useState(false);
@@ -157,11 +162,15 @@ export function MemoryDialog() {
     <>
       <button
         type="button"
+        aria-label={text.memory.button}
+        title={text.memory.button}
         onClick={() => setOpen(true)}
-        className="flex w-full items-center gap-2 rounded-lg border border-border/40 px-3 py-2 text-sm text-muted-foreground transition-colors hover:border-border/60 hover:bg-accent hover:text-foreground"
+        className={cn(
+          "flex w-full items-center gap-2 rounded-lg border border-border/40 px-3 py-2 text-sm text-muted-foreground transition-colors hover:border-border/60 hover:bg-accent hover:text-foreground",
+          className
+        )}
       >
         <BrainIcon className="h-3.5 w-3.5" />
-        {text.memory.button}
       </button>
 
       <Dialog open={open} onOpenChange={setOpen}>
