@@ -147,7 +147,8 @@ function AppShellContent({ children }: AppShellProps) {
             </svg>
           </button>
           <div className="flex items-center gap-2 min-w-0">
-            <Image src="/icons/logo-no-bg.png" alt="ChatLDS" width={24} height={24} className="shrink-0" />
+            {/* FUTURE LOGO (still ugly) */}
+            {/* <Image src="/icons/logo-no-bg.png" alt="ChatLDS" width={24} height={24} className="shrink-0" /> */}
             <span className="text-sm font-semibold tracking-tight truncate">ChatLDS</span>
           </div>
           <div className="ml-auto shrink-0">
