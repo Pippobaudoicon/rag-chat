@@ -1,6 +1,11 @@
 import { tool } from "ai";
 import { z } from "zod";
 import { retrieve } from "@/lib/rag/retriever";
+import {
+  getToolResultFromCache,
+  setToolResultInCache,
+  toolResultCacheKey,
+} from "@/lib/rag/cache";
 import { parseScriptureSelection } from "@/lib/rag/scripture-reference";
 import type { Language, SourceChunk } from "@/lib/types";
 import { toToolChunk } from "../shared/chunk-formatting";
@@ -35,7 +40,16 @@ export function createLookupScripturePassageTool({
       "Retrieve scripture passages (Book of Mormon, D&C, Pearl of Great Price) by reference or scripture-focused query.",
     inputSchema,
     execute: async ({ reference, topK }) => {
-      const chunks = await retrieve(reference, ["scriptures"], language, topK);
+      const key = toolResultCacheKey("lookup_scripture_passage", language, {
+        reference,
+        topK,
+      });
+      const cached = await getToolResultFromCache<SourceChunk[]>(key);
+      const chunks = cached ?? (await retrieve(reference, ["scriptures"], language, topK));
+      if (!cached) {
+        await setToolResultInCache(key, chunks);
+      }
+
       const selection = parseScriptureSelection(reference, language);
 
       const strictChunks: SourceChunk[] = selection
@@ -54,6 +68,7 @@ export function createLookupScripturePassageTool({
       return {
         reference,
         language,
+        cacheHit: !!cached,
         total: finalChunks.length,
         chunks: indexedChunks.map(({ chunk, citationIndex }) =>
           toToolChunk(chunk, citationIndex)

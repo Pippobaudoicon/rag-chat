@@ -1,10 +1,29 @@
 import { auth } from "@clerk/nextjs/server";
-import { streamText, generateId, gateway, stepCountIs, smoothStream } from "ai";
+import {
+  createUIMessageStream,
+  createUIMessageStreamResponse,
+  streamText,
+  generateId,
+  gateway,
+  stepCountIs,
+  smoothStream,
+} from "ai";
 import { eq, and, asc } from "drizzle-orm";
 import { getDb } from "@/lib/db";
 import { conversations, messages } from "@/lib/db/schema";
 import { SYSTEM_PROMPT, buildUserMessage } from "@/lib/rag/system-prompt";
-import { cacheKey, setInCache } from "@/lib/rag/cache";
+import {
+  cacheKey,
+  conversationTitleCacheKey,
+  deriveConversationTitle,
+  getChatRateLimit,
+  getSessionAnswerFromCache,
+  invalidateConversationCaches,
+  sessionAnswerCacheKey,
+  setConversationTitleInCache,
+  setInCache,
+  setSessionAnswerInCache,
+} from "@/lib/rag/cache";
 import { createRagTools } from "@/lib/rag/tools";
 import { badRequestFromZod, chatRequestSchema } from "@/lib/api/validation";
 import {
@@ -46,6 +65,28 @@ export async function POST(req: Request) {
   const parsedBody = chatRequestSchema.safeParse(await req.json().catch(() => null));
   if (!parsedBody.success) {
     return badRequestFromZod(parsedBody.error);
+  }
+
+  const rateLimit = getChatRateLimit();
+  if (rateLimit) {
+    const rateLimitResult = await rateLimit.limit(`chat:${userId}`);
+    if (!rateLimitResult.success) {
+      return Response.json(
+        {
+          error: "Rate limit exceeded",
+          reset: rateLimitResult.reset,
+        },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": String(Math.max(1, Math.ceil((rateLimitResult.reset - Date.now()) / 1000))),
+            "X-RateLimit-Limit": String(rateLimitResult.limit),
+            "X-RateLimit-Remaining": String(rateLimitResult.remaining),
+            "X-RateLimit-Reset": String(rateLimitResult.reset),
+          },
+        }
+      );
+    }
   }
 
   const {
@@ -185,6 +226,24 @@ export async function POST(req: Request) {
     return new Response("Bad Request: empty question", { status: 400 });
   }
 
+  const historySignature = JSON.stringify(
+    storedMessages.map((message) => ({
+      id: message.id,
+      role: message.role,
+      content: message.content,
+    }))
+  );
+  const memoryContext = await getUserMemoryContext(userId);
+  const answerCacheKey = conversation
+    ? sessionAnswerCacheKey(userId, conversation.id, question, {
+        language,
+        sources,
+        topK,
+        historySignature,
+        memorySignature: memoryContext,
+      })
+    : null;
+
   // ── 5. Load conversation history for multi-turn memory ────────────────────
   // This is the key improvement over the Python single-turn RAG:
   // AI sees the full conversation history + fresh RAG context each turn.
@@ -192,6 +251,74 @@ export async function POST(req: Request) {
   const modelHistory: ChatMessage[] = [];
 
   if (conversation) {
+    if (!isRegenerateRequest && answerCacheKey && !hasFixedChunks) {
+      const cachedAnswer = await getSessionAnswerFromCache(answerCacheKey);
+      if (cachedAnswer) {
+        await db.insert(messages).values({
+          conversationId: conversation.id,
+          role: "user",
+          content: question,
+        });
+
+        const cachedDetails: MessageDetails = {
+          model: cachedAnswer.details?.model,
+          finishReason: cachedAnswer.details?.finishReason,
+          toolNames: cachedAnswer.details?.toolNames ?? [],
+          latencyMs: Date.now() - startTime,
+        };
+
+        await db.insert(messages).values({
+          conversationId: conversation.id,
+          role: "assistant",
+          content: cachedAnswer.text,
+          sourcesJson: cachedAnswer.sources,
+          versionsJson: [{ text: cachedAnswer.text, sources: cachedAnswer.sources }],
+          detailsJson: cachedDetails,
+        });
+
+        if (!conversation.title) {
+          const title = deriveConversationTitle(question);
+          await db
+            .update(conversations)
+            .set({ title, updatedAt: new Date() })
+            .where(eq(conversations.id, conversation.id));
+          void setConversationTitleInCache(conversationTitleCacheKey(userId, conversation.id), title);
+        } else {
+          await db
+            .update(conversations)
+            .set({ updatedAt: new Date() })
+            .where(eq(conversations.id, conversation.id));
+        }
+
+        void invalidateConversationCaches(userId);
+
+        const metadata = {
+          sources: cachedAnswer.sources,
+          details: cachedDetails,
+        };
+
+        const stream = createUIMessageStream({
+          execute: ({ writer }) => {
+            writer.write({ type: "start" });
+            writer.write({ type: "start-step" });
+            writer.write({ type: "text-start", id: "text-1" });
+            writer.write({ type: "text-delta", id: "text-1", delta: cachedAnswer.text });
+            writer.write({ type: "text-end", id: "text-1" });
+            writer.write({ type: "message-metadata", messageMetadata: metadata });
+            writer.write({ type: "finish-step" });
+            writer.write({
+              type: "finish",
+              finishReason: cachedAnswer.details?.finishReason,
+              messageMetadata: metadata,
+            });
+          },
+          generateId,
+        });
+
+        return createUIMessageStreamResponse({ stream });
+      }
+    }
+
     if (!isRegenerateRequest) {
       // Persist the new user message immediately (before streaming starts)
       await db.insert(messages).values({
@@ -228,7 +355,6 @@ export async function POST(req: Request) {
   const augmentedQuestion = buildUserMessage(question, initialChunks, language);
 
   const chatMessages: ChatMessage[] = [...modelHistory, { role: "user", content: augmentedQuestion }];
-  const memoryContext = await getUserMemoryContext(userId);
   const systemPrompt = memoryContext
     ? `${SYSTEM_PROMPT}\n\n${memoryContext}`
     : SYSTEM_PROMPT;
@@ -295,6 +421,18 @@ export async function POST(req: Request) {
         await setInCache(key, { chunks: getResponseSources(), answer: text });
       }
 
+      if (answerCacheKey && !isRegenerateRequest && conversation && !hasFixedChunks) {
+        await setSessionAnswerInCache(answerCacheKey, {
+          text,
+          sources: getResponseSources(),
+          details: {
+            model: CHAT_MODEL,
+            finishReason,
+            toolNames: getToolNames(steps),
+          },
+        });
+      }
+
       // Persist assistant response + update conversation metadata
       if (conversation) {
         const responseSources = getResponseSources();
@@ -337,21 +475,20 @@ export async function POST(req: Request) {
 
         // Auto-title from first question (≤60 chars, break at word boundary)
         if (!conversation.title && !isRegenerateRequest) {
-          let title = question.slice(0, 60);
-          if (question.length > 60) {
-            const lastSpace = title.lastIndexOf(" ");
-            title = (lastSpace > 20 ? title.slice(0, lastSpace) : title) + "…";
-          }
+          const title = deriveConversationTitle(question);
           await db
             .update(conversations)
             .set({ title, updatedAt: new Date() })
             .where(eq(conversations.id, conversation.id));
+          await setConversationTitleInCache(conversationTitleCacheKey(userId, conversation.id), title);
         } else {
           await db
             .update(conversations)
             .set({ updatedAt: new Date() })
             .where(eq(conversations.id, conversation.id));
         }
+
+        await invalidateConversationCaches(userId);
       }
     },
   });

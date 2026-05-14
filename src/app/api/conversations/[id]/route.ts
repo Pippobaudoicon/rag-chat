@@ -3,6 +3,13 @@ import { and, asc, eq } from "drizzle-orm";
 import { getDb } from "@/lib/db";
 import { conversations, messages } from "@/lib/db/schema";
 import { uuidSchema } from "@/lib/api/validation";
+import {
+  getConversationTitleFromCache,
+  setConversationTitleInCache,
+  conversationTitleCacheKey,
+  invalidateConversationCaches,
+  invalidateConversationTitleCache,
+} from "@/lib/rag/cache";
 
 export const runtime = "nodejs";
 
@@ -31,6 +38,11 @@ export async function GET(_: Request, { params }: Params) {
   const convo = await getOwnedConversation(id, userId);
   if (!convo) return new Response("Not Found", { status: 404 });
 
+  const titleCacheKey = conversationTitleCacheKey(userId, convo.id);
+  const cachedTitle = await getConversationTitleFromCache(titleCacheKey);
+  const conversationWithCachedTitle =
+    cachedTitle === undefined ? convo : { ...convo, title: cachedTitle };
+
   const db = getDb();
   const msgs = await db
     .select()
@@ -38,7 +50,11 @@ export async function GET(_: Request, { params }: Params) {
     .where(eq(messages.conversationId, convo.id))
     .orderBy(asc(messages.createdAt));
 
-  return Response.json({ ...convo, messages: msgs });
+  if (cachedTitle === undefined) {
+    void setConversationTitleInCache(titleCacheKey, convo.title);
+  }
+
+  return Response.json({ ...conversationWithCachedTitle, messages: msgs });
 }
 
 // PATCH /api/conversations/[id] — rename conversation
@@ -61,6 +77,11 @@ export async function PATCH(req: Request, { params }: Params) {
     .where(eq(conversations.id, convo.id))
     .returning();
 
+  void Promise.all([
+    setConversationTitleInCache(conversationTitleCacheKey(userId, convo.id), updated.title),
+    invalidateConversationCaches(userId),
+  ]);
+
   return Response.json(updated);
 }
 
@@ -75,5 +96,11 @@ export async function DELETE(_: Request, { params }: Params) {
 
   const db = getDb();
   await db.delete(conversations).where(eq(conversations.id, convo.id));
+
+  void Promise.all([
+    invalidateConversationTitleCache(userId, convo.id),
+    invalidateConversationCaches(userId),
+  ]);
+
   return new Response(null, { status: 204 });
 }

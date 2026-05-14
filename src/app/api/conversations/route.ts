@@ -8,6 +8,12 @@ import {
   createConversationSchema,
   uuidSchema,
 } from "@/lib/api/validation";
+import {
+  conversationListCacheKey,
+  getConversationListFromCache,
+  invalidateConversationCaches,
+  setConversationListInCache,
+} from "@/lib/rag/cache";
 
 export const runtime = "nodejs";
 
@@ -47,6 +53,14 @@ export async function GET(req: NextRequest) {
 
   const limit = clampLimit(req.nextUrl.searchParams.get("limit"));
   const cursor = parseCursor(req.nextUrl.searchParams.get("cursor"));
+  const cacheKey = conversationListCacheKey(userId, limit, cursor ? encodeCursor(cursor) : null);
+  const cached = await getConversationListFromCache(cacheKey);
+  if (cached) {
+    return Response.json(cached, {
+      headers: { "Cache-Control": "private, no-store" },
+    });
+  }
+
   const pageSize = limit + 1;
 
   const where = cursor
@@ -79,12 +93,16 @@ export async function GET(req: NextRequest) {
   const items = list.slice(0, limit);
   const nextCursor = list.length > limit ? encodeCursor(items[items.length - 1]) : null;
 
+  const payload = {
+    items,
+    nextCursor,
+    hasMore: nextCursor !== null,
+  };
+
+  void setConversationListInCache(cacheKey, payload);
+
   return Response.json(
-    {
-      items,
-      nextCursor,
-      hasMore: nextCursor !== null,
-    },
+    payload,
     {
       headers: { "Cache-Control": "private, no-store" },
     }
@@ -108,6 +126,8 @@ export async function POST(req: Request) {
     .insert(conversations)
     .values({ clerkUserId: userId, language, sources })
     .returning();
+
+  void invalidateConversationCaches(userId);
 
   return Response.json(convo, { status: 201 });
 }

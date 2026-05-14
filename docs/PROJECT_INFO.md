@@ -52,8 +52,8 @@ Read this first before deep code exploration.
    call with the RAG tool set and lets the model decide how to retrieve.
 4. The model calls one or more retrieval tools per turn as it sees fit:
    - `semantic_search` for general topical queries (caches via Upstash Redis).
-   - `lookup_scripture_passage` for scripture references.
-   - `search_conference_talks` for talks by title / speaker / year.
+   - `lookup_scripture_passage` for scripture references (also cached via Upstash Redis).
+   - `search_conference_talks` for talks by title / speaker / year (also cached via Upstash Redis).
    Multiple tools (and repeated calls to the same tool with different
    arguments) are allowed when the question benefits from it.
 5. Tool results register chunks in a shared per-turn `RagToolContext` so all
@@ -61,16 +61,21 @@ Read this first before deep code exploration.
 6. The model generates the final answer and may call `citation_verifier`
    before completing.
 7. LLM response is streamed back via AI SDK.
-8. Assistant text + collected tool chunks + tool names used during the turn are
-   persisted to DB and returned as metadata. The Redis cache entry is updated
-   with the final answer text.
-9. UI renders message, inline citations, and source cards.
+8. For normal non-regenerate conversation turns, the chat route checks a
+   session-scoped answer cache keyed by user, conversation, normalized question,
+   turn settings, recent history, and memory context. Cache hits skip the full
+   retrieval + model pipeline while still persisting the user/assistant messages.
+9. Assistant text + collected tool chunks + tool names used during the turn are
+   persisted to DB and returned as metadata. Redis cache entries are updated
+   with retrieval outputs, session answer payloads, and sidebar title/list data.
+10. UI renders message, inline citations, and source cards.
 
 ## 5) API surface (internal app API)
 
 - `POST /api/chat`
   - Auth required.
   - Retrieval + generation + streaming.
+  - Per-user Upstash Redis rate limiting.
   - Persists messages for existing/new conversation flow.
 - `GET /api/search`
   - Auth required.
@@ -103,6 +108,9 @@ Notes:
 - Assistant `details_json` stores response details and the `toolNames` list so
   tool-use badges remain visible after reloading a conversation.
 - Conversation auto-title is derived from first user message.
+- Conversation titles are cached in Redis and the conversation list endpoint is
+  cached per user/page cursor with invalidation on create, rename, delete, and
+  chat activity that updates `updatedAt`.
 - New conversations are inserted into the sidebar immediately with an optimistic
   client title. The sidebar waits to refetch until after the first assistant
   response, so the optimistic title is not overwritten by the just-created DB
@@ -126,19 +134,21 @@ Notes:
   `retrieve()` eagerly; the model decides which retrieval tools to invoke
   via the AI SDK tools API and may chain multiple tools per turn when the
   question benefits from it. This eliminates the previous double-retrieval
-  (eager + tool) and lets the cache live entirely inside the
-  `semantic_search` tool. `stopWhen: stepCountIs(8)` in the chat route caps
+  (eager + tool). Retrieval caching now lives in the tool layer for
+  `semantic_search`, `lookup_scripture_passage`, and
+  `search_conference_talks`. `stopWhen: stepCountIs(8)` in the chat route caps
   the number of model + tool steps per turn.
 - AI function tools available in the chat runtime:
   - `semantic_search` — general topical retrieval over the user's selected
     sources, with Upstash Redis caching.
   - `lookup_scripture_passage` — scripture-by-reference retrieval with strict
-    book/chapter filtering.
+    book/chapter filtering, with Upstash Redis caching of retrieval results.
   - `search_conference_talks` — conference-talk retrieval with optional
     speaker / year / title filters; uses strict speaker/year/title filtering
     first, retries title-focused query variants, and returns a
     title-not-found result instead of unrelated same-speaker talks when a
-    requested title is not present in conference metadata.
+    requested title is not present in conference metadata; retrieval results are
+    cached in Upstash Redis.
   - `citation_verifier` — validates inline numeric citations against the
     chunks accumulated during the turn.
 - Tool source code lives under `src/lib/rag/tools/`, one folder per tool plus
@@ -171,6 +181,8 @@ Notes:
 - `PINECONE_API_KEY`
 - `CHAT_MODEL` (optional; defaults to `deepseek/deepseek-v4-flash`)
 - `CHAT_MAX_RESPONSE_SOURCES` (optional; defaults to 120)
+- `CHAT_RATE_LIMIT_MAX_REQUESTS` (optional; defaults to 30)
+- `CHAT_RATE_LIMIT_WINDOW` (optional; defaults to `1 h`)
 
 Reference template: `.env.example`.
 

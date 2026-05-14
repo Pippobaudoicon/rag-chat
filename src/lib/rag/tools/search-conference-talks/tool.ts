@@ -1,6 +1,11 @@
 import { tool } from "ai";
 import { z } from "zod";
 import { retrieve } from "@/lib/rag/retriever";
+import {
+  getToolResultFromCache,
+  setToolResultInCache,
+  toolResultCacheKey,
+} from "@/lib/rag/cache";
 import type { Language, SourceChunk } from "@/lib/types";
 import { toToolChunk, uniqueById, uniqueStrings } from "../shared/chunk-formatting";
 import { normalizeForMatch } from "../shared/text-normalize";
@@ -82,15 +87,32 @@ export function createSearchConferenceTalksTool({
           : []),
       ]);
 
-      const chunks = uniqueById(
-        (
-          await Promise.all(
-            queryCandidates.map((candidate) =>
-              retrieve(candidate, ["conference"], language, Math.max(topK * 3, 30))
+      const retrievalTopK = Math.max(topK * 3, 30);
+      const key = toolResultCacheKey("search_conference_talks", language, {
+        query,
+        title: requestedTitle,
+        speaker: effectiveSpeaker,
+        year: effectiveYear,
+        topK,
+        queryCandidates,
+        retrievalTopK,
+      });
+      const cached = await getToolResultFromCache<SourceChunk[]>(key);
+      const chunks =
+        cached ??
+        uniqueById(
+          (
+            await Promise.all(
+              queryCandidates.map((candidate) =>
+                retrieve(candidate, ["conference"], language, retrievalTopK)
+              )
             )
-          )
-        ).flat()
-      );
+          ).flat()
+        );
+
+      if (!cached) {
+        await setToolResultInCache(key, chunks);
+      }
 
       const speakerMatches = buildSpeakerMatcher(normalizedSpeaker);
       const yearMatches = buildYearMatcher(yearString);
@@ -156,6 +178,7 @@ export function createSearchConferenceTalksTool({
         speaker: effectiveSpeaker,
         year: effectiveYear,
         language,
+        cacheHit: !!cached,
         strategy,
         requestedTitle,
         matchType,
