@@ -26,6 +26,13 @@ export const metadata: Metadata = {
   title: "ChatLDS",
   description:
     "AI assistant grounded in LDS scriptures, conference talks, handbook and Liahona and so much more!",
+  icons: {
+    icon: [
+      { url: "/icons/icon0.svg", type: "image/svg+xml" },
+      { url: "/icons/icon1.png", type: "image/png" },
+    ],
+    apple: "/icons/apple-icon.png",
+  },
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
@@ -33,6 +40,7 @@ export const metadata: Metadata = {
   },
   other: {
     "mobile-web-app-capable": "yes",
+    "apple-mobile-web-app-title": "ChatLDS",
   },
 };
 
@@ -57,9 +65,7 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} dark h-full antialiased`}
         suppressHydrationWarning
       >
-        <head>
-          <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
-        </head>
+        <head />
         <body className="h-full bg-background text-foreground">
           <TooltipProvider>{children}</TooltipProvider>
           <InstallPrompt />
