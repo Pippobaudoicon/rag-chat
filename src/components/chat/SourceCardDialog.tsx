@@ -7,8 +7,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import type { Language, SourceChunk } from "@/lib/types";
-import { UI_LANGUAGE_NAMES, uiText } from "./i18n";
+import type { SourceChunk, UiLanguage } from "@/lib/types";
+import { SOURCE_LANGUAGE_NAMES, uiText } from "./i18n";
 
 interface SourceCardDialogProps {
   open: boolean;
@@ -16,7 +16,7 @@ interface SourceCardDialogProps {
   chunk: SourceChunk;
   index: number;
   label: string;
-  language: Language;
+  language: UiLanguage;
   openLabel: string;
 }
 
@@ -55,7 +55,7 @@ export default function SourceCardDialog({
 
         {chunk.language !== language && (
           <p className="text-xs text-muted-foreground">
-            {text.sources.sourceLanguage}: {UI_LANGUAGE_NAMES[chunk.language]}
+            {text.sources.sourceLanguage}: {SOURCE_LANGUAGE_NAMES[chunk.language]}
           </p>
         )}
 

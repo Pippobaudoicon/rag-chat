@@ -2,14 +2,14 @@
 
 import { useEffect, useRef, useState } from "react";
 import { SourceCard } from "./SourceCard";
-import type { SourceChunk, Language } from "@/lib/types";
+import type { SourceChunk, UiLanguage } from "@/lib/types";
 import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { uiText } from "./i18n";
 
 interface SourcesPanelProps {
   chunks: SourceChunk[];
-  language?: Language;
+  language?: UiLanguage;
   showScriptureCoverage?: boolean;
 }
 
@@ -44,7 +44,7 @@ function formatChapterCoverage(chapters: number[]): string {
 
 function getScriptureCoverageLabels(
   chunks: SourceChunk[],
-  language: Language
+  language: UiLanguage
 ): ScriptureCoverageLabels | null {
   const text = uiText(language);
   const scriptureChunks = chunks.filter(

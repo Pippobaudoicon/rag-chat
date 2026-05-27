@@ -13,6 +13,8 @@ export type { RagToolContext, ToolSourceListener } from "./shared/tool-context";
 
 export interface CreateRagToolsOptions {
   language: Language;
+  /** Human-readable corpus/index language used for tool inputs this turn. */
+  retrievalLanguageName?: string;
   /** Sources selected in the chat UI for this turn. */
   sources: SourceType[];
   /** topK selected in the chat UI for this turn. */
@@ -44,7 +46,7 @@ export interface CreateRagToolsOptions {
  *     final answer.
  */
 export function createRagTools(options: CreateRagToolsOptions) {
-  const { language, sources, topK, initialChunks, onSources } = options;
+  const { language, retrievalLanguageName, sources, topK, initialChunks, onSources } = options;
 
   const context = createRagToolContext({ initialChunks, onSources });
 
@@ -54,9 +56,18 @@ export function createRagTools(options: CreateRagToolsOptions) {
       defaultSources: sources,
       defaultTopK: topK,
       context,
+      retrievalLanguageName,
     }),
-    lookup_scripture_passage: createLookupScripturePassageTool({ language, context }),
-    search_conference_talks: createSearchConferenceTalksTool({ language, context }),
+    lookup_scripture_passage: createLookupScripturePassageTool({
+      language,
+      context,
+      retrievalLanguageName,
+    }),
+    search_conference_talks: createSearchConferenceTalksTool({
+      language,
+      context,
+      retrievalLanguageName,
+    }),
     citation_verifier: createCitationVerifierTool({ context }),
   };
 }

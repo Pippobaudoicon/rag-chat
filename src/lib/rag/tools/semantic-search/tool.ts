@@ -39,6 +39,7 @@ export interface SemanticSearchDeps {
   /** topK selected in the chat UI for this turn. */
   defaultTopK: number;
   context: RagToolContext;
+  retrievalLanguageName?: string;
 }
 
 /**
@@ -62,6 +63,7 @@ export function createSemanticSearchTool({
   defaultSources,
   defaultTopK,
   context,
+  retrievalLanguageName = "the configured index language",
 }: SemanticSearchDeps) {
   // Restrict the LLM to sources the user has actually enabled in the UI
   // (or any source if the user opted into "Super").
@@ -72,8 +74,7 @@ export function createSemanticSearchTool({
   );
 
   return tool({
-    description:
-      "Run a general semantic search across the user's selected LDS sources. Use this when the question is topical and does not target a specific scripture reference or a specific conference talk. Returns ranked chunks with citation indices.",
+    description: `Run a general semantic search across the user's selected LDS sources. Tool input query must be in ${retrievalLanguageName}. Use this when the question is topical and does not target a specific scripture reference or a specific conference talk. Returns ranked chunks with citation indices.`,
     inputSchema,
     execute: async ({ query, topK, sources }) => {
       const effectiveTopK = topK ?? defaultTopK;

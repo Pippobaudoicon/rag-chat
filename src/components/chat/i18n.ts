@@ -1,12 +1,25 @@
 import { SOURCE_LABELS } from "@/lib/types";
-import type { Language, SourceType } from "@/lib/types";
+import type { CorpusLanguage, SourceType, UiLanguage } from "@/lib/types";
 
-export const UI_LANGUAGE_CODES: Record<Language, string> = {
+export const UI_LANGUAGE_CODES: Record<UiLanguage, string> = {
   ita: "IT",
   eng: "EN",
+  fra: "FR",
+  spa: "ES",
+  por: "PT",
+  deu: "DE",
 };
 
-export const UI_LANGUAGE_NAMES: Record<Language, string> = {
+export const UI_LANGUAGE_NAMES: Record<UiLanguage, string> = {
+  ita: "Italiano",
+  eng: "English",
+  fra: "Français",
+  spa: "Español",
+  por: "Português",
+  deu: "Deutsch",
+};
+
+export const SOURCE_LANGUAGE_NAMES: Record<CorpusLanguage, string> = {
   ita: "Italiano",
   eng: "English",
 };
@@ -39,8 +52,8 @@ export const UI_TEXT = {
       saving: "Salvataggio...",
     },
     language: {
-      switchTo: "Passa all'inglese",
-      switchAria: "Cambia lingua in inglese",
+      selectLabel: "Lingua interfaccia",
+      selectAria: "Seleziona lingua interfaccia",
     },
     settings: {
       searchAllSources: "Cerca in tutte le fonti:",
@@ -163,8 +176,8 @@ export const UI_TEXT = {
       saving: "Saving...",
     },
     language: {
-      switchTo: "Switch to Italian",
-      switchAria: "Switch language to Italian",
+      selectLabel: "Interface language",
+      selectAria: "Select interface language",
     },
     settings: {
       searchAllSources: "Search all sources:",
@@ -262,13 +275,14 @@ export const UI_TEXT = {
   },
 } as const;
 
-type UiText = (typeof UI_TEXT)[Language];
+type UiText = (typeof UI_TEXT)["ita"] | (typeof UI_TEXT)["eng"];
 
-export function uiText(language: Language): UiText {
-  return UI_TEXT[language] ?? UI_TEXT.ita;
+export function uiText(language: UiLanguage): UiText {
+  if (language === "ita") return UI_TEXT.ita;
+  return UI_TEXT.eng;
 }
 
-export function sourceLabel(source: SourceType, language: Language): string {
+export function sourceLabel(source: SourceType, language: UiLanguage): string {
   return SOURCE_LABELS[source][language === "ita" ? "it" : "en"];
 }
 

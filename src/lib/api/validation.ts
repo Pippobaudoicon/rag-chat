@@ -1,11 +1,19 @@
 import { z } from "zod";
 import { DEFAULT_SOURCES, SUPER_SOURCES } from "@/lib/types";
-import type { Language, SourceType } from "@/lib/types";
+import type { CorpusLanguage, SourceType, UiLanguage } from "@/lib/types";
 
 const sourceValues = SUPER_SOURCES as [SourceType, ...SourceType[]];
 
 export const uuidSchema = z.string().uuid();
-export const languageSchema = z.enum(["ita", "eng"]) satisfies z.ZodType<Language>;
+export const corpusLanguageSchema = z.enum(["ita", "eng"]) satisfies z.ZodType<CorpusLanguage>;
+export const uiLanguageSchema = z.enum([
+  "ita",
+  "eng",
+  "fra",
+  "spa",
+  "por",
+  "deu",
+]) satisfies z.ZodType<UiLanguage>;
 export const sourceSchema = z.enum(sourceValues);
 
 const sourcesSchema = z
@@ -19,7 +27,7 @@ const sourceChunkSchema = z.object({
   text: z.string(),
   source: sourceSchema,
   score: z.number().finite(),
-  language: languageSchema,
+  language: corpusLanguageSchema,
   book: z.string().optional(),
   chapter: z.number().int().positive().optional(),
   verse: z.string().optional(),
@@ -33,7 +41,7 @@ const sourceChunkSchema = z.object({
 export const chatRequestSchema = z.object({
   messages: z.array(z.any()).default([]),
   conversationId: uuidSchema.optional().nullable(),
-  language: languageSchema.default("ita"),
+  language: uiLanguageSchema.default("ita"),
   sources: sourcesSchema.default(DEFAULT_SOURCES),
   topK: z.number().int().min(1).max(50).default(20),
   fixedChunks: z.array(sourceChunkSchema).max(120).optional(),
@@ -43,13 +51,13 @@ export const chatRequestSchema = z.object({
 });
 
 export const createConversationSchema = z.object({
-  language: languageSchema.default("ita"),
+  language: uiLanguageSchema.default("ita"),
   sources: sourcesSchema.default(DEFAULT_SOURCES),
 });
 
 export const searchParamsSchema = z.object({
   q: z.string().trim().min(1),
-  language: languageSchema.default("ita"),
+  language: uiLanguageSchema.default("ita"),
   sources: sourcesSchema.default(DEFAULT_SOURCES),
   topK: z.coerce.number().int().min(1).max(20).default(20),
 });

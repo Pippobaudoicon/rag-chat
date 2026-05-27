@@ -1,4 +1,4 @@
-import type { SourceChunk, Language } from "@/lib/types";
+import type { SourceChunk, CorpusLanguage, UiLanguage } from "@/lib/types";
 
 // SYSTEM_PROMPT defines tool-first retrieval behavior. The chat route does
 // NOT pre-fetch context anymore — the model is responsible for calling a
@@ -19,7 +19,8 @@ Retrieval rules (READ CAREFULLY):
 
 Answer rules:
 - Answer in the same language as the user's question.
-- The UI language is only a default answer-language hint. If the user's latest question is in another language, use the user's question language for the final answer.
+- The UI language is only an interface preference. It does not control retrieval language or final answer language.
+- The user message includes an "Original question" and a "Search query" translated into the current index language. Use the Search query for retrieval tool inputs, then answer the Original question in the user's original prompt language.
 - Retrieval may return Italian and English source chunks together. You may translate or summarize source evidence into the user's language, but never imply that a quoted official translation exists unless that exact source language chunk was retrieved.
 - Base claims only on the chunks returned by the tools you called this turn. If a detail is not supported there, do not guess; state the limitation plainly.
 - Cite sources by title, author/book, and reference when available.
@@ -75,15 +76,26 @@ export function formatContext(chunks: SourceChunk[]): string {
 export function buildUserMessage(
   query: string,
   chunks: SourceChunk[],
-  language: Language
+  languageRouting: {
+    uiLanguage: UiLanguage;
+    inputLanguageCode: string;
+    inputLanguageName: string;
+    indexLanguage: CorpusLanguage;
+    indexLanguageName: string;
+    searchQuery: string;
+  }
 ): string {
-  const langInstruction =
-    language === "ita" ? "Rispondi in italiano." : "Answer in English.";
+  const languageInstruction = [
+    `Answer in ${languageRouting.inputLanguageName} (${languageRouting.inputLanguageCode}), matching the user's original prompt language.`,
+    `The UI language is ${languageRouting.uiLanguage}; ignore it for retrieval and answer-language decisions.`,
+    `Use the ${languageRouting.indexLanguageName} search query for retrieval tool calls.`,
+  ].join("\n");
+  const questionBlock = `Original question:\n${query}\n\nSearch query (${languageRouting.indexLanguageName}, ${languageRouting.indexLanguage}):\n${languageRouting.searchQuery}`;
 
   if (chunks.length === 0) {
-    return `${langInstruction}\n\nQuestion: ${query}`;
+    return `${languageInstruction}\n\n${questionBlock}`;
   }
 
   const context = formatContext(chunks);
-  return `${langInstruction}\n\nContext:\n${context}\n\nQuestion: ${query}`;
+  return `${languageInstruction}\n\nContext:\n${context}\n\n${questionBlock}`;
 }

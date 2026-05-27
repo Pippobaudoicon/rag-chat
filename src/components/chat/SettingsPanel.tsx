@@ -4,12 +4,12 @@ import { Separator } from "@/components/ui/separator";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ZapIcon } from "lucide-react";
 import { ALL_SOURCES, SUPER_SOURCES } from "@/lib/types";
-import type { SourceType, Language } from "@/lib/types";
+import type { SourceType, UiLanguage } from "@/lib/types";
 import { LanguageToggle } from "./LanguageToggle";
 import { sourceLabel, uiText } from "./i18n";
 
 interface SettingsPanelProps {
-  language: Language;
+  language: UiLanguage;
   sources: SourceType[];
   onSourcesChange: (sources: SourceType[]) => void;
   disabled?: boolean;

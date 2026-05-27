@@ -25,12 +25,16 @@ import {
   setSessionAnswerInCache,
 } from "@/lib/rag/cache";
 import { createRagTools } from "@/lib/rag/tools";
+import {
+  getIndexLanguage,
+  routeQueryLanguage,
+} from "@/lib/rag/language-routing";
 import { badRequestFromZod, chatRequestSchema } from "@/lib/api/validation";
 import {
   createMemoryTools,
   getUserMemoryContext,
 } from "@/lib/memory/conversation-memory";
-import type { AssistantVersion, Language, SourceChunk, MessageDetails } from "@/lib/types";
+import type { AssistantVersion, SourceChunk, MessageDetails } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const maxDuration = 180;
@@ -92,7 +96,7 @@ export async function POST(req: Request) {
   const {
     messages: uiMessages = [],
     conversationId,
-    language,
+    language: uiLanguage,
     sources,
     topK,
     fixedChunks,
@@ -122,9 +126,6 @@ export async function POST(req: Request) {
   const hasFixedChunks =
     Array.isArray(fixedChunks) && fixedChunks.length > 0;
   const validatedFixedChunks: SourceChunk[] = hasFixedChunks ? fixedChunks : [];
-
-  // Cache key for the final answer (chunks come from tool calls).
-  const key = cacheKey(question, language, sources, topK);
 
   // Chunks injected into the user message. Empty in the default flow; the
   // model populates the source list by calling tools during streaming.
@@ -226,6 +227,20 @@ export async function POST(req: Request) {
     return new Response("Bad Request: empty question", { status: 400 });
   }
 
+  const languageRouting = await routeQueryLanguage(question, {
+    indexLanguage: getIndexLanguage(),
+    model: CHAT_MODEL,
+  });
+
+  // Retrieval caches use the translated index-language query. The UI language
+  // is intentionally not part of search routing.
+  const key = cacheKey(
+    languageRouting.searchQuery,
+    languageRouting.indexLanguage,
+    sources,
+    topK
+  );
+
   const historySignature = JSON.stringify(
     storedMessages.map((message) => ({
       id: message.id,
@@ -236,7 +251,11 @@ export async function POST(req: Request) {
   const memoryContext = await getUserMemoryContext(userId);
   const answerCacheKey = conversation
     ? sessionAnswerCacheKey(userId, conversation.id, question, {
-        language,
+        language: [
+          `ui:${uiLanguage}`,
+          `answer:${languageRouting.inputLanguageCode}`,
+          `index:${languageRouting.indexLanguage}`,
+        ].join("|"),
         sources,
         topK,
         historySignature,
@@ -352,7 +371,14 @@ export async function POST(req: Request) {
   // In the default flow `initialChunks` is empty and the model is expected to
   // call a retrieval tool. Only the regenerate-with-fixed-chunks path injects
   // pre-selected context up front.
-  const augmentedQuestion = buildUserMessage(question, initialChunks, language);
+  const augmentedQuestion = buildUserMessage(question, initialChunks, {
+    uiLanguage,
+    inputLanguageCode: languageRouting.inputLanguageCode,
+    inputLanguageName: languageRouting.inputLanguageName,
+    indexLanguage: languageRouting.indexLanguage,
+    indexLanguageName: languageRouting.indexLanguageName,
+    searchQuery: languageRouting.searchQuery,
+  });
 
   const chatMessages: ChatMessage[] = [...modelHistory, { role: "user", content: augmentedQuestion }];
   const systemPrompt = memoryContext
@@ -370,7 +396,8 @@ export async function POST(req: Request) {
     stopWhen: stepCountIs(8),
     tools: {
       ...createRagTools({
-        language,
+        language: languageRouting.indexLanguage,
+        retrievalLanguageName: languageRouting.indexLanguageName,
         sources,
         topK,
         initialChunks,

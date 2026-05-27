@@ -23,6 +23,7 @@ const inputSchema = z.object({
 export interface LookupScripturePassageDeps {
   language: Language;
   context: RagToolContext;
+  retrievalLanguageName?: string;
 }
 
 /**
@@ -34,10 +35,10 @@ export interface LookupScripturePassageDeps {
 export function createLookupScripturePassageTool({
   language,
   context,
+  retrievalLanguageName = "the configured index language",
 }: LookupScripturePassageDeps) {
   return tool({
-    description:
-      "Retrieve scripture passages (Book of Mormon, D&C, Pearl of Great Price) by reference or scripture-focused query.",
+    description: `Retrieve scripture passages (Book of Mormon, D&C, Pearl of Great Price) by reference or scripture-focused query. Tool input reference must be in ${retrievalLanguageName}.`,
     inputSchema,
     execute: async ({ reference, topK }) => {
       const key = toolResultCacheKey("lookup_scripture_passage", language, {

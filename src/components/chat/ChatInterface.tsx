@@ -45,7 +45,7 @@ import { DEFAULT_SOURCES, SUPER_SOURCES } from "@/lib/types";
 import type {
   AssistantVersion,
   SourceType,
-  Language,
+  UiLanguage,
   MessageMetadata,
   MessageDetails,
   SourceChunk,
@@ -117,7 +117,7 @@ function hasVisibleAssistantText(message: UIMessage): boolean {
     .some((part) => part.text.trim().length > 0);
 }
 
-function getPendingLabel(language: Language, phase: PendingPhase): string {
+function getPendingLabel(language: UiLanguage, phase: PendingPhase): string {
   const text = uiText(language);
   if (phase === "queued") return text.chat.pendingQueued;
   if (phase === "tools") return text.chat.pendingTools;
@@ -136,7 +136,7 @@ function PendingIndicator({
   phase,
   className,
 }: {
-  language: Language;
+  language: UiLanguage;
   phase: PendingPhase;
   className?: string;
 }) {
@@ -598,7 +598,10 @@ export function ChatInterface({
                 const shouldShowScriptureCoverage =
                   message.role === "assistant" &&
                   !!previousUserQuery &&
-                  !!parseScriptureSelection(previousUserQuery, language);
+                  !!parseScriptureSelection(
+                    previousUserQuery,
+                    language === "ita" ? "ita" : "eng"
+                  );
                 const isLastAssistantMessage = messageIndex === lastAssistantMessageIndex;
                 const toolRunInProgress = isLastAssistantMessage && isStreaming && hasToolUsage;
                 const isAssistantPending =
