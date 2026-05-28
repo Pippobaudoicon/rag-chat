@@ -49,7 +49,7 @@ import type {
   ChatProgressData,
   ChatProgressPhase,
   SourceType,
-  Language,
+  UiLanguage,
   MessageMetadata,
   MessageDetails,
   SourceChunk,
@@ -224,7 +224,7 @@ function PendingIndicator({
   waitingPhrase,
   className,
 }: {
-  language: Language;
+  language: UiLanguage;
   phase: PendingPhase;
   progress?: ChatProgressData | null;
   waitingPhrase?: string;
@@ -754,7 +754,10 @@ export function ChatInterface({
                 const shouldShowScriptureCoverage =
                   message.role === "assistant" &&
                   !!previousUserQuery &&
-                  !!parseScriptureSelection(previousUserQuery, language);
+                  !!parseScriptureSelection(
+                    previousUserQuery,
+                    language === "ita" ? "ita" : "eng"
+                  );
                 const isLastAssistantMessage = messageIndex === lastAssistantMessageIndex;
                 const toolRunInProgress = isLastAssistantMessage && isStreaming && hasToolUsage;
                 const isAssistantPending =

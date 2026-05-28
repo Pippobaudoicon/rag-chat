@@ -1,11 +1,11 @@
 "use client";
 
-import type { MessageDetails, Language } from "@/lib/types";
+import type { MessageDetails, UiLanguage } from "@/lib/types";
 import { uiText } from "./i18n";
 
 interface DetailRowsProps {
   details: MessageDetails;
-  language?: Language;
+  language?: UiLanguage;
 }
 
 function formatLatency(ms: number): string {

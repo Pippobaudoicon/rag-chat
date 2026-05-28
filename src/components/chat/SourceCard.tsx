@@ -3,15 +3,15 @@
 import { lazy, Suspense, useState } from "react";
 import { cn } from "@/lib/utils";
 import { SOURCE_COLORS } from "@/lib/types";
-import type { SourceChunk, Language } from "@/lib/types";
-import { sourceLabel, uiText, UI_LANGUAGE_NAMES } from "./i18n";
+import type { SourceChunk, UiLanguage } from "@/lib/types";
+import { sourceLabel, uiText, SOURCE_LANGUAGE_NAMES } from "./i18n";
 
 const SourceCardDialog = lazy(() => import("./SourceCardDialog"));
 
 interface SourceCardProps {
   chunk: SourceChunk;
   index: number;
-  language?: Language;
+  language?: UiLanguage;
 }
 
 export function SourceCard({ chunk, index, language = "ita" }: SourceCardProps) {
@@ -43,7 +43,7 @@ export function SourceCard({ chunk, index, language = "ita" }: SourceCardProps) 
               </span>
               {chunk.language !== language && (
                 <span className="rounded border border-border/50 px-1 text-[10px] text-muted-foreground">
-                  {UI_LANGUAGE_NAMES[chunk.language]}
+                  {SOURCE_LANGUAGE_NAMES[chunk.language]}
                 </span>
               )}
             </div>

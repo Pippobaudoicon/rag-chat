@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
-import type { Language } from "@/lib/types";
+import type { UiLanguage } from "@/lib/types";
 import { uiText } from "./i18n";
 
 const SUGGESTION_COUNT = 3;
@@ -20,7 +20,7 @@ function pickRandomSuggestions(options: string[], count: number) {
 }
 
 interface EmptyStateProps {
-  language: Language;
+  language: UiLanguage;
   onSelect: (question: string) => void;
   userName?: string | null;
 }

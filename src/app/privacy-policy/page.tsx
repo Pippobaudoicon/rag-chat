@@ -24,7 +24,7 @@ export default function PrivacyPolicyPage() {
       title="Privacy Policy"
       description="This policy explains what account information ChatLDS may collect, how authentication is protected through Clerk, and how you can request deletion of your data."
       sidebar={
-        <div className="mt-8 rounded-lg border border-white/10 bg-white/[0.04] p-5 shadow-sm">
+        <div className="mt-8 rounded-lg border border-white/10 bg-white/4 p-5 shadow-sm">
           <p className="text-sm font-semibold text-white">Last updated</p>
           <p className="mt-1 text-sm text-zinc-400">May 25, 2026</p>
         </div>

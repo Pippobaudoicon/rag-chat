@@ -16,8 +16,18 @@ export type SourceType =
   | "gospel_youth"
   | "gospel_videos"
   | "gospel_handbook";
-export type Language = "ita" | "eng";
-export const INDEXED_LANGUAGES: Language[] = ["ita", "eng"];
+export type CorpusLanguage = "ita" | "eng";
+export type UiLanguage = "ita" | "eng" | "fra" | "spa" | "por" | "deu";
+export type Language = CorpusLanguage;
+export const INDEXED_LANGUAGES: CorpusLanguage[] = ["ita", "eng"];
+export const SUPPORTED_UI_LANGUAGES: UiLanguage[] = [
+  "ita",
+  "eng",
+  "fra",
+  "spa",
+  "por",
+  "deu",
+];
 
 /** Sources shown as individual toggles in the settings bar. */
 export const ALL_SOURCES: SourceType[] = [
@@ -94,7 +104,7 @@ export interface SourceChunk {
   text: string;
   source: SourceType;
   score: number; // 0.0–1.0 cosine similarity
-  language: Language;
+  language: CorpusLanguage;
   // Optional metadata (varies by namespace)
   book?: string;
   chapter?: number;

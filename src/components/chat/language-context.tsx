@@ -7,26 +7,29 @@ import {
   useEffect,
   useState,
 } from "react";
-import type { Language } from "@/lib/types";
+import { SUPPORTED_UI_LANGUAGES } from "@/lib/types";
+import type { UiLanguage } from "@/lib/types";
 
 interface LanguageContextValue {
-  language: Language;
-  setLanguage: (lang: Language) => void;
+  language: UiLanguage;
+  setLanguage: (lang: UiLanguage) => void;
   toggle: () => void;
 }
 
 const LanguageContext = createContext<LanguageContextValue | null>(null);
 
 export function LanguageProvider({ children }: { children: React.ReactNode }) {
-  const [language, setLanguageState] = useState<Language>("ita");
+  const [language, setLanguageState] = useState<UiLanguage>("ita");
 
   // Hydrate from localStorage after mount to avoid SSR mismatch
   useEffect(() => {
     const stored = localStorage.getItem("chat:language");
-    if (stored === "eng") setLanguageState("eng");
+    if (SUPPORTED_UI_LANGUAGES.includes(stored as UiLanguage)) {
+      setLanguageState(stored as UiLanguage);
+    }
   }, []);
 
-  const setLanguage = useCallback((lang: Language) => {
+  const setLanguage = useCallback((lang: UiLanguage) => {
     setLanguageState(lang);
     try {
       localStorage.setItem("chat:language", lang);
@@ -36,7 +39,9 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const toggle = useCallback(() => {
-    setLanguage(language === "ita" ? "eng" : "ita");
+    const currentIndex = SUPPORTED_UI_LANGUAGES.indexOf(language);
+    const nextIndex = currentIndex >= 0 ? (currentIndex + 1) % SUPPORTED_UI_LANGUAGES.length : 0;
+    setLanguage(SUPPORTED_UI_LANGUAGES[nextIndex]);
   }, [language, setLanguage]);
 
   return (

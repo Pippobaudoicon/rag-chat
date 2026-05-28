@@ -24,6 +24,7 @@ export interface LookupScripturePassageDeps {
   language: Language;
   context: RagToolContext;
   onProgress?: (progress: ChatProgressData) => void;
+  retrievalLanguageName?: string;
 }
 
 /**
@@ -36,10 +37,10 @@ export function createLookupScripturePassageTool({
   language,
   context,
   onProgress,
+  retrievalLanguageName = "the configured index language",
 }: LookupScripturePassageDeps) {
   return tool({
-    description:
-      "Retrieve scripture passages (Book of Mormon, D&C, Pearl of Great Price) by reference or scripture-focused query.",
+    description: `Retrieve scripture passages (Book of Mormon, D&C, Pearl of Great Price) by reference or scripture-focused query. Tool input reference must be in ${retrievalLanguageName}.`,
     inputSchema,
     execute: async ({ reference, topK }) => {
       const startedAt = Date.now();

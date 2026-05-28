@@ -38,6 +38,7 @@ export interface SearchConferenceTalksDeps {
   language: Language;
   context: RagToolContext;
   onProgress?: (progress: ChatProgressData) => void;
+  retrievalLanguageName?: string;
 }
 
 type Strategy = "strict" | "relaxed" | "title-not-found" | "semantic-only";
@@ -60,10 +61,10 @@ export function createSearchConferenceTalksTool({
   language,
   context,
   onProgress,
+  retrievalLanguageName = "the configured index language",
 }: SearchConferenceTalksDeps) {
   return tool({
-    description:
-      "Search General Conference talks by topic with optional speaker and year filters.",
+    description: `Search General Conference talks by topic with optional speaker and year filters. Tool input query/title/speaker should be in ${retrievalLanguageName} when translating the user's prompt for retrieval.`,
     inputSchema,
     execute: async ({ query, title, speaker, year, topK }) => {
       const startedAt = Date.now();

@@ -1,6 +1,6 @@
 # ChatLDS Project Knowledge Base
 
-Last updated: 2026-05-04
+Last updated: 2026-05-27
 
 This document is the single source of truth for project context.
 Read this first before deep code exploration.
@@ -32,7 +32,7 @@ Read this first before deep code exploration.
   - Conference
   - Handbook
   - Liahona
-- Language switch: Italian (`ita`) and English (`eng`) for unified UI labels and answer-language defaults.
+- Language selector: UI-only language preference. Current selectable UI languages are Italian, English, French, Spanish, Portuguese, and German; non-translated UI copy falls back to English.
 - Inline numeric citations linked to source cards.
 - Sources panel with scripture coverage behavior for chapter/book requests.
 - Conversation CRUD in sidebar (create/list/open/delete) and title updates.
@@ -46,29 +46,30 @@ Read this first before deep code exploration.
 
 ## 4) Runtime architecture flow
 
-1. Client sends chat message to `POST /api/chat` with selected language/sources/topK.
+1. Client sends chat message to `POST /api/chat` with selected UI language/sources/topK.
 2. Server verifies auth and extracts the latest user question.
-3. Server does NOT pre-fetch context. Instead it constructs an AI SDK `streamText`
+3. Server detects the user's prompt language and translates the retrieval query into the configured Pinecone index language (`RAG_INDEX_LANGUAGE`, currently Italian by default).
+4. Server does NOT pre-fetch context. Instead it constructs an AI SDK `streamText`
    call with the RAG tool set and lets the model decide how to retrieve.
-4. The model calls one or more retrieval tools per turn as it sees fit:
+5. The model calls one or more retrieval tools per turn as it sees fit, using the translated index-language search query:
    - `semantic_search` for general topical queries (caches via Upstash Redis).
    - `lookup_scripture_passage` for scripture references (also cached via Upstash Redis).
    - `search_conference_talks` for talks by title / speaker / year (also cached via Upstash Redis).
    Multiple tools (and repeated calls to the same tool with different
    arguments) are allowed when the question benefits from it.
-5. Tool results register chunks in a shared per-turn `RagToolContext` so all
+6. Tool results register chunks in a shared per-turn `RagToolContext` so all
    citation indices remain stable across multiple tool calls.
-6. The model generates the final answer and may call `citation_verifier`
+7. The model generates the final answer in the original language of the user's prompt and may call `citation_verifier`
    before completing.
-7. LLM response is streamed back via AI SDK.
-8. For normal non-regenerate conversation turns, the chat route checks a
+8. LLM response is streamed back via AI SDK.
+9. For normal non-regenerate conversation turns, the chat route checks a
    session-scoped answer cache keyed by user, conversation, normalized question,
    turn settings, recent history, and memory context. Cache hits skip the full
    retrieval + model pipeline while still persisting the user/assistant messages.
-9. Assistant text + collected tool chunks + tool names used during the turn are
+10. Assistant text + collected tool chunks + tool names used during the turn are
    persisted to DB and returned as metadata. Redis cache entries are updated
    with retrieval outputs, session answer payloads, and sidebar title/list data.
-10. UI renders message, inline citations, and source cards.
+11. UI renders message, inline citations, and source cards.
 
 ## 5) API surface (internal app API)
 
@@ -124,7 +125,10 @@ Notes:
 ## 7) Retrieval and prompting behavior
 
 - Uses Pinecone index `lds-rag` and per-source namespaces.
-- Retrieval searches all currently indexed corpus languages (`ita`, `eng`) while preserving each chunk's source-language metadata; the UI language controls labels and the default answer instruction, not corpus availability.
+- The language selector controls only UI labels. It does not affect search language or final answer language.
+- Each user prompt is language-detected, translated into the configured index language before Pinecone search, then answered in the original prompt language.
+- `RAG_INDEX_LANGUAGE` controls the single-language retrieval target. It defaults to Italian (`ita`) for the current Pinecone corpus and can be switched to English (`eng`) after the index migration.
+- Retrieval still preserves each chunk's source-language metadata; scripture sources can later add multilingual namespaces/chunks while other documents remain in one primary index language.
 - Special scripture handling for whole chapter/book requests:
   - parses scripture references,
   - enforces chapter-oriented retrieval,
@@ -162,7 +166,7 @@ Notes:
 - System prompt enforces:
   - tool-first retrieval (at least one retrieval tool for any substantive
     question; multiple tools allowed when justified),
-  - same-language answers based on the user's latest question, even when source chunks are in another indexed language,
+  - same-language answers based on the user's latest question, independent from the selected UI language,
   - no unsupported claims,
   - no fabricated citations,
   - citation mapping to tool-returned chunks only,
@@ -179,6 +183,7 @@ Notes:
 - `UPSTASH_REDIS_REST_TOKEN`
 - `VOYAGE_API_KEY`
 - `PINECONE_API_KEY`
+- `RAG_INDEX_LANGUAGE` (optional; defaults to `ita`; set to `eng` after the Pinecone index migration)
 - `CHAT_MODEL` (optional; defaults to `deepseek/deepseek-v4-flash`)
 - `CHAT_MAX_RESPONSE_SOURCES` (optional; defaults to 120)
 - `CHAT_RATE_LIMIT_MAX_REQUESTS` (optional; defaults to 30)
@@ -225,6 +230,7 @@ Reference template: `.env.example`.
 - Current generation model defaults to `deepseek/deepseek-v4-flash` and can be overridden with `CHAT_MODEL`.
 - Embedding model must remain compatible with index dimensions.
 - Chat route uses a limited recent history window for context size control.
+- Current Pinecone search language defaults to Italian until `RAG_INDEX_LANGUAGE` is changed during the future English-index migration.
 
 ## 11) Operations quick start
 
