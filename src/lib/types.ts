@@ -122,6 +122,24 @@ export interface MessageDetails {
   toolNames?: string[];
 }
 
+export type ChatProgressPhase =
+  | "queued"
+  | "memory"
+  | "sources"
+  | "tools"
+  | "drafting"
+  | "complete";
+
+export interface ChatProgressData {
+  phase: ChatProgressPhase;
+  conversationId?: string;
+  title?: string;
+  toolName?: string;
+  sourceCount?: number;
+  cacheHit?: boolean;
+  elapsedMs?: number;
+}
+
 // Type for UIMessage metadata that includes sources
 export interface MessageMetadata {
   sources?: SourceChunk[];

@@ -7,7 +7,7 @@ import {
   toolResultCacheKey,
 } from "@/lib/rag/cache";
 import { parseScriptureSelection } from "@/lib/rag/scripture-reference";
-import type { Language, SourceChunk } from "@/lib/types";
+import type { ChatProgressData, Language, SourceChunk } from "@/lib/types";
 import { toToolChunk } from "../shared/chunk-formatting";
 import { normalizeBookForStrictMatch } from "../shared/text-normalize";
 import type { RagToolContext } from "../shared/tool-context";
@@ -23,6 +23,7 @@ const inputSchema = z.object({
 export interface LookupScripturePassageDeps {
   language: Language;
   context: RagToolContext;
+  onProgress?: (progress: ChatProgressData) => void;
 }
 
 /**
@@ -34,12 +35,19 @@ export interface LookupScripturePassageDeps {
 export function createLookupScripturePassageTool({
   language,
   context,
+  onProgress,
 }: LookupScripturePassageDeps) {
   return tool({
     description:
       "Retrieve scripture passages (Book of Mormon, D&C, Pearl of Great Price) by reference or scripture-focused query.",
     inputSchema,
     execute: async ({ reference, topK }) => {
+      const startedAt = Date.now();
+      onProgress?.({
+        phase: "sources",
+        toolName: "lookup_scripture_passage",
+      });
+
       const key = toolResultCacheKey("lookup_scripture_passage", language, {
         reference,
         topK,
@@ -64,6 +72,13 @@ export function createLookupScripturePassageTool({
 
       const finalChunks = (strictChunks.length > 0 ? strictChunks : chunks).slice(0, topK);
       const indexedChunks = context.registerChunks(finalChunks);
+      onProgress?.({
+        phase: "tools",
+        toolName: "lookup_scripture_passage",
+        sourceCount: finalChunks.length,
+        cacheHit: !!cached,
+        elapsedMs: Date.now() - startedAt,
+      });
 
       return {
         reference,

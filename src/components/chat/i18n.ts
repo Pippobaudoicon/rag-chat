@@ -62,8 +62,21 @@ export const UI_TEXT = {
     },
     chat: {
       pendingQueued: "Invio della richiesta...",
+      pendingMemory: "Controllo la memoria...",
+      pendingSources: "Cerco nelle fonti...",
       pendingTools: "Sto usando i tool sulle fonti...",
       pendingDrafting: "Sto scrivendo la risposta...",
+      toolWorking: "Ancora al lavoro",
+      toolSourcesFound: "fonti trovate",
+      toolCacheHit: "cache",
+      //TODO scrivere frasi più varie e divertenti con umorismo LDS-friendly, magari citando le fonti o usando modi di dire della chiesa
+      waitingPhrases: [
+        "Sto scegliendo le fonti più pertinenti.",
+        "Controllo i riferimenti prima di rispondere.",
+        "Metto insieme il contesto utile.",
+        "Verifico che la risposta resti fondata sulle fonti.",
+        "Sto preparando una risposta chiara.",
+      ],
       toolsUsing: "Tool in uso",
       toolsUsed: "Tool usati",
       previousVersion: "Versione precedente",
@@ -186,8 +199,21 @@ export const UI_TEXT = {
     },
     chat: {
       pendingQueued: "Sending request...",
+      pendingMemory: "Checking memory...",
+      pendingSources: "Searching sources...",
       pendingTools: "Using tools on sources...",
       pendingDrafting: "Writing the response...",
+      toolWorking: "Still working",
+      toolSourcesFound: "sources found",
+      toolCacheHit: "cache",
+      //TODO scrivere frasi più varie e divertenti con umorismo LDS-friendly, magari citando le fonti o usando modi di dire della chiesa
+      waitingPhrases: [
+        "Choosing the most relevant sources.",
+        "Checking references before answering.",
+        "Pulling together useful context.",
+        "Making sure the answer stays grounded.",
+        "Preparing a clear response.",
+      ],
       toolsUsing: "Using tools",
       toolsUsed: "Tools used",
       previousVersion: "Previous version",

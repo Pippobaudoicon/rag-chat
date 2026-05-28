@@ -3,7 +3,7 @@ import { z } from "zod";
 import { retrieve } from "@/lib/rag/retriever";
 import { cacheKey, getFromCache, setInCache } from "@/lib/rag/cache";
 import { ALL_SOURCES, SUPER_SOURCES } from "@/lib/types";
-import type { Language, SourceType } from "@/lib/types";
+import type { ChatProgressData, Language, SourceType } from "@/lib/types";
 import { toToolChunk } from "../shared/chunk-formatting";
 import type { RagToolContext } from "../shared/tool-context";
 
@@ -39,6 +39,7 @@ export interface SemanticSearchDeps {
   /** topK selected in the chat UI for this turn. */
   defaultTopK: number;
   context: RagToolContext;
+  onProgress?: (progress: ChatProgressData) => void;
 }
 
 /**
@@ -62,6 +63,7 @@ export function createSemanticSearchTool({
   defaultSources,
   defaultTopK,
   context,
+  onProgress,
 }: SemanticSearchDeps) {
   // Restrict the LLM to sources the user has actually enabled in the UI
   // (or any source if the user opted into "Super").
@@ -76,10 +78,16 @@ export function createSemanticSearchTool({
       "Run a general semantic search across the user's selected LDS sources. Use this when the question is topical and does not target a specific scripture reference or a specific conference talk. Returns ranked chunks with citation indices.",
     inputSchema,
     execute: async ({ query, topK, sources }) => {
+      const startedAt = Date.now();
       const effectiveTopK = topK ?? defaultTopK;
       const requestedSources = sources && sources.length > 0 ? sources : defaultSources;
       const filteredSources = requestedSources.filter((source) => allowedSources.has(source));
       const effectiveSources = filteredSources.length > 0 ? filteredSources : defaultSources;
+
+      onProgress?.({
+        phase: "sources",
+        toolName: "semantic_search",
+      });
 
       const key = cacheKey(query, language, effectiveSources, effectiveTopK);
       const cached = await getFromCache(key);
@@ -91,6 +99,13 @@ export function createSemanticSearchTool({
       }
 
       const indexedChunks = context.registerChunks(chunks);
+      onProgress?.({
+        phase: "tools",
+        toolName: "semantic_search",
+        sourceCount: chunks.length,
+        cacheHit: !!cached,
+        elapsedMs: Date.now() - startedAt,
+      });
 
       return {
         query,

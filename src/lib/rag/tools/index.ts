@@ -1,4 +1,4 @@
-import type { Language, SourceChunk, SourceType } from "@/lib/types";
+import type { ChatProgressData, Language, SourceChunk, SourceType } from "@/lib/types";
 import { createCitationVerifierTool } from "./citation-verifier/tool";
 import { createLookupScripturePassageTool } from "./lookup-scripture-passage/tool";
 import { createSearchConferenceTalksTool } from "./search-conference-talks/tool";
@@ -24,6 +24,8 @@ export interface CreateRagToolsOptions {
   initialChunks?: SourceChunk[];
   /** Notified whenever a tool registers new chunks for the response. */
   onSources?: ToolSourceListener;
+  /** Notified as tools start and finish so the UI can show live progress. */
+  onProgress?: (progress: ChatProgressData) => void;
 }
 
 /**
@@ -44,7 +46,7 @@ export interface CreateRagToolsOptions {
  *     final answer.
  */
 export function createRagTools(options: CreateRagToolsOptions) {
-  const { language, sources, topK, initialChunks, onSources } = options;
+  const { language, sources, topK, initialChunks, onSources, onProgress } = options;
 
   const context = createRagToolContext({ initialChunks, onSources });
 
@@ -54,9 +56,10 @@ export function createRagTools(options: CreateRagToolsOptions) {
       defaultSources: sources,
       defaultTopK: topK,
       context,
+      onProgress,
     }),
-    lookup_scripture_passage: createLookupScripturePassageTool({ language, context }),
-    search_conference_talks: createSearchConferenceTalksTool({ language, context }),
+    lookup_scripture_passage: createLookupScripturePassageTool({ language, context, onProgress }),
+    search_conference_talks: createSearchConferenceTalksTool({ language, context, onProgress }),
     citation_verifier: createCitationVerifierTool({ context }),
   };
 }

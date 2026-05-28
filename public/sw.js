@@ -4,15 +4,16 @@
  * Service Worker for ChatLDS Chat PWA.
  *
  * Strategy:
- *  - App shell (HTML, CSS, JS, fonts, icons): cache-first with network fallback
+ *  - Next runtime chunks: network-only to avoid stale module factories
  *  - API routes: network-only (real-time chat data)
  *  - Navigation fallback: serve cached /chat when offline
+ *  - Stable static assets: stale-while-revalidate
  */
 
-const CACHE_NAME = "lds-rag-v1";
+const CACHE_NAME = "lds-rag-v2";
 
-/** Paths to pre-cache on install (app shell) */
-const PRECACHE_URLS = ["/chat", "/manifest.webmanifest"];
+/** Paths to pre-cache on install. Avoid authenticated pages and Next chunks. */
+const PRECACHE_URLS = ["/manifest.webmanifest"];
 
 /* ------------------------------------------------------------------ */
 /*  INSTALL — pre-cache the app shell                                 */
@@ -54,9 +55,10 @@ self.addEventListener("fetch", (event) => {
   // Skip non-GET requests (POST for chat API, etc.)
   if (request.method !== "GET") return;
 
-  // Skip API routes, Clerk auth, analytics — always go to network
+  // Skip API routes, Clerk auth, analytics, and Next runtime chunks.
   if (
     url.pathname.startsWith("/api/") ||
+    url.pathname.startsWith("/_next/") ||
     url.pathname.startsWith("/v1/") ||
     url.hostname.includes("clerk") ||
     url.hostname.includes("vercel") ||
@@ -70,9 +72,10 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(
       fetch(request)
         .then((response) => {
-          // Cache the navigation response for offline use
-          const clone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
+          if (response.ok) {
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
+          }
           return response;
         })
         .catch(() => caches.match("/chat").then((r) => r || caches.match(request)))
@@ -80,7 +83,7 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // For static assets (JS, CSS, fonts, images) → stale-while-revalidate
+  // For stable static assets (fonts, images, icons) → stale-while-revalidate
   event.respondWith(
     caches.match(request).then((cached) => {
       const networkFetch = fetch(request)

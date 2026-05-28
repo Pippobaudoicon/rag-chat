@@ -6,7 +6,7 @@ import {
   setToolResultInCache,
   toolResultCacheKey,
 } from "@/lib/rag/cache";
-import type { Language, SourceChunk } from "@/lib/types";
+import type { ChatProgressData, Language, SourceChunk } from "@/lib/types";
 import { toToolChunk, uniqueById, uniqueStrings } from "../shared/chunk-formatting";
 import { normalizeForMatch } from "../shared/text-normalize";
 import type { RagToolContext } from "../shared/tool-context";
@@ -37,6 +37,7 @@ const inputSchema = z.object({
 export interface SearchConferenceTalksDeps {
   language: Language;
   context: RagToolContext;
+  onProgress?: (progress: ChatProgressData) => void;
 }
 
 type Strategy = "strict" | "relaxed" | "title-not-found" | "semantic-only";
@@ -58,12 +59,19 @@ type MatchType = "exact-title" | "confirmed-title" | "not-found" | "semantic";
 export function createSearchConferenceTalksTool({
   language,
   context,
+  onProgress,
 }: SearchConferenceTalksDeps) {
   return tool({
     description:
       "Search General Conference talks by topic with optional speaker and year filters.",
     inputSchema,
     execute: async ({ query, title, speaker, year, topK }) => {
+      const startedAt = Date.now();
+      onProgress?.({
+        phase: "sources",
+        toolName: "search_conference_talks",
+      });
+
       const inferredSpeaker = inferSpeakerFromQuery(query);
       const effectiveSpeaker = speaker ?? inferredSpeaker;
       const normalizedSpeaker = effectiveSpeaker
@@ -171,6 +179,13 @@ export function createSearchConferenceTalksTool({
 
       const returned = final.slice(0, topK);
       const indexedChunks = context.registerChunks(returned);
+      onProgress?.({
+        phase: "tools",
+        toolName: "search_conference_talks",
+        sourceCount: returned.length,
+        cacheHit: !!cached,
+        elapsedMs: Date.now() - startedAt,
+      });
 
       return {
         query,

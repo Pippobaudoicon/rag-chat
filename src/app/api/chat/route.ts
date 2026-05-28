@@ -30,7 +30,13 @@ import {
   createMemoryTools,
   getUserMemoryContext,
 } from "@/lib/memory/conversation-memory";
-import type { AssistantVersion, Language, SourceChunk, MessageDetails } from "@/lib/types";
+import type {
+  AssistantVersion,
+  ChatProgressData,
+  Language,
+  SourceChunk,
+  MessageDetails,
+} from "@/lib/types";
 
 export const runtime = "nodejs";
 export const maxDuration = 180;
@@ -130,6 +136,7 @@ export async function POST(req: Request) {
   // model populates the source list by calling tools during streaming.
   const initialChunks: SourceChunk[] = hasFixedChunks ? validatedFixedChunks : [];
   const toolChunksUsed: SourceChunk[] = [];
+  let writeProgress: ((progress: ChatProgressData) => void) | null = null;
 
   const addToolChunks = (newChunks: SourceChunk[]) => {
     toolChunksUsed.push(...newChunks);
@@ -168,6 +175,11 @@ export async function POST(req: Request) {
   };
   let storedMessages: StoredMessage[] = [];
   let targetAssistantMessage: StoredMessage | null = null;
+  let createdConversationTitle: string | null = null;
+
+  if (!conversationId && !question.trim()) {
+    return new Response("Bad Request: empty question", { status: 400 });
+  }
 
   if (conversationId) {
     conversation = await db.query.conversations.findFirst({
@@ -220,6 +232,14 @@ export async function POST(req: Request) {
         }
       }
     }
+  } else {
+    const [createdConversation] = await db
+      .insert(conversations)
+      .values({ clerkUserId: userId, language, sources })
+      .returning();
+
+    conversation = createdConversation;
+    createdConversationTitle = deriveConversationTitle(question);
   }
 
   if (!question.trim()) {
@@ -375,6 +395,7 @@ export async function POST(req: Request) {
         topK,
         initialChunks,
         onSources: addToolChunks,
+        onProgress: (progress) => writeProgress?.(progress),
       }),
       ...(conversation
         ? createMemoryTools({
@@ -493,25 +514,56 @@ export async function POST(req: Request) {
     },
   });
 
-  // toUIMessageStreamResponse() is required for AI Elements <Message> component
-  // Include sources in the message metadata so UI can display them
-  return result.toUIMessageStreamResponse({
-    generateMessageId: generateId,
-    messageMetadata: ({ part }) => {
-      if (part.type === "finish") {
-        const details: MessageDetails = {
-          inputTokens: part.totalUsage.inputTokens ?? undefined,
-          outputTokens: part.totalUsage.outputTokens ?? undefined,
-          totalTokens: part.totalUsage.totalTokens ?? undefined,
-          reasoningTokens: part.totalUsage.outputTokenDetails?.reasoningTokens ?? undefined,
-          latencyMs: Date.now() - startTime,
-          model: CHAT_MODEL,
-          finishReason: part.finishReason,
-          toolNames: toolNamesUsed,
-        };
-        return { sources: getResponseSources(), details };
-      }
-      return undefined;
+  const stream = createUIMessageStream({
+    execute: ({ writer }) => {
+      writeProgress = (progress) => {
+        writer.write({
+          type: "data-chat-progress",
+          id: "chat-progress",
+          data: {
+            elapsedMs: Date.now() - startTime,
+            ...progress,
+          },
+          transient: true,
+        });
+      };
+
+      writeProgress({
+        phase: "queued",
+        conversationId: conversation?.id,
+        title: createdConversationTitle ?? conversation?.title ?? undefined,
+      });
+      writeProgress({ phase: "drafting" });
+
+      // toUIMessageStream() is required for AI Elements <Message> component.
+      // Include sources in message metadata so the UI can display source cards.
+      writer.merge(
+        result.toUIMessageStream({
+          generateMessageId: generateId,
+          messageMetadata: ({ part }) => {
+            if (part.type === "finish") {
+              const details: MessageDetails = {
+                inputTokens: part.totalUsage.inputTokens ?? undefined,
+                outputTokens: part.totalUsage.outputTokens ?? undefined,
+                totalTokens: part.totalUsage.totalTokens ?? undefined,
+                reasoningTokens: part.totalUsage.outputTokenDetails?.reasoningTokens ?? undefined,
+                latencyMs: Date.now() - startTime,
+                model: CHAT_MODEL,
+                finishReason: part.finishReason,
+                toolNames: toolNamesUsed,
+              };
+              return { sources: getResponseSources(), details };
+            }
+            return undefined;
+          },
+        })
+      );
+    },
+    generateId,
+    onFinish: () => {
+      writeProgress = null;
     },
   });
+
+  return createUIMessageStreamResponse({ stream });
 }

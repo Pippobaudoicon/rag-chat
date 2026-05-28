@@ -44,6 +44,8 @@ import { DetailRows } from "./DetailsPanel";
 import { DEFAULT_SOURCES, SUPER_SOURCES } from "@/lib/types";
 import type {
   AssistantVersion,
+  ChatProgressData,
+  ChatProgressPhase,
   SourceType,
   Language,
   MessageMetadata,
@@ -64,12 +66,13 @@ interface ChatInterfaceProps {
 }
 
 type TextMessagePart = Extract<UIMessage["parts"][number], { type: "text" }>;
-type PendingPhase = "queued" | "tools" | "drafting";
+type PendingPhase = Exclude<ChatProgressPhase, "complete">;
 type FeedbackComposer = { messageId: string; value: "up" | "down" } | null;
 type FeedbackFollowUp = { messageId: string; value: "up" | "down" } | null;
 
 const FEEDBACK_FOLLOWUP_TIMEOUT_MS = 6000;
 const FEEDBACK_FOLLOWUP_FADE_MS = 300;
+const WAITING_PHRASE_INTERVAL_MS = 3400;
 
 function deriveConversationTitle(question: string): string {
   const normalized = question.trim();
@@ -117,11 +120,92 @@ function hasVisibleAssistantText(message: UIMessage): boolean {
     .some((part) => part.text.trim().length > 0);
 }
 
-function getPendingLabel(language: Language, phase: PendingPhase): string {
+function formatToolName(toolName: string): string {
+  return toolName.replace(/_/g, " ");
+}
+
+function formatElapsedMs(elapsedMs: number | undefined): string | null {
+  if (typeof elapsedMs !== "number" || elapsedMs < 1000) return null;
+  return `${Math.max(1, Math.round(elapsedMs / 1000))}s`;
+}
+
+function randomIndex(length: number): number {
+  if (length <= 1) return 0;
+  return Math.floor(Math.random() * length);
+}
+
+function getPendingLabel(
+  language: Language,
+  phase: PendingPhase,
+  progress?: ChatProgressData | null
+): string {
   const text = uiText(language);
   if (phase === "queued") return text.chat.pendingQueued;
-  if (phase === "tools") return text.chat.pendingTools;
+  if (phase === "memory") return text.chat.pendingMemory;
+  if (phase === "sources") {
+    return progress?.toolName
+      ? `${text.chat.pendingSources} ${formatToolName(progress.toolName)}`
+      : text.chat.pendingSources;
+  }
+  if (phase === "tools") {
+    if (typeof progress?.sourceCount === "number") {
+      return `${text.chat.pendingTools} ${progress.sourceCount}`;
+    }
+    return text.chat.pendingTools;
+  }
   return text.chat.pendingDrafting;
+}
+
+function ToolActivityIndicator({
+  language,
+  progress,
+  waitingPhrase,
+  className,
+}: {
+  language: Language;
+  progress?: ChatProgressData | null;
+  waitingPhrase?: string;
+  className?: string;
+}) {
+  const text = uiText(language);
+  const toolName = progress?.toolName ? formatToolName(progress.toolName) : text.chat.pendingSources;
+  const elapsed = formatElapsedMs(progress?.elapsedMs);
+  const sourceCount =
+    typeof progress?.sourceCount === "number"
+      ? `${progress.sourceCount} ${text.chat.toolSourcesFound}`
+      : null;
+
+  return (
+    <div
+      className={`inline-flex max-w-sm flex-col gap-1 px-0 py-0 text-xs text-muted-foreground ${className ?? ""}`}
+    >
+      <div className="flex min-w-0 items-center gap-2">
+        <span className="relative flex size-2 shrink-0">
+          <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400/50 opacity-70 animate-ping" />
+          <span className="relative inline-flex size-2 rounded-full bg-emerald-400" />
+        </span>
+        <WrenchIcon size={13} className="shrink-0 text-muted-foreground/70" />
+        <span className="truncate font-medium text-foreground/85">
+          {text.chat.toolWorking}
+        </span>
+        <span className="truncate text-muted-foreground/75">
+          {toolName}
+        </span>
+        {(sourceCount || progress?.cacheHit || elapsed) && (
+          <span className="ml-auto hidden shrink-0 items-center gap-1.5 text-[10px] text-muted-foreground/65 sm:flex">
+            {sourceCount && <span>{sourceCount}</span>}
+            {progress?.cacheHit && <span>{text.chat.toolCacheHit}</span>}
+            {elapsed && <span>{elapsed}</span>}
+          </span>
+        )}
+      </div>
+      {waitingPhrase && (
+        <div className="truncate pl-7 text-[11px] text-muted-foreground/70">
+          {waitingPhrase}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function getLastAssistantMessageIndex(messages: UIMessage[]): number {
@@ -134,20 +218,31 @@ function getLastAssistantMessageIndex(messages: UIMessage[]): number {
 function PendingIndicator({
   language,
   phase,
+  progress,
+  waitingPhrase,
   className,
 }: {
   language: Language;
   phase: PendingPhase;
+  progress?: ChatProgressData | null;
+  waitingPhrase?: string;
   className?: string;
 }) {
   return (
     <div
-      className={`inline-flex items-center gap-2 rounded-md border border-border/50 bg-background/40 px-2 py-1 text-xs text-muted-foreground ${className ?? ""}`}
+      className={`inline-flex flex-col gap-1 px-0 py-0 text-xs text-muted-foreground ${className ?? ""}`}
     >
-      <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/70 animate-bounce [animation-delay:0ms]" />
-      <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/70 animate-bounce [animation-delay:120ms]" />
-      <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/70 animate-bounce [animation-delay:240ms]" />
-      <span>{getPendingLabel(language, phase)}</span>
+      <span className="inline-flex items-center gap-2">
+        <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/70 animate-bounce [animation-delay:0ms]" />
+        <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/70 animate-bounce [animation-delay:120ms]" />
+        <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/70 animate-bounce [animation-delay:240ms]" />
+        <span>{getPendingLabel(language, phase, progress)}</span>
+      </span>
+      {waitingPhrase && (
+        <span className="max-w-xs truncate text-[11px] text-muted-foreground/70">
+          {waitingPhrase}
+        </span>
+      )}
     </div>
   );
 }
@@ -202,6 +297,8 @@ export function ChatInterface({
   const [feedbackCommentDraft, setFeedbackCommentDraft] = useState("");
   const [submittingFeedbackId, setSubmittingFeedbackId] = useState<string | null>(null);
   const [expandedDetailsId, setExpandedDetailsId] = useState<string | null>(null);
+  const [chatProgress, setChatProgress] = useState<ChatProgressData | null>(null);
+  const [waitingPhraseIndex, setWaitingPhraseIndex] = useState(0);
   const [messageVersions, setMessageVersions] = useState<Record<string, AssistantVersion[]>>(
     initialMessageVersions
   );
@@ -215,6 +312,7 @@ export function ChatInterface({
 
   // Track the resolved conversation ID (may be created on first send)
   const conversationIdRef = useRef<string | undefined>(initialConversationId);
+  const pendingConversationTitleRef = useRef<string | null>(null);
   const pendingRegenerationRef = useRef<
     | {
         targetMessageId: string;
@@ -226,6 +324,35 @@ export function ChatInterface({
   const { messages, sendMessage, regenerate, status, setMessages, stop } = useChat({
     transport: new DefaultChatTransport({ api: "/api/chat" }),
     messages: initialMessages,
+    onData: (dataPart) => {
+      if (dataPart.type !== "data-chat-progress") return;
+
+      const progress = dataPart.data as ChatProgressData;
+      setChatProgress(progress.phase === "complete" ? null : progress);
+
+      if (progress.conversationId && conversationIdRef.current !== progress.conversationId) {
+        const title = progress.title ?? pendingConversationTitleRef.current ?? text.sidebar.untitledChat;
+        conversationIdRef.current = progress.conversationId;
+        pendingConversationTitleRef.current = null;
+
+        const path = `/chat/${progress.conversationId}`;
+        window.history.replaceState(null, "", path);
+        window.dispatchEvent(
+          new CustomEvent("chat:path-changed", {
+            detail: { path },
+          })
+        );
+        window.dispatchEvent(
+          new CustomEvent("chat:conversation-updated", {
+            detail: {
+              id: progress.conversationId,
+              title,
+              updatedAt: new Date().toISOString(),
+            },
+          })
+        );
+      }
+    },
   });
 
   const isStreaming = status === "streaming" || status === "submitted";
@@ -237,6 +364,11 @@ export function ChatInterface({
     user?.username ||
     user?.primaryEmailAddress?.emailAddress ||
     null;
+  const waitingPhrases = text.chat.waitingPhrases;
+  const waitingPhrase =
+    isStreaming && waitingPhrases.length > 0
+      ? waitingPhrases[waitingPhraseIndex % waitingPhrases.length]
+      : undefined;
 
   const ensureConversation = useCallback(async () => {
     // If there's no conversation yet, create one so history is always persisted.
@@ -271,15 +403,31 @@ export function ChatInterface({
     localStorage.setItem("chat:sources", JSON.stringify(sources));
   }, [sources]);
 
+  useEffect(() => {
+    if (!isStreaming || waitingPhrases.length <= 1) return;
+
+    const interval = window.setInterval(() => {
+      setWaitingPhraseIndex((current) => {
+        const next = randomIndex(waitingPhrases.length);
+        return next === current ? (next + 1) % waitingPhrases.length : next;
+      });
+    }, WAITING_PHRASE_INTERVAL_MS);
+
+    return () => window.clearInterval(interval);
+  }, [isStreaming, waitingPhrases.length]);
+
   const handleSubmit = useCallback(
     async (text: string) => {
       if (!text.trim() || isStreaming) return;
 
-      const convId = await ensureConversation();
+      const convId = conversationIdRef.current;
       const trimmedText = text.trim();
+      const title = deriveConversationTitle(trimmedText);
+      pendingConversationTitleRef.current = convId ? null : title;
+      setWaitingPhraseIndex(randomIndex(uiText(language).chat.waitingPhrases.length));
+      setChatProgress({ phase: "queued", conversationId: convId, title });
 
       if (convId && messages.length === 0) {
-        const title = deriveConversationTitle(trimmedText);
         window.dispatchEvent(
           new CustomEvent("chat:conversation-updated", {
             detail: {
@@ -298,7 +446,7 @@ export function ChatInterface({
         }
       );
     },
-    [ensureConversation, isStreaming, language, messages.length, sendMessage, sources]
+    [isStreaming, language, messages.length, sendMessage, sources]
   );
 
   const handleRegenerate = useCallback(
@@ -306,6 +454,8 @@ export function ChatInterface({
       if (!question.trim() || !currentText.trim() || fixedChunks.length === 0 || isStreaming) return;
 
       const convId = await ensureConversation();
+      setWaitingPhraseIndex(randomIndex(uiText(language).chat.waitingPhrases.length));
+      setChatProgress({ phase: "queued", conversationId: convId });
 
       pendingRegenerationRef.current = {
         targetMessageId: messageId,
@@ -436,6 +586,8 @@ export function ChatInterface({
       setMessageVersions({});
       setActiveVersionIndex({});
       pendingRegenerationRef.current = null;
+      setChatProgress(null);
+      setWaitingPhraseIndex(0);
       if (window.location.pathname !== "/chat") {
         window.history.replaceState(null, "", "/chat");
       }
@@ -543,6 +695,8 @@ export function ChatInterface({
 
   useEffect(() => {
     if (status !== "ready") return;
+    setChatProgress(null);
+    setWaitingPhraseIndex(0);
 
     const convId = conversationIdRef.current;
     if (!convId) return;
@@ -614,7 +768,9 @@ export function ChatInterface({
                   Math.min(100, (feedbackFollowUpRemainingMs / FEEDBACK_FOLLOWUP_TIMEOUT_MS) * 100)
                 );
                 const pendingPhase: PendingPhase =
-                  status === "submitted"
+                  chatProgress && chatProgress.phase !== "complete"
+                    ? chatProgress.phase
+                    : status === "submitted"
                     ? "queued"
                     : toolRunInProgress
                       ? "tools"
@@ -655,7 +811,22 @@ export function ChatInterface({
                         ))
                       )}
                       {isAssistantPending && (
-                        <PendingIndicator language={language} phase={pendingPhase} className="mt-1" />
+                        pendingPhase === "sources" || pendingPhase === "tools" ? (
+                          <ToolActivityIndicator
+                            language={language}
+                            progress={chatProgress}
+                            waitingPhrase={waitingPhrase}
+                            className="mt-1"
+                          />
+                        ) : (
+                          <PendingIndicator
+                            language={language}
+                            phase={pendingPhase}
+                            progress={chatProgress}
+                            waitingPhrase={waitingPhrase}
+                            className="mt-1"
+                          />
+                        )
                       )}
                       {/* Action toolbar under response */}
                       {hasText && message.role === "assistant" && (
@@ -931,11 +1102,27 @@ export function ChatInterface({
             {isStreaming && !hasAnyVisibleAssistantText && lastAssistantMessageIndex === -1 && (
               <Message from="assistant">
                 <MessageContent>
-                  <PendingIndicator
-                    language={language}
-                    phase={status === "submitted" ? "queued" : "drafting"}
-                    className="px-0 py-0 text-xs"
-                  />
+                  {chatProgress?.phase === "sources" || chatProgress?.phase === "tools" ? (
+                    <ToolActivityIndicator
+                      language={language}
+                      progress={chatProgress}
+                      waitingPhrase={waitingPhrase}
+                    />
+                  ) : (
+                    <PendingIndicator
+                      language={language}
+                      phase={
+                        chatProgress && chatProgress.phase !== "complete"
+                          ? chatProgress.phase
+                          : status === "submitted"
+                            ? "queued"
+                            : "drafting"
+                      }
+                      progress={chatProgress}
+                      waitingPhrase={waitingPhrase}
+                      className="px-0 py-0 text-xs"
+                    />
+                  )}
                 </MessageContent>
               </Message>
             )}
