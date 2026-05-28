@@ -37,7 +37,6 @@ import {
 import type {
   AssistantVersion,
   ChatProgressData,
-  Language,
   SourceChunk,
   MessageDetails,
 } from "@/lib/types";
@@ -236,7 +235,7 @@ export async function POST(req: Request) {
   } else {
     const [createdConversation] = await db
       .insert(conversations)
-      .values({ clerkUserId: userId, language, sources })
+      .values({ clerkUserId: userId, language: uiLanguage, sources })
       .returning();
 
     conversation = createdConversation;

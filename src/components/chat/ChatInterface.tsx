@@ -137,7 +137,7 @@ function randomIndex(length: number): number {
 }
 
 function getPendingLabel(
-  language: Language,
+  language: UiLanguage,
   phase: PendingPhase,
   progress?: ChatProgressData | null
 ): string {
@@ -164,7 +164,7 @@ function ToolActivityIndicator({
   waitingPhrase,
   className,
 }: {
-  language: Language;
+  language: UiLanguage;
   progress?: ChatProgressData | null;
   waitingPhrase?: string;
   className?: string;
@@ -784,7 +784,8 @@ export function ChatInterface({
                 return (
                   <Message key={message.id} from={message.role}>
                     <MessageContent>
-                      {message.role === "assistant" && hasToolUsage && (
+                      {/* //FIX TO CONSIDER WHETER TO KEEP THIS OR NOW */}
+                      {/* {message.role === "assistant" && hasToolUsage && (
                         <div className="mb-1 flex flex-wrap items-center gap-1.5">
                           <Badge
                             variant="outline"
@@ -805,7 +806,7 @@ export function ChatInterface({
                             </Badge>
                           ))}
                         </div>
-                      )}
+                      )} */}
                       {hasVersions ? (
                         <MessageResponse>{linkifyInlineCitations(displayedText, displayedSources)}</MessageResponse>
                       ) : (
