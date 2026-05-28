@@ -95,7 +95,7 @@ export function createSemanticSearchTool({
       if (!cached) {
         // Best-effort warm cache write; the chat route will overwrite later
         // with the assistant's final answer text.
-        await setInCache(key, { chunks, answer: "" });
+        void setInCache(key, { chunks, answer: "" });
       }
 
       const indexedChunks = context.registerChunks(chunks);

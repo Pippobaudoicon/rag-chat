@@ -55,7 +55,7 @@ export function createLookupScripturePassageTool({
       const cached = await getToolResultFromCache<SourceChunk[]>(key);
       const chunks = cached ?? (await retrieve(reference, ["scriptures"], language, topK));
       if (!cached) {
-        await setToolResultInCache(key, chunks);
+        void setToolResultInCache(key, chunks);
       }
 
       const selection = parseScriptureSelection(reference, language);

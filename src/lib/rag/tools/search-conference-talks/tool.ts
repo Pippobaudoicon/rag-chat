@@ -1,6 +1,6 @@
 import { tool } from "ai";
 import { z } from "zod";
-import { retrieve } from "@/lib/rag/retriever";
+import { retrieveConferenceCandidates } from "@/lib/rag/retriever";
 import {
   getToolResultFromCache,
   setToolResultInCache,
@@ -109,17 +109,15 @@ export function createSearchConferenceTalksTool({
       const chunks =
         cached ??
         uniqueById(
-          (
-            await Promise.all(
-              queryCandidates.map((candidate) =>
-                retrieve(candidate, ["conference"], language, retrievalTopK)
-              )
-            )
-          ).flat()
+          await retrieveConferenceCandidates(
+            queryCandidates,
+            language,
+            retrievalTopK
+          )
         );
 
       if (!cached) {
-        await setToolResultInCache(key, chunks);
+        void setToolResultInCache(key, chunks);
       }
 
       const speakerMatches = buildSpeakerMatcher(normalizedSpeaker);

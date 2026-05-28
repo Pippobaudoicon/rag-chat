@@ -8,7 +8,9 @@ const VOYAGE_API_URL = "https://api.voyageai.com/v1/embeddings";
 export const VOYAGE_MODEL = "voyage-4-large"; // matches Python: Embedder.MODEL = "voyage-4-large"
 export const VOYAGE_DIMENSION = 1024;
 
-export async function embedQuery(text: string): Promise<number[]> {
+export async function embedQueries(texts: string[]): Promise<number[][]> {
+  if (texts.length === 0) return [];
+
   const res = await fetch(VOYAGE_API_URL, {
     method: "POST",
     headers: {
@@ -17,7 +19,7 @@ export async function embedQuery(text: string): Promise<number[]> {
     },
     body: JSON.stringify({
       model: VOYAGE_MODEL,
-      input: [text],
+      input: texts,
       input_type: "query", // MUST be "query" for search — matches Python embed_query()
     }),
   });
@@ -28,5 +30,10 @@ export async function embedQuery(text: string): Promise<number[]> {
   }
 
   const data = await res.json();
-  return data.data[0].embedding as number[];
+  return data.data.map((item: { embedding: number[] }) => item.embedding);
+}
+
+export async function embedQuery(text: string): Promise<number[]> {
+  const [embedding] = await embedQueries([text]);
+  return embedding;
 }

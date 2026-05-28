@@ -1,5 +1,7 @@
 "use client";
 
+//TODO questa pagina sta incominciando a diventare un po' troppo grande, forse è il caso di suddividerla in più componenti (es. spostare la logica dei feedback in un custom hook e i pannelli di sources/details in componenti separate)
+//valutare come fare 
 import { useState, useCallback, useEffect, useRef } from "react";
 import { useChat } from "@ai-sdk/react";
 import { useUser } from "@clerk/nextjs";

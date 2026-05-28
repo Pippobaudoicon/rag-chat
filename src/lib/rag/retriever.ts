@@ -1,5 +1,5 @@
 import { Pinecone } from "@pinecone-database/pinecone";
-import { embedQuery } from "./embedder";
+import { embedQueries, embedQuery } from "./embedder";
 import { INDEXED_LANGUAGES } from "@/lib/types";
 import type { SourceChunk, SourceType, Language } from "@/lib/types";
 import {
@@ -364,4 +364,47 @@ export async function retrieve(
 
   // Flatten, sort by score descending, return top topK overall.
   return sortRetrievedChunks(deduped, language).slice(0, limit);
+}
+
+export async function retrieveConferenceCandidates(
+  queries: string[],
+  language: Language,
+  topK = 20
+): Promise<SourceChunk[]> {
+  const candidates = queries.filter((query) => query.trim().length > 0);
+  if (candidates.length === 0) return [];
+
+  const retrievalLanguages = orderRetrievalLanguages(language);
+  const vectors = await embedQueries(candidates);
+  const index = getPinecone().index(INDEX_NAME);
+
+  const candidateResults = await Promise.all(
+    vectors.map(async (vector) => {
+      const languageResults = await Promise.all(
+        retrievalLanguages.map((retrievalLanguage) =>
+          index
+            .namespace("conference")
+            .query({
+              vector,
+              topK,
+              includeMetadata: true,
+              filter: { language: { $eq: retrievalLanguage } },
+            })
+            .then((res) =>
+              res.matches.map(
+                (match): SourceChunk =>
+                  toChunk("conference", retrievalLanguage, match)
+              )
+            )
+        )
+      );
+
+      return sortRetrievedChunks(
+        mergeChunks(languageResults.flat()),
+        language
+      ).slice(0, topK);
+    })
+  );
+
+  return mergeChunks(candidateResults.flat());
 }
