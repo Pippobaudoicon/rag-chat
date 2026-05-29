@@ -6,18 +6,27 @@ import { Button } from "@/components/ui/button";
 
 type BillingActionsProps = {
   isPro: boolean;
+  disabledReason?: "not-configured" | "billing-disabled";
+  labels: {
+    billingNotConfigured: string;
+    billingDisabledAction: string;
+    manageSubscription: string;
+    upgradeToPro: string;
+  };
 };
 
 const PRO_PLAN_ID = process.env.NEXT_PUBLIC_CLERK_BILLING_PRO_PLAN_ID;
 const PRO_PLAN_KEY = process.env.NEXT_PUBLIC_CLERK_BILLING_PRO_PLAN_KEY ?? "pro_user";
 const CHECKOUT_PLAN_ID = PRO_PLAN_ID ?? PRO_PLAN_KEY;
 
-export function BillingActions({ isPro }: BillingActionsProps) {
-  if (!CHECKOUT_PLAN_ID) {
+export function BillingActions({ isPro, disabledReason, labels }: BillingActionsProps) {
+  if (!CHECKOUT_PLAN_ID || disabledReason) {
     return (
       <Button variant="outline" disabled>
         <CreditCardIcon />
-        Billing not configured
+        {disabledReason === "billing-disabled"
+          ? labels.billingDisabledAction
+          : labels.billingNotConfigured}
       </Button>
     );
   }
@@ -27,7 +36,7 @@ export function BillingActions({ isPro }: BillingActionsProps) {
       <SubscriptionDetailsButton>
         <Button variant="outline">
           <CreditCardIcon />
-          Manage subscription
+          {labels.manageSubscription}
         </Button>
       </SubscriptionDetailsButton>
     );
@@ -37,7 +46,7 @@ export function BillingActions({ isPro }: BillingActionsProps) {
     <CheckoutButton planId={CHECKOUT_PLAN_ID} planPeriod="month">
       <Button>
         <ExternalLinkIcon />
-        Upgrade to Pro
+        {labels.upgradeToPro}
       </Button>
     </CheckoutButton>
   );

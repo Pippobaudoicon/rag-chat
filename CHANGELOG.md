@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.24
+
+- Localized and polished the billing page with plan status, usage meters, plan comparison, and upgrade calls to action.
+- Added Redis-backed chat/search usage snapshots for billing visibility.
+- Added a Free-plan chat banner when users approach their chat request limit.
+- Made Clerk subscription detail loading best-effort and silenced the expected `billing_not_enabled` fallback.
+- Switched Pro detection to prefer Clerk `auth().has({ plan })` checks.
+- Moved billing usage writes to Next `after()` so they remain non-blocking.
+- Stored usage snapshots from the actual Upstash rate-limit result so billing usage reflects enforced limits.
+- Disabled checkout with explicit Clerk Billing enablement copy when the active Clerk instance reports billing disabled.
+
 ## 0.3.23
 
 - Added Clerk Billing entitlement detection for Free and Pro subscription plans.

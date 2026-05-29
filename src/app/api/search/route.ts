@@ -1,4 +1,5 @@
 import { auth } from "@clerk/nextjs/server";
+import { after } from "next/server";
 import { retrieve } from "@/lib/rag/retriever";
 import {
   getIndexLanguage,
@@ -10,6 +11,10 @@ import {
   searchParamsSchema,
 } from "@/lib/api/validation";
 import { getBillingEntitlements } from "@/lib/billing/entitlements";
+import {
+  recordBillingUsage,
+  setBillingUsageSnapshot,
+} from "@/lib/billing/usage";
 import { getSlidingWindowRateLimit } from "@/lib/rag/cache";
 
 export const runtime = "nodejs";
@@ -19,7 +24,7 @@ const CHAT_MODEL = process.env.CHAT_MODEL ?? "deepseek/deepseek-v4-flash";
 // GET /api/search?q=...&language=ita&sources=scriptures,conference&topK=10
 // Semantic search only — no LLM generation
 export async function GET(req: Request) {
-  const { userId } = await auth();
+  const { userId, has } = await auth();
   if (!userId) return new Response("Unauthorized", { status: 401 });
 
   const { searchParams } = new URL(req.url);
@@ -34,7 +39,9 @@ export async function GET(req: Request) {
   }
 
   const { q: query, sources, language: uiLanguage, topK } = parsedParams.data;
-  const entitlements = await getBillingEntitlements(userId);
+  const entitlements = await getBillingEntitlements(userId, {
+    hasPlan: (plan) => has({ plan }),
+  });
   const effectiveTopK = Math.min(topK, entitlements.limits.maxTopK);
   const rateLimit = getSlidingWindowRateLimit(
     `search:${entitlements.plan}`,
@@ -64,7 +71,26 @@ export async function GET(req: Request) {
         }
       );
     }
+
+    after(() =>
+      setBillingUsageSnapshot(userId, "search", {
+        used: Math.max(0, rateLimitResult.limit - rateLimitResult.remaining),
+        limit: rateLimitResult.limit,
+        remaining: rateLimitResult.remaining,
+        window: entitlements.limits.window,
+        resetAt: rateLimitResult.reset,
+      })
+    );
   }
+
+  after(() =>
+    recordBillingUsage(
+      userId,
+      "search",
+      entitlements.limits.searchRequests,
+      entitlements.limits.window
+    )
+  );
 
   const languageRouting = await routeQueryLanguage(query, {
     indexLanguage: getIndexLanguage(),

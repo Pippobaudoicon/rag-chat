@@ -1,11 +1,12 @@
 import { clerkClient } from "@clerk/nextjs/server";
 
-type SubscriptionPlan = "free" | "pro";
+export type SubscriptionPlan = "free" | "pro";
 
-type BillingEntitlements = {
+export type BillingEntitlements = {
   plan: SubscriptionPlan;
   isPro: boolean;
   billingConfigured: boolean;
+  billingStatus: "enabled" | "disabled" | "unavailable";
   subscription: {
     id: string | null;
     status: string | null;
@@ -19,6 +20,10 @@ type BillingEntitlements = {
     window: string;
     maxTopK: number;
   };
+};
+
+type BillingEntitlementOptions = {
+  hasPlan?: (plan: string) => boolean;
 };
 
 type CachedEntitlements = {
@@ -45,7 +50,7 @@ function getPositiveInt(value: string | undefined, fallback: number): number {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-function getConfiguredProPlanIds(): string[] {
+export function getConfiguredProPlanIds(): string[] {
   return [
     process.env.CLERK_BILLING_PRO_PLAN_ID,
     process.env.CLERK_BILLING_PRO_PLAN_KEY,
@@ -58,7 +63,7 @@ function getConfiguredProPlanIds(): string[] {
     .filter(Boolean);
 }
 
-function getConfiguredProPlanSlugs(): string[] {
+export function getConfiguredProPlanSlugs(): string[] {
   return [
     process.env.CLERK_BILLING_PRO_PLAN_SLUG,
     process.env.NEXT_PUBLIC_CLERK_BILLING_PRO_PLAN_SLUG,
@@ -96,24 +101,51 @@ function getLimits(plan: SubscriptionPlan): BillingEntitlements["limits"] {
   };
 }
 
-function freeEntitlements(overrides: Partial<BillingEntitlements["subscription"]> = {}): BillingEntitlements {
+function getConfiguredProPlanKeys(): string[] {
+  return [...new Set([...getConfiguredProPlanIds(), ...getConfiguredProPlanSlugs()])];
+}
+
+function freeEntitlements({
+  billingStatus = "enabled",
+  subscription = {},
+}: {
+  billingStatus?: BillingEntitlements["billingStatus"];
+  subscription?: Partial<BillingEntitlements["subscription"]>;
+} = {}): BillingEntitlements {
   return {
     plan: "free",
     isPro: false,
     billingConfigured: getConfiguredProPlanIds().length > 0,
+    billingStatus,
     subscription: {
       id: null,
       status: null,
       activePlanId: null,
       activePlanSlug: null,
       currentPeriodEnd: null,
-      ...overrides,
+      ...subscription,
     },
     limits: getLimits("free"),
   };
 }
 
-export async function getBillingEntitlements(userId: string): Promise<BillingEntitlements> {
+function isBillingNotEnabledError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const { status, errors } = error as {
+    status?: unknown;
+    errors?: Array<{ code?: unknown }>;
+  };
+  return (
+    status === 403 &&
+    Array.isArray(errors) &&
+    errors.some((entry) => entry?.code === "billing_not_enabled")
+  );
+}
+
+export async function getBillingEntitlements(
+  userId: string,
+  options: BillingEntitlementOptions = {}
+): Promise<BillingEntitlements> {
   const cached = entitlementCache.get(userId);
   if (cached && cached.expiresAt > Date.now()) {
     return cached.value;
@@ -121,6 +153,7 @@ export async function getBillingEntitlements(userId: string): Promise<BillingEnt
 
   const proPlanIds = getConfiguredProPlanIds();
   const proPlanSlugs = getConfiguredProPlanSlugs();
+  const hasProPlan = getConfiguredProPlanKeys().some((plan) => options.hasPlan?.(plan));
 
   if (proPlanIds.length === 0) {
     const value = freeEntitlements();
@@ -142,13 +175,14 @@ export async function getBillingEntitlements(userId: string): Promise<BillingEnt
       });
 
     const subscriptionActive = ACTIVE_SUBSCRIPTION_STATUSES.has(subscription.status);
-    const plan: SubscriptionPlan = subscriptionActive && proItem ? "pro" : "free";
+    const plan: SubscriptionPlan = (subscriptionActive && proItem) || hasProPlan ? "pro" : "free";
     const activeItem = proItem ?? activeItems[0] ?? null;
 
     const value: BillingEntitlements = {
       plan,
       isPro: plan === "pro",
       billingConfigured: true,
+      billingStatus: "enabled",
       subscription: {
         id: subscription.id,
         status: subscription.status,
@@ -162,8 +196,30 @@ export async function getBillingEntitlements(userId: string): Promise<BillingEnt
     entitlementCache.set(userId, { value, expiresAt: Date.now() + CACHE_TTL_MS });
     return value;
   } catch (error) {
-    console.error("Failed to load Clerk billing subscription", error);
-    const value = freeEntitlements();
+    if (!isBillingNotEnabledError(error)) {
+      console.error("Failed to load Clerk billing subscription", error);
+    }
+
+    const plan: SubscriptionPlan = hasProPlan ? "pro" : "free";
+    const value: BillingEntitlements =
+      plan === "pro"
+        ? {
+            plan: "pro",
+            isPro: true,
+            billingConfigured: true,
+            billingStatus: isBillingNotEnabledError(error) ? "disabled" : "unavailable",
+            subscription: {
+              id: null,
+              status: "active",
+              activePlanId: null,
+              activePlanSlug: "pro_user",
+              currentPeriodEnd: null,
+            },
+            limits: getLimits("pro"),
+          }
+        : freeEntitlements({
+            billingStatus: isBillingNotEnabledError(error) ? "disabled" : "unavailable",
+          });
     entitlementCache.set(userId, { value, expiresAt: Date.now() + CACHE_TTL_MS });
     return value;
   }

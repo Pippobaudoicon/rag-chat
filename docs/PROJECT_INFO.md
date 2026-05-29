@@ -40,6 +40,8 @@ Read this first before deep code exploration.
 - UUID conversation URLs and API identifiers.
 - Semantic search endpoint (`/api/search`) for retrieval-only use cases.
 - Subscription-aware Free/Pro entitlements through Clerk Billing.
+- Billing page with localized plan status, usage meters, and upgrade/manage actions.
+- Free-plan warning banner in chat when the user approaches the chat request limit.
 - Tool-assisted answer refinement for:
   - scripture passage lookup
   - conference talk lookup with optional speaker/year constraints
@@ -50,7 +52,7 @@ Read this first before deep code exploration.
 
 1. Client sends chat message to `POST /api/chat` with selected UI language/sources/topK.
 2. Server verifies auth and extracts the latest user question.
-3. Server loads Clerk Billing entitlements and applies plan-aware chat rate limits plus a `topK` cap.
+3. Server loads Clerk Billing entitlements, checks Clerk plan access via `auth().has({ plan })`, and applies plan-aware chat rate limits plus a `topK` cap.
 4. Server detects the user's prompt language and translates the retrieval query into the configured Pinecone index language (`RAG_INDEX_LANGUAGE`, currently Italian by default).
 5. Server does NOT pre-fetch context. Instead it constructs an AI SDK `streamText`
    call with the RAG tool set and lets the model decide how to retrieve.
@@ -87,7 +89,7 @@ Read this first before deep code exploration.
   - Plan-aware rate limiting and `topK` caps.
 - `GET /api/billing/subscription`
   - Auth required.
-  - Returns normalized Free/Pro entitlements from Clerk Billing.
+  - Returns normalized Free/Pro entitlements from Clerk Billing plus Redis-backed usage snapshots.
 - `GET /api/conversations`
   - List user conversations (latest first).
 - `POST /api/conversations`
@@ -243,7 +245,9 @@ Reference template: `.env.example`.
   - `drizzle.config.ts`
 - Billing:
   - `src/lib/billing/entitlements.ts`
+  - `src/lib/billing/usage.ts`
   - `src/app/(app)/billing/page.tsx`
+  - `src/components/billing/BillingPageClient.tsx`
   - `src/components/billing/BillingActions.tsx`
 
 ## 10) Known constraints and non-features
@@ -251,6 +255,8 @@ Reference template: `.env.example`.
 - Current generation model defaults to `deepseek/deepseek-v4-flash` and can be overridden with `CHAT_MODEL`.
 - Clerk Billing is the subscription source of truth. Clerk Billing Plans and Subscriptions are not synced to Stripe; Stripe is only the payment processor. The default Pro plan key is `pro_user`.
 - Clerk Billing is beta/experimental, so `@clerk/nextjs` is pinned in `package.json` instead of using a semver range.
+- Clerk's subscription detail API is best-effort. If user billing is not enabled in the Clerk instance, the app falls back to Free entitlements without logging noisy expected 403 errors.
+- Chat and search usage display uses Redis sorted-set counters keyed per user and rolling window. If Redis is unavailable, enforcement and usage display gracefully degrade.
 - Embedding model must remain compatible with index dimensions.
 - Chat route uses a limited recent history window for context size control.
 - Current Pinecone search language defaults to Italian until `RAG_INDEX_LANGUAGE` is changed during the future English-index migration.

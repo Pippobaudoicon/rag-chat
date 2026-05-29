@@ -1,4 +1,5 @@
 import { auth } from "@clerk/nextjs/server";
+import { after } from "next/server";
 import {
   createUIMessageStream,
   createUIMessageStreamResponse,
@@ -35,6 +36,10 @@ import {
   getUserMemoryContext,
 } from "@/lib/memory/conversation-memory";
 import { getBillingEntitlements } from "@/lib/billing/entitlements";
+import {
+  recordBillingUsage,
+  setBillingUsageSnapshot,
+} from "@/lib/billing/usage";
 import type {
   AssistantVersion,
   ChatProgressData,
@@ -66,7 +71,7 @@ const MAX_RESPONSE_SOURCES = getPositiveInt(
 export async function POST(req: Request) {
   const startTime = Date.now();
   // ── 1. Auth ──────────────────────────────────────────────────────────────
-  const { userId } = await auth();
+  const { userId, has } = await auth();
   if (!userId) {
     return new Response("Unauthorized", { status: 401 });
   }
@@ -88,7 +93,9 @@ export async function POST(req: Request) {
     trigger,
     messageId,
   } = parsedBody.data;
-  const entitlements = await getBillingEntitlements(userId);
+  const entitlements = await getBillingEntitlements(userId, {
+    hasPlan: (plan) => has({ plan }),
+  });
   const effectiveTopK = Math.min(topK, entitlements.limits.maxTopK);
 
   const rateLimit = getSlidingWindowRateLimit(
@@ -118,7 +125,26 @@ export async function POST(req: Request) {
         }
       );
     }
+
+    after(() =>
+      setBillingUsageSnapshot(userId, "chat", {
+        used: Math.max(0, rateLimitResult.limit - rateLimitResult.remaining),
+        limit: rateLimitResult.limit,
+        remaining: rateLimitResult.remaining,
+        window: entitlements.limits.window,
+        resetAt: rateLimitResult.reset,
+      })
+    );
   }
+
+  after(() =>
+    recordBillingUsage(
+      userId,
+      "chat",
+      entitlements.limits.chatRequests,
+      entitlements.limits.window
+    )
+  );
 
   const isRegenerateRequest = trigger === "regenerate-message" || !!messageId;
 

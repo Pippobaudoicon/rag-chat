@@ -13,6 +13,7 @@ import {
   ChevronRightIcon,
   CopyIcon,
   InfoIcon,
+  AlertTriangleIcon,
   RefreshCwIcon,
   ThumbsDownIcon,
   ThumbsUpIcon,
@@ -58,6 +59,8 @@ import { linkifyInlineCitations } from "@/lib/rag/citation-links";
 import { parseScriptureSelection } from "@/lib/rag/scripture-reference";
 import { useLanguage } from "./language-context";
 import { uiText } from "./i18n";
+import type { BillingEntitlements } from "@/lib/billing/entitlements";
+import type { BillingUsageSummary } from "@/lib/billing/usage";
 
 interface ChatInterfaceProps {
   conversationId?: string;
@@ -71,6 +74,7 @@ type TextMessagePart = Extract<UIMessage["parts"][number], { type: "text" }>;
 type PendingPhase = Exclude<ChatProgressPhase, "complete">;
 type FeedbackComposer = { messageId: string; value: "up" | "down" } | null;
 type FeedbackFollowUp = { messageId: string; value: "up" | "down" } | null;
+type BillingOverview = BillingEntitlements & { usage: BillingUsageSummary };
 
 const FEEDBACK_FOLLOWUP_TIMEOUT_MS = 6000;
 const FEEDBACK_FOLLOWUP_FADE_MS = 300;
@@ -300,6 +304,7 @@ export function ChatInterface({
   const [submittingFeedbackId, setSubmittingFeedbackId] = useState<string | null>(null);
   const [expandedDetailsId, setExpandedDetailsId] = useState<string | null>(null);
   const [chatProgress, setChatProgress] = useState<ChatProgressData | null>(null);
+  const [billingOverview, setBillingOverview] = useState<BillingOverview | null>(null);
   const [waitingPhraseIndex, setWaitingPhraseIndex] = useState(0);
   const [messageVersions, setMessageVersions] = useState<Record<string, AssistantVersion[]>>(
     initialMessageVersions
@@ -371,6 +376,21 @@ export function ChatInterface({
     isStreaming && waitingPhrases.length > 0
       ? waitingPhrases[waitingPhraseIndex % waitingPhrases.length]
       : undefined;
+  const chatUsage = billingOverview?.usage.chat;
+  const shouldShowUsageWarning =
+    billingOverview?.plan === "free" &&
+    chatUsage?.available &&
+    (chatUsage.percentUsed >= 75 || chatUsage.remaining <= 5);
+
+  const refreshBillingOverview = useCallback(async () => {
+    try {
+      const response = await fetch("/api/billing/subscription", { cache: "no-store" });
+      if (!response.ok) return;
+      setBillingOverview((await response.json()) as BillingOverview);
+    } catch {
+      // Billing status should not interrupt chat.
+    }
+  }, []);
 
   const ensureConversation = useCallback(async () => {
     // If there's no conversation yet, create one so history is always persisted.
@@ -404,6 +424,10 @@ export function ChatInterface({
   useEffect(() => {
     localStorage.setItem("chat:sources", JSON.stringify(sources));
   }, [sources]);
+
+  useEffect(() => {
+    void refreshBillingOverview();
+  }, [refreshBillingOverview]);
 
   useEffect(() => {
     if (!isStreaming || waitingPhrases.length <= 1) return;
@@ -699,6 +723,7 @@ export function ChatInterface({
     if (status !== "ready") return;
     setChatProgress(null);
     setWaitingPhraseIndex(0);
+    void refreshBillingOverview();
 
     const convId = conversationIdRef.current;
     if (!convId) return;
@@ -707,7 +732,7 @@ export function ChatInterface({
     if (!lastMessage || lastMessage.role !== "assistant") return;
 
     window.dispatchEvent(new CustomEvent("chat:conversations-changed"));
-  }, [messages, status]);
+  }, [messages, refreshBillingOverview, status]);
 
   return (
     <div className="flex flex-col h-full min-h-0">
@@ -718,6 +743,31 @@ export function ChatInterface({
         onSourcesChange={setSources}
         disabled={isStreaming}
       />
+
+      {shouldShowUsageWarning && chatUsage && (
+        <div className="border-b border-primary/20 bg-primary/10 px-4 py-2">
+          <div className="mx-auto flex max-w-3xl flex-col gap-2 text-sm sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex min-w-0 items-start gap-2">
+              <AlertTriangleIcon className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+              <div className="min-w-0">
+                <p className="font-medium text-primary">{text.chat.usageWarningTitle}</p>
+                <p className="text-xs text-muted-foreground">
+                  {text.chat.usageWarningDescription.replace(
+                    "{remaining}",
+                    String(chatUsage.remaining)
+                  )}
+                </p>
+              </div>
+            </div>
+            <a
+              href="/billing"
+              className="w-fit rounded-md border border-primary/30 bg-background px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-accent"
+            >
+              {text.chat.usageWarningAction}
+            </a>
+          </div>
+        </div>
+      )}
 
       {/* Message list */}
       <div className="flex-1 min-h-0 overflow-hidden">
