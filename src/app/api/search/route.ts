@@ -9,6 +9,8 @@ import {
   parseSourcesParam,
   searchParamsSchema,
 } from "@/lib/api/validation";
+import { getBillingEntitlements } from "@/lib/billing/entitlements";
+import { getSlidingWindowRateLimit } from "@/lib/rag/cache";
 
 export const runtime = "nodejs";
 
@@ -32,6 +34,38 @@ export async function GET(req: Request) {
   }
 
   const { q: query, sources, language: uiLanguage, topK } = parsedParams.data;
+  const entitlements = await getBillingEntitlements(userId);
+  const effectiveTopK = Math.min(topK, entitlements.limits.maxTopK);
+  const rateLimit = getSlidingWindowRateLimit(
+    `search:${entitlements.plan}`,
+    entitlements.limits.searchRequests,
+    entitlements.limits.window
+  );
+
+  if (rateLimit) {
+    const rateLimitResult = await rateLimit.limit(`search:${entitlements.plan}:${userId}`);
+    if (!rateLimitResult.success) {
+      return Response.json(
+        {
+          error: "Rate limit exceeded",
+          plan: entitlements.plan,
+          reset: rateLimitResult.reset,
+          upgradeUrl: entitlements.isPro ? null : "/billing",
+        },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": String(Math.max(1, Math.ceil((rateLimitResult.reset - Date.now()) / 1000))),
+            "X-RateLimit-Limit": String(rateLimitResult.limit),
+            "X-RateLimit-Remaining": String(rateLimitResult.remaining),
+            "X-RateLimit-Reset": String(rateLimitResult.reset),
+            "X-Subscription-Plan": entitlements.plan,
+          },
+        }
+      );
+    }
+  }
+
   const languageRouting = await routeQueryLanguage(query, {
     indexLanguage: getIndexLanguage(),
     model: CHAT_MODEL,
@@ -41,13 +75,16 @@ export async function GET(req: Request) {
     languageRouting.searchQuery,
     sources,
     languageRouting.indexLanguage,
-    topK
+    effectiveTopK
   );
 
   return Response.json({
     query,
     searchQuery: languageRouting.searchQuery,
     chunks,
+    plan: entitlements.plan,
+    requestedTopK: topK,
+    effectiveTopK,
     language: uiLanguage,
     inputLanguage: {
       code: languageRouting.inputLanguageCode,

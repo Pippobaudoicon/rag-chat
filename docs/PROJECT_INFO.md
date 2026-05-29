@@ -1,6 +1,6 @@
 # ChatLDS Project Knowledge Base
 
-Last updated: 2026-05-27
+Last updated: 2026-05-29
 
 This document is the single source of truth for project context.
 Read this first before deep code exploration.
@@ -17,6 +17,7 @@ Read this first before deep code exploration.
 
 - Framework/UI: Next.js 16, React 19, Tailwind 4.
 - Auth: Clerk.
+- Billing: Clerk Billing for subscriptions; Stripe is used only for payment processing.
 - DB: Neon Postgres + Drizzle ORM.
 - Vector DB: Pinecone.
 - Embeddings: Voyage AI (`voyage-4-large`, 1024 dims).
@@ -38,6 +39,7 @@ Read this first before deep code exploration.
 - Conversation CRUD in sidebar (create/list/open/delete) and title updates.
 - UUID conversation URLs and API identifiers.
 - Semantic search endpoint (`/api/search`) for retrieval-only use cases.
+- Subscription-aware Free/Pro entitlements through Clerk Billing.
 - Tool-assisted answer refinement for:
   - scripture passage lookup
   - conference talk lookup with optional speaker/year constraints
@@ -48,39 +50,44 @@ Read this first before deep code exploration.
 
 1. Client sends chat message to `POST /api/chat` with selected UI language/sources/topK.
 2. Server verifies auth and extracts the latest user question.
-3. Server detects the user's prompt language and translates the retrieval query into the configured Pinecone index language (`RAG_INDEX_LANGUAGE`, currently Italian by default).
-4. Server does NOT pre-fetch context. Instead it constructs an AI SDK `streamText`
+3. Server loads Clerk Billing entitlements and applies plan-aware chat rate limits plus a `topK` cap.
+4. Server detects the user's prompt language and translates the retrieval query into the configured Pinecone index language (`RAG_INDEX_LANGUAGE`, currently Italian by default).
+5. Server does NOT pre-fetch context. Instead it constructs an AI SDK `streamText`
    call with the RAG tool set and lets the model decide how to retrieve.
-5. The model calls one or more retrieval tools per turn as it sees fit, using the translated index-language search query:
+6. The model calls one or more retrieval tools per turn as it sees fit, using the translated index-language search query:
    - `semantic_search` for general topical queries (caches via Upstash Redis).
    - `lookup_scripture_passage` for scripture references (also cached via Upstash Redis).
    - `search_conference_talks` for talks by title / speaker / year (also cached via Upstash Redis).
    Multiple tools (and repeated calls to the same tool with different
    arguments) are allowed when the question benefits from it.
-6. Tool results register chunks in a shared per-turn `RagToolContext` so all
+7. Tool results register chunks in a shared per-turn `RagToolContext` so all
    citation indices remain stable across multiple tool calls.
-7. The model generates the final answer in the original language of the user's prompt and may call `citation_verifier`
+8. The model generates the final answer in the original language of the user's prompt and may call `citation_verifier`
    before completing.
-8. LLM response is streamed back via AI SDK.
-9. For normal non-regenerate conversation turns, the chat route checks a
+9. LLM response is streamed back via AI SDK.
+10. For normal non-regenerate conversation turns, the chat route checks a
    session-scoped answer cache keyed by user, conversation, normalized question,
    turn settings, recent history, and memory context. Cache hits skip the full
    retrieval + model pipeline while still persisting the user/assistant messages.
-10. Assistant text + collected tool chunks + tool names used during the turn are
+11. Assistant text + collected tool chunks + tool names used during the turn are
    persisted to DB and returned as metadata. Redis cache entries are updated
    with retrieval outputs, session answer payloads, and sidebar title/list data.
-11. UI renders message, inline citations, and source cards.
+12. UI renders message, inline citations, and source cards.
 
 ## 5) API surface (internal app API)
 
 - `POST /api/chat`
   - Auth required.
   - Retrieval + generation + streaming.
-  - Per-user Upstash Redis rate limiting.
+  - Per-user, plan-aware Upstash Redis rate limiting.
   - Persists messages for existing/new conversation flow.
 - `GET /api/search`
   - Auth required.
   - Retrieval only, no generation.
+  - Plan-aware rate limiting and `topK` caps.
+- `GET /api/billing/subscription`
+  - Auth required.
+  - Returns normalized Free/Pro entitlements from Clerk Billing.
 - `GET /api/conversations`
   - List user conversations (latest first).
 - `POST /api/conversations`
@@ -188,6 +195,15 @@ Notes:
 - `CHAT_MAX_RESPONSE_SOURCES` (optional; defaults to 120)
 - `CHAT_RATE_LIMIT_MAX_REQUESTS` (optional; defaults to 30)
 - `CHAT_RATE_LIMIT_WINDOW` (optional; defaults to `1h`)
+- `CLERK_BILLING_PRO_PLAN_ID` / `NEXT_PUBLIC_CLERK_BILLING_PRO_PLAN_ID` (optional explicit Clerk Pro plan ID)
+- `CLERK_BILLING_PRO_PLAN_KEY` / `NEXT_PUBLIC_CLERK_BILLING_PRO_PLAN_KEY` (optional Clerk Pro plan key; defaults to `pro_user`)
+- `CLERK_BILLING_PRO_PLAN_SLUG` / `NEXT_PUBLIC_CLERK_BILLING_PRO_PLAN_SLUG` (optional; defaults include `pro_user` and `pro`)
+- `SUBSCRIPTION_RATE_LIMIT_WINDOW` (optional; defaults to `CHAT_RATE_LIMIT_WINDOW` or `1h`)
+- `SUBSCRIPTION_PRO_CHAT_RATE_LIMIT` (optional; defaults to 300)
+- `SUBSCRIPTION_FREE_SEARCH_RATE_LIMIT` (optional; defaults to 60)
+- `SUBSCRIPTION_PRO_SEARCH_RATE_LIMIT` (optional; defaults to 600)
+- `SUBSCRIPTION_FREE_MAX_TOP_K` (optional; defaults to 10)
+- `SUBSCRIPTION_PRO_MAX_TOP_K` (optional; defaults to 20)
 
 Reference template: `.env.example`.
 
@@ -205,6 +221,7 @@ Reference template: `.env.example`.
 - API routes:
   - `src/app/api/chat/route.ts`
   - `src/app/api/search/route.ts`
+  - `src/app/api/billing/subscription/route.ts`
   - `src/app/api/conversations/route.ts`
   - `src/app/api/conversations/[id]/route.ts`
 - RAG internals:
@@ -224,10 +241,16 @@ Reference template: `.env.example`.
   - `src/lib/db/schema.ts`
   - `src/lib/db/index.ts`
   - `drizzle.config.ts`
+- Billing:
+  - `src/lib/billing/entitlements.ts`
+  - `src/app/(app)/billing/page.tsx`
+  - `src/components/billing/BillingActions.tsx`
 
 ## 10) Known constraints and non-features
 
 - Current generation model defaults to `deepseek/deepseek-v4-flash` and can be overridden with `CHAT_MODEL`.
+- Clerk Billing is the subscription source of truth. Clerk Billing Plans and Subscriptions are not synced to Stripe; Stripe is only the payment processor. The default Pro plan key is `pro_user`.
+- Clerk Billing is beta/experimental, so `@clerk/nextjs` is pinned in `package.json` instead of using a semver range.
 - Embedding model must remain compatible with index dimensions.
 - Chat route uses a limited recent history window for context size control.
 - Current Pinecone search language defaults to Italian until `RAG_INDEX_LANGUAGE` is changed during the future English-index migration.

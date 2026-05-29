@@ -65,6 +65,7 @@ function stableSerialize(value: unknown): string {
 
 let _redis: Redis | null = null;
 let _chatRateLimit: Ratelimit | null = null;
+const _rateLimits = new Map<string, Ratelimit>();
 
 type RedisConfig = {
   url: string;
@@ -119,6 +120,30 @@ export function getChatRateLimit(): Ratelimit | null {
     });
   }
   return _chatRateLimit;
+}
+
+export function getSlidingWindowRateLimit(
+  name: string,
+  limit: number,
+  windowValue: string | undefined,
+  fallbackWindow: Duration = DEFAULT_RATE_LIMIT_WINDOW
+): Ratelimit | null {
+  if (!hasRedisConfig()) return null;
+
+  const normalizedLimit = Number.isInteger(limit) && limit > 0 ? limit : 1;
+  const normalizedWindow = getRateLimitWindow(windowValue, fallbackWindow);
+  const cacheKey = `${name}:${normalizedLimit}:${normalizedWindow}`;
+  const existing = _rateLimits.get(cacheKey);
+  if (existing) return existing;
+
+  const rateLimit = new Ratelimit({
+    redis: getRedis(),
+    limiter: Ratelimit.slidingWindow(normalizedLimit, normalizedWindow),
+    analytics: true,
+    prefix: `rag:ratelimit:${name}`,
+  });
+  _rateLimits.set(cacheKey, rateLimit);
+  return rateLimit;
 }
 
 function getPositiveInt(value: string | undefined, fallback: number): number {

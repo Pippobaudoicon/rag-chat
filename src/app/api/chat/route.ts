@@ -16,8 +16,8 @@ import {
   cacheKey,
   conversationTitleCacheKey,
   deriveConversationTitle,
-  getChatRateLimit,
   getSessionAnswerFromCache,
+  getSlidingWindowRateLimit,
   invalidateConversationCaches,
   sessionAnswerCacheKey,
   setConversationTitleInCache,
@@ -34,6 +34,7 @@ import {
   createMemoryTools,
   getUserMemoryContext,
 } from "@/lib/memory/conversation-memory";
+import { getBillingEntitlements } from "@/lib/billing/entitlements";
 import type {
   AssistantVersion,
   ChatProgressData,
@@ -76,28 +77,6 @@ export async function POST(req: Request) {
     return badRequestFromZod(parsedBody.error);
   }
 
-  const rateLimit = getChatRateLimit();
-  if (rateLimit) {
-    const rateLimitResult = await rateLimit.limit(`chat:${userId}`);
-    if (!rateLimitResult.success) {
-      return Response.json(
-        {
-          error: "Rate limit exceeded",
-          reset: rateLimitResult.reset,
-        },
-        {
-          status: 429,
-          headers: {
-            "Retry-After": String(Math.max(1, Math.ceil((rateLimitResult.reset - Date.now()) / 1000))),
-            "X-RateLimit-Limit": String(rateLimitResult.limit),
-            "X-RateLimit-Remaining": String(rateLimitResult.remaining),
-            "X-RateLimit-Reset": String(rateLimitResult.reset),
-          },
-        }
-      );
-    }
-  }
-
   const {
     messages: uiMessages = [],
     conversationId,
@@ -109,6 +88,37 @@ export async function POST(req: Request) {
     trigger,
     messageId,
   } = parsedBody.data;
+  const entitlements = await getBillingEntitlements(userId);
+  const effectiveTopK = Math.min(topK, entitlements.limits.maxTopK);
+
+  const rateLimit = getSlidingWindowRateLimit(
+    `chat:${entitlements.plan}`,
+    entitlements.limits.chatRequests,
+    entitlements.limits.window
+  );
+  if (rateLimit) {
+    const rateLimitResult = await rateLimit.limit(`chat:${entitlements.plan}:${userId}`);
+    if (!rateLimitResult.success) {
+      return Response.json(
+        {
+          error: "Rate limit exceeded",
+          plan: entitlements.plan,
+          reset: rateLimitResult.reset,
+          upgradeUrl: entitlements.isPro ? null : "/billing",
+        },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": String(Math.max(1, Math.ceil((rateLimitResult.reset - Date.now()) / 1000))),
+            "X-RateLimit-Limit": String(rateLimitResult.limit),
+            "X-RateLimit-Remaining": String(rateLimitResult.remaining),
+            "X-RateLimit-Reset": String(rateLimitResult.reset),
+            "X-Subscription-Plan": entitlements.plan,
+          },
+        }
+      );
+    }
+  }
 
   const isRegenerateRequest = trigger === "regenerate-message" || !!messageId;
 
@@ -257,7 +267,7 @@ export async function POST(req: Request) {
     languageRouting.searchQuery,
     languageRouting.indexLanguage,
     sources,
-    topK
+    effectiveTopK
   );
 
   const historySignature = JSON.stringify(
@@ -276,7 +286,7 @@ export async function POST(req: Request) {
           `index:${languageRouting.indexLanguage}`,
         ].join("|"),
         sources,
-        topK,
+        topK: effectiveTopK,
         historySignature,
         memorySignature: memoryContext,
       })
@@ -418,7 +428,7 @@ export async function POST(req: Request) {
         language: languageRouting.indexLanguage,
         retrievalLanguageName: languageRouting.indexLanguageName,
         sources,
-        topK,
+        topK: effectiveTopK,
         initialChunks,
         onSources: addToolChunks,
         onProgress: (progress) => writeProgress?.(progress),

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import Image from "next/image";
 import { useRouter, usePathname } from "next/navigation";
 import { useUser, UserButton } from "@clerk/nextjs";
-import { EllipsisVerticalIcon, PencilIcon, Trash2Icon } from "lucide-react";
+import { CreditCardIcon, EllipsisVerticalIcon, PencilIcon, Trash2Icon } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -601,6 +601,17 @@ export function ChatSidebar({ onClose, showMobileClose = false }: ChatSidebarPro
             <span className="min-w-0 truncate text-xs">{accountLabel}</span>
           </div>
           <MemoryDialog className="h-9 w-9 shrink-0 justify-center rounded-lg border-0 bg-transparent px-0 py-0 hover:bg-accent" />
+          <button
+            type="button"
+            onClick={() => {
+              router.push("/billing");
+              onClose?.();
+            }}
+            aria-label="Billing"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          >
+            <CreditCardIcon className="h-4 w-4" />
+          </button>
         </div>
       </div>
 

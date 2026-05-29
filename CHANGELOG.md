@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.23
+
+- Added Clerk Billing entitlement detection for Free and Pro subscription plans.
+- Added plan-aware rate limits for chat and semantic search requests.
+- Added `/api/billing/subscription` and a first `/billing` page with Clerk checkout/subscription actions.
+- Added subscription environment variables for Clerk plan IDs, plan slugs, limits, and retrieval caps.
+- Set the default Pro Clerk Billing plan key/slug to `pro_user`.
+- Pinned `@clerk/nextjs` because Clerk Billing APIs are beta/experimental.
+
 ## 0.3.22
 
 - Added streamed chat progress events so new chats can show queued, searching, tool, and drafting states while the assistant is working.
