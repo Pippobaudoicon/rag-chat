@@ -118,6 +118,11 @@ function AppShellContent({ children }: AppShellProps) {
     };
   }, [mobileOpen]);
 
+  const handleNewChatFromLogo = () => {
+    if (typeof window === "undefined") return;
+    window.dispatchEvent(new CustomEvent("chat:new-conversation"));
+  };
+
   return (
     <div className="app-shell-height flex w-full overflow-hidden bg-background overscroll-none">
       {/* Desktop sidebar — fixed, always visible */}
@@ -146,7 +151,20 @@ function AppShellContent({ children }: AppShellProps) {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
             </svg>
           </button>
-          <div className="flex items-center gap-2 min-w-0">
+          <div
+            role="link"
+            tabIndex={0}
+            onClick={handleNewChatFromLogo}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                handleNewChatFromLogo();
+              }
+            }}
+            className="flex cursor-pointer items-center gap-2 min-w-0 px-1 py-0.5"
+            aria-label={text.sidebar.newChat}
+            title={text.sidebar.newChat}
+          >
             {/* FUTURE LOGO (still ugly) */}
             {/* <Image src="/icons/logo-no-bg.png" alt="ChatLDS" width={24} height={24} className="shrink-0" /> */}
             <span className="text-sm font-semibold tracking-tight truncate">ChatLDS</span>

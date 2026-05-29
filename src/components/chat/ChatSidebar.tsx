@@ -453,7 +453,20 @@ export function ChatSidebar({ onClose, showMobileClose = false }: ChatSidebarPro
     <div className="flex flex-col h-full w-full bg-sidebar border-r border-border/40">
       {/* Header */}
       <div className="flex items-center justify-between gap-2 border-b border-border/40 px-4 pb-1.5 pt-[max(0.75rem,calc(env(safe-area-inset-top)+0.5rem))]">
-        <div className="flex items-center gap-2 min-w-0">
+        <div
+          role="link"
+          tabIndex={0}
+          onClick={handleNewChat}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              handleNewChat();
+            }
+          }}
+          className="flex cursor-pointer items-center gap-2 min-w-0 px-1 py-0.5"
+          aria-label={text.sidebar.newChat}
+          title={text.sidebar.newChat}
+        >
             {/* FUTURE LOGO (still ugly) */}
             {/* <Image src="/icons/logo-no-bg.png" alt="ChatLDS" width={24} height={24} className="shrink-0" /> */}
             

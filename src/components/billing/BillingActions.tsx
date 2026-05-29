@@ -25,8 +25,8 @@ export function BillingActions({ isPro, disabledReason, labels }: BillingActions
       <Button variant="outline" disabled>
         <CreditCardIcon />
         {disabledReason === "billing-disabled"
-          ? labels.billingDisabledAction
-          : labels.billingNotConfigured}
+          ? labels.billingNotConfigured
+          : labels.billingDisabledAction}
       </Button>
     );
   }
