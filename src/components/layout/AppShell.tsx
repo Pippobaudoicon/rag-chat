@@ -2,6 +2,7 @@
 
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 import { ChatSidebar } from "@/components/chat/ChatSidebar";
 import { LanguageProvider } from "@/components/chat/language-context";
 import { LanguageToggle } from "@/components/chat/LanguageToggle";
@@ -33,6 +34,7 @@ export function AppShell({ children }: AppShellProps) {
 
 function AppShellContent({ children }: AppShellProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const router = useRouter();
   const { language } = useLanguage();
   const text = uiText(language);
   const swipeStartRef = useRef<
@@ -121,6 +123,7 @@ function AppShellContent({ children }: AppShellProps) {
   const handleNewChatFromLogo = () => {
     if (typeof window === "undefined") return;
     window.dispatchEvent(new CustomEvent("chat:new-conversation"));
+    router.push("/chat");
   };
 
   return (

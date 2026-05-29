@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.26
+
+- Localized the `/search` frontend through the shared UI language system.
+- Added Italian and English copy for search controls, examples, result metrics, empty states, and errors.
+
+## 0.3.25
+
+- Added a dedicated `/search` frontend for authenticated semantic source search.
+- Added sidebar navigation for direct source search alongside chat history.
+- Reused shared source filters, language context, and source dialogs for search results.
+- Added a polished retrieval-console UI with result metrics, topK controls, examples, loading states, and empty/error states.
+
 ## 0.3.24
 
 - Localized and polished the billing page with plan status, usage meters, plan comparison, and upgrade calls to action.

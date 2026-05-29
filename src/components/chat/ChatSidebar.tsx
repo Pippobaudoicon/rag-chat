@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import Image from "next/image";
 import { useRouter, usePathname } from "next/navigation";
 import { useUser, UserButton } from "@clerk/nextjs";
-import { CreditCardIcon, EllipsisVerticalIcon, PencilIcon, Trash2Icon } from "lucide-react";
+import { CreditCardIcon, EllipsisVerticalIcon, PencilIcon, SearchIcon, Trash2Icon } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -374,6 +374,15 @@ export function ChatSidebar({ onClose, showMobileClose = false }: ChatSidebarPro
     });
   }
 
+  function handleSearch() {
+    setPendingId(null);
+    setCurrentPath("/search");
+    startTransition(() => {
+      router.push("/search");
+      onClose?.();
+    });
+  }
+
   function handleSelect(id: string) {
     setPendingId(id);
     startTransition(() => {
@@ -447,6 +456,7 @@ export function ChatSidebar({ onClose, showMobileClose = false }: ChatSidebarPro
   }
 
   const activeId = currentPath?.match(/\/chat\/([^/]+)/)?.[1];
+  const isSearchActive = currentPath === "/search" || currentPath?.startsWith("/search?");
   const conversationGroups = groupConversationsByAge(conversations, text.sidebar);
 
   return (
@@ -494,18 +504,38 @@ export function ChatSidebar({ onClose, showMobileClose = false }: ChatSidebarPro
         )}
       </div>
 
-      {/* New chat button */}
-      <div className="px-3 py-3">
+      {/* Primary navigation */}
+      <div className="flex items-center gap-2 px-3 py-3">
         <button
           onClick={handleNewChat}
           disabled={isPending}
-          className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-muted-foreground hover:text-foreground hover:bg-accent transition-colors border border-border/40 hover:border-border/60 disabled:opacity-50"
+          className={cn(
+            "flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-border/40 px-3 py-2 text-sm transition-colors hover:border-border/60 disabled:opacity-50",
+            currentPath === "/chat"
+              ? "bg-accent text-foreground"
+              : "text-muted-foreground hover:text-foreground hover:bg-accent"
+          )}
         >
           <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
           </svg>
           {text.sidebar.newChat}
           {/* <span className="ml-auto font-mono text-[10px] text-muted-foreground/50">⌘K</span> */}
+        </button>
+        <button
+          type="button"
+          onClick={handleSearch}
+          disabled={isPending}
+          aria-label={text.sidebar.search}
+          title={text.sidebar.search}
+          className={cn(
+            "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border/40 text-muted-foreground transition-colors hover:border-border/60 hover:bg-accent hover:text-foreground disabled:opacity-50",
+            isSearchActive
+              ? "border-cyan-400/30 bg-cyan-400/10 text-cyan-100"
+              : "text-muted-foreground"
+          )}
+        >
+          <SearchIcon className="h-4 w-4" />
         </button>
       </div>
 

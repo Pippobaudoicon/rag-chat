@@ -39,6 +39,7 @@ Read this first before deep code exploration.
 - Conversation CRUD in sidebar (create/list/open/delete) and title updates.
 - UUID conversation URLs and API identifiers.
 - Semantic search endpoint (`/api/search`) for retrieval-only use cases.
+- Dedicated semantic search page (`/search`) for authenticated retrieval-only source inspection.
 - Subscription-aware Free/Pro entitlements through Clerk Billing.
 - Billing page with localized plan status, usage meters, and upgrade/manage actions.
 - Free-plan warning banner in chat when the user approaches the chat request limit.
@@ -220,6 +221,9 @@ Reference template: `.env.example`.
   - `src/components/chat/SettingsPanel.tsx`
   - `src/components/chat/SourcesPanel.tsx`
   - `src/components/chat/ChatSidebar.tsx`
+- Search UI:
+  - `src/app/(app)/search/page.tsx`
+  - `src/components/search/SearchPageClient.tsx`
 - API routes:
   - `src/app/api/chat/route.ts`
   - `src/app/api/search/route.ts`
