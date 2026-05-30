@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import Image from "next/image";
 import { useRouter, usePathname } from "next/navigation";
 import { useUser, UserButton } from "@clerk/nextjs";
-import { CreditCardIcon, EllipsisVerticalIcon, PencilIcon, SearchIcon, Trash2Icon } from "lucide-react";
+import { BrainIcon, CreditCardIcon, EllipsisVerticalIcon, PencilIcon, SearchIcon, Trash2Icon } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -23,7 +23,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-import { MemoryDialog } from "./MemoryDialog";
 import { useLanguage } from "./language-context";
 import { uiText } from "./i18n";
 import { version } from "../../../package.json";
@@ -643,7 +642,18 @@ export function ChatSidebar({ onClose, showMobileClose = false }: ChatSidebarPro
             </span>
             <span className="min-w-0 truncate text-xs">{accountLabel}</span>
           </div>
-          <MemoryDialog className="h-9 w-9 shrink-0 justify-center rounded-lg border-0 bg-transparent px-0 py-0 hover:bg-accent" />
+          <button
+            type="button"
+            onClick={() => {
+              router.push("/memory");
+              onClose?.();
+            }}
+            aria-label={text.memory.button}
+            title={text.memory.button}
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          >
+            <BrainIcon className="h-4 w-4" />
+          </button>
           <button
             type="button"
             onClick={() => {

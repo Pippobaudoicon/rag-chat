@@ -42,6 +42,7 @@ Read this first before deep code exploration.
 - Dedicated semantic search page (`/search`) for authenticated retrieval-only source inspection.
 - Subscription-aware Free/Pro entitlements through Clerk Billing.
 - Billing page with localized plan status, usage meters, and upgrade/manage actions.
+- Dedicated memory page (`/memory`) for authenticated users to review and refresh saved personalization memory.
 - Free-plan warning banner in chat when the user approaches the chat request limit.
 - Tool-assisted answer refinement for:
   - scripture passage lookup
@@ -91,6 +92,12 @@ Read this first before deep code exploration.
 - `GET /api/billing/subscription`
   - Auth required.
   - Returns normalized Free/Pro entitlements from Clerk Billing plus Redis-backed usage snapshots.
+- `GET /api/memory`
+  - Auth required.
+  - Returns the current user's saved profile memory, weekly/monthly rollups, and recent-conversation memory.
+- `POST /api/memory`
+  - Auth required.
+  - Refreshes recent-conversation memory and period rollups, then returns the updated memory snapshot.
 - `GET /api/conversations`
   - List user conversations (latest first).
 - `POST /api/conversations`
@@ -224,6 +231,9 @@ Reference template: `.env.example`.
 - Search UI:
   - `src/app/(app)/search/page.tsx`
   - `src/components/search/SearchPageClient.tsx`
+- Memory UI:
+  - `src/app/(app)/memory/page.tsx`
+  - `src/components/memory/MemoryPageClient.tsx`
 - API routes:
   - `src/app/api/chat/route.ts`
   - `src/app/api/search/route.ts`

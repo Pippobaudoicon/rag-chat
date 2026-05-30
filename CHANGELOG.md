@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.27
+
+- Replaced the memory sidebar modal with a dedicated `/memory` page matching the billing page layout pattern.
+- Updated sidebar memory navigation to open the memory page directly.
+
 ## 0.3.26
 
 - Localized the `/search` frontend through the shared UI language system.
