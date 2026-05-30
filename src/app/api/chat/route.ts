@@ -33,7 +33,7 @@ import {
 import { badRequestFromZod, chatRequestSchema } from "@/lib/api/validation";
 import {
   createMemoryTools,
-  getUserMemoryContext,
+  getUserMemoryBrief,
 } from "@/lib/memory/conversation-memory";
 import { getBillingEntitlements } from "@/lib/billing/entitlements";
 import {
@@ -303,7 +303,7 @@ export async function POST(req: Request) {
       content: message.content,
     }))
   );
-  const memoryContext = await getUserMemoryContext(userId);
+  const memoryBrief = await getUserMemoryBrief(userId);
   const answerCacheKey = conversation
     ? sessionAnswerCacheKey(userId, conversation.id, question, {
         language: [
@@ -314,7 +314,7 @@ export async function POST(req: Request) {
         sources,
         topK: effectiveTopK,
         historySignature,
-        memorySignature: memoryContext,
+        memorySignature: memoryBrief.signature,
       })
     : null;
 
@@ -436,8 +436,8 @@ export async function POST(req: Request) {
   });
 
   const chatMessages: ChatMessage[] = [...modelHistory, { role: "user", content: augmentedQuestion }];
-  const systemPrompt = memoryContext
-    ? `${SYSTEM_PROMPT}\n\n${memoryContext}`
+  const systemPrompt = memoryBrief.prompt
+    ? `${SYSTEM_PROMPT}\n\nMemory brief:\n${memoryBrief.prompt}`
     : SYSTEM_PROMPT;
 
   // ── 7. Stream with AI SDK v6 ──────────────────────────────────────────────

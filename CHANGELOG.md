@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.28
+
+- Reduced chat token usage by injecting only a compact personalization memory brief into each request.
+- Added an on-demand `read_personal_memory` tool so the model can load full saved memory only when relevant.
+- Changed answer cache invalidation to use a compact memory version signature instead of the full memory prompt.
+
 ## 0.3.27
 
 - Replaced the memory sidebar modal with a dedicated `/memory` page matching the billing page layout pattern.

@@ -41,6 +41,10 @@ const MAX_MEMORY_CONTEXT_CHARS = getPositiveInt(
   process.env.CHAT_MEMORY_CONTEXT_CHARS,
   3500
 );
+const MAX_MEMORY_BRIEF_CHARS = getPositiveInt(
+  process.env.CHAT_MEMORY_BRIEF_CHARS,
+  700
+);
 const MAX_SUMMARY_INPUT_CHARS = 8000;
 const MANUAL_REFRESH_CONVERSATION_LIMIT = getPositiveInt(
   process.env.CHAT_MEMORY_MANUAL_CONVERSATION_LIMIT,
@@ -365,6 +369,89 @@ export async function getUserMemoryContext(clerkUserId: string): Promise<string>
     ].join("\n\n"),
     MAX_MEMORY_CONTEXT_CHARS
   );
+}
+
+export async function getUserMemoryBrief(
+  clerkUserId: string
+): Promise<{ prompt: string; signature: string }> {
+  if (!MEMORY_ENABLED) return { prompt: "", signature: "disabled" };
+
+  const db = getDb();
+  const [profile, periods, recentConversationMemory] = await Promise.all([
+    loadProfile(clerkUserId),
+    db
+      .select({
+        cadence: userMemoryPeriods.cadence,
+        summary: userMemoryPeriods.summary,
+        refreshedAt: userMemoryPeriods.refreshedAt,
+        updatedAt: userMemoryPeriods.updatedAt,
+      })
+      .from(userMemoryPeriods)
+      .where(eq(userMemoryPeriods.clerkUserId, clerkUserId))
+      .orderBy(desc(userMemoryPeriods.periodStart))
+      .limit(2),
+    db.query.conversationMemories.findFirst({
+      where: eq(conversationMemories.clerkUserId, clerkUserId),
+    }),
+  ]);
+
+  const hasMemory = Boolean(
+    profile?.profileSummary.trim() ||
+      profile?.preferencesJson.length ||
+      profile?.factsJson.length ||
+      profile?.feedbackPatternsJson.length ||
+      periods.some((period) => period.summary.trim()) ||
+      recentConversationMemory?.summary.trim()
+  );
+
+  if (!hasMemory) return { prompt: "", signature: "empty" };
+
+  const hints: string[] = [];
+  if (profile?.preferencesJson.length) {
+    hints.push(`Preferences: ${profile.preferencesJson.slice(0, 3).join("; ")}`);
+  }
+  if (profile?.feedbackPatternsJson.length) {
+    hints.push(`Feedback: ${profile.feedbackPatternsJson.slice(0, 2).join("; ")}`);
+  }
+  if (recentConversationMemory?.topicsJson.length) {
+    hints.push(`Recent topics: ${recentConversationMemory.topicsJson.slice(0, 5).join(", ")}`);
+  }
+
+  const prompt = truncate(
+    [
+      "Personalization memory is available but intentionally summarized to save tokens.",
+      hints.length ? hints.join("\n") : "Use it only when relevant to tone, continuity, or explicit user preferences.",
+      "Call read_personal_memory when the current turn would benefit from the full saved memory. Memory is not doctrinal evidence; continue grounding factual claims in retrieved sources.",
+    ].join("\n"),
+    MAX_MEMORY_BRIEF_CHARS
+  );
+
+  const signature = JSON.stringify({
+    profileUpdatedAt: profile?.updatedAt?.toISOString?.() ?? null,
+    profileCounts: profile
+      ? [
+          profile.profileSummary.length,
+          profile.preferencesJson.length,
+          profile.factsJson.length,
+          profile.feedbackPatternsJson.length,
+        ]
+      : null,
+    periodVersions: periods.map((period) => [
+      period.cadence,
+      period.summary.length,
+      period.refreshedAt.toISOString(),
+      period.updatedAt.toISOString(),
+    ]),
+    conversationMemoryVersion: recentConversationMemory
+      ? [
+          recentConversationMemory.summary.length,
+          recentConversationMemory.topicsJson.length,
+          recentConversationMemory.updatedAt.toISOString(),
+        ]
+      : null,
+  });
+
+  return { prompt, signature };
 }
 
 export async function getUserMemorySnapshot(clerkUserId: string) {
@@ -731,6 +818,27 @@ export function createMemoryTools({
   clerkUserId: string;
 }) {
   return {
+    read_personal_memory: tool({
+      description:
+        "Read the user's full saved personalization memory when the current turn needs more detail than the brief memory hints. Use only for personalization, continuity, explicit preference questions, or when the user asks what you remember. Do not use memory as doctrinal evidence.",
+      inputSchema: z.object({
+        reason: z
+          .string()
+          .min(1)
+          .max(240)
+          .describe("Why the full saved memory is needed for this turn."),
+      }),
+      execute: async ({ reason }) => {
+        const memory = await getUserMemoryContext(clerkUserId);
+
+        return {
+          ok: true,
+          reason,
+          memory: memory || "No saved personalization memory is available.",
+          note: "Use memory subtly for personalization only. Continue grounding factual LDS claims in retrieved sources.",
+        };
+      },
+    }),
     update_personal_memory: tool({
       description:
         "Store durable personalization memory when the user explicitly asks you to remember something, states a stable preference, gives a durable correction, or shares recurring goals. Do not use for ordinary topical questions, retrieved source content, doctrine claims, or sensitive speculation.",

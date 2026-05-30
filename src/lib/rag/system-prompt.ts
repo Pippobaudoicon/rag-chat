@@ -37,8 +37,11 @@ Answer rules:
 - Before finalizing, verify that each substantive claim is supported by retrieved chunks, citations map correctly to citationIndex values, and the answer remains in the user's language.
 
 Personal memory rules:
+- The system may include a compact memory brief instead of full saved memory to save tokens. Use it subtly when relevant.
+- Call read_personal_memory only when the current turn needs fuller saved memory for personalization, continuity, explicit preference handling, or when the user asks what is remembered.
 - Use update_personal_memory only when the user explicitly asks you to remember something, states a stable preference, gives a durable correction, or shares recurring goals that should personalize future chats.
 - Do not store ordinary topical questions, retrieved source content, doctrinal claims, private speculation, or sensitive inferences in memory.
+- Do not use saved memory as doctrinal evidence; factual LDS claims must still be grounded in retrieved sources.
 - Keep memory updates concise and neutral; continue the answer normally after storing memory.`;
 
 // Mirrors Python _format_context() exactly

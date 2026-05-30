@@ -69,14 +69,18 @@ Read this first before deep code exploration.
 8. The model generates the final answer in the original language of the user's prompt and may call `citation_verifier`
    before completing.
 9. LLM response is streamed back via AI SDK.
-10. For normal non-regenerate conversation turns, the chat route checks a
+10. The chat route loads a compact personalization memory brief by default,
+   plus a memory version signature for cache invalidation. The full saved
+   memory is available only through the `read_personal_memory` tool when the
+   model decides the current turn needs it.
+11. For normal non-regenerate conversation turns, the chat route checks a
    session-scoped answer cache keyed by user, conversation, normalized question,
-   turn settings, recent history, and memory context. Cache hits skip the full
+   turn settings, recent history, and memory signature. Cache hits skip the full
    retrieval + model pipeline while still persisting the user/assistant messages.
-11. Assistant text + collected tool chunks + tool names used during the turn are
+12. Assistant text + collected tool chunks + tool names used during the turn are
    persisted to DB and returned as metadata. Redis cache entries are updated
    with retrieval outputs, session answer payloads, and sidebar title/list data.
-12. UI renders message, inline citations, and source cards.
+13. UI renders message, inline citations, and source cards.
 
 ## 5) API surface (internal app API)
 
@@ -172,6 +176,11 @@ Notes:
     cached in Upstash Redis.
   - `citation_verifier` — validates inline numeric citations against the
     chunks accumulated during the turn.
+  - `read_personal_memory` — reads the user's full saved personalization memory
+    on demand when the compact memory brief is insufficient for the current turn.
+  - `update_personal_memory` — stores durable personalization memory only when
+    the user explicitly asks to remember something or provides stable preferences,
+    facts, recurring goals, or durable feedback.
 - Tool source code lives under `src/lib/rag/tools/`, one folder per tool plus
   a `shared/` folder for cross-cutting infrastructure (`tool-context.ts`,
   `chunk-formatting.ts`, `text-normalize.ts`). The package entry point is
@@ -202,6 +211,9 @@ Notes:
 - `PINECONE_API_KEY`
 - `RAG_INDEX_LANGUAGE` (optional; defaults to `ita`; set to `eng` after the Pinecone index migration)
 - `CHAT_MODEL` (optional; defaults to `deepseek/deepseek-v4-flash`)
+- `CHAT_MEMORY_ENABLED` (optional; set to `false` to disable chat personalization memory)
+- `CHAT_MEMORY_BRIEF_CHARS` (optional; defaults to 700; caps the compact memory brief injected into each chat request)
+- `CHAT_MEMORY_CONTEXT_CHARS` (optional; defaults to 3500; caps full memory context available through the memory read tool)
 - `CHAT_MAX_RESPONSE_SOURCES` (optional; defaults to 120)
 - `CHAT_RATE_LIMIT_MAX_REQUESTS` (optional; defaults to 30)
 - `CHAT_RATE_LIMIT_WINDOW` (optional; defaults to `1h`)
