@@ -8,8 +8,9 @@ import {
   withVerseHighlight,
 } from "./scripture-reference";
 
-// CRITICAL: Index name must match Python VectorStore.INDEX_NAME = "lds-rag"
-const INDEX_NAME = "lds-rag";
+// Index name must match the ingestion target. Defaults to the live "lds-rag"
+// index; override with PINECONE_INDEX (e.g. "lds-rag-v1") to test a new build.
+const INDEX_NAME = process.env.PINECONE_INDEX ?? "lds-rag";
 
 // Singleton Pinecone client — one per serverless instance
 let _pc: Pinecone | null = null;
