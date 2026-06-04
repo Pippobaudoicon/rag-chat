@@ -37,8 +37,10 @@ export interface QueryLanguageRouting {
 }
 
 export function getIndexLanguage(): CorpusLanguage {
+  // Defaults to English: lds-rag-v1 is the English-main corpus (scriptures also
+  // carry Italian). Set RAG_INDEX_LANGUAGE=ita only to target the legacy index.
   const configured = process.env.RAG_INDEX_LANGUAGE?.trim().toLowerCase();
-  return configured === "eng" ? "eng" : "ita";
+  return configured === "ita" || configured === "eng" ? configured : "eng";
 }
 
 export function getCorpusLanguageName(language: CorpusLanguage): string {

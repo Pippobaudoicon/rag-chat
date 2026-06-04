@@ -20,6 +20,15 @@ export function SourceCard({ chunk, index, language = "ita" }: SourceCardProps) 
   const label = sourceLabel(chunk.source, language);
   const scorePercent = Math.round(chunk.score * 100);
 
+  const tags = [
+    ...(chunk.topics ?? []),
+    ...(chunk.entities?.doctrines ?? []),
+    ...(chunk.entities?.people ?? []),
+    ...(chunk.entities?.places ?? []),
+  ];
+  const uniqueTags = [...new Set(tags.map((t) => t.trim()).filter(Boolean))].slice(0, 6);
+  const references = (chunk.references ?? []).slice(0, 4);
+
   return (
     <>
       <button
@@ -63,6 +72,32 @@ export function SourceCard({ chunk, index, language = "ita" }: SourceCardProps) 
           )}
 
           <p className="line-clamp-2 text-[11px] leading-relaxed text-muted-foreground">{chunk.text}</p>
+
+          {uniqueTags.length > 0 && (
+            <div className="flex flex-wrap gap-1">
+              {uniqueTags.map((tag) => (
+                <span
+                  key={tag}
+                  className="rounded border border-border/40 bg-muted/40 px-1.5 py-0.5 text-[9px] text-muted-foreground"
+                >
+                  {tag}
+                </span>
+              ))}
+            </div>
+          )}
+
+          {references.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1">
+              {references.map((ref) => (
+                <span
+                  key={ref}
+                  className="rounded border border-primary/30 px-1.5 py-0.5 text-[9px] text-primary/80"
+                >
+                  {ref}
+                </span>
+              ))}
+            </div>
+          )}
 
           <p className="text-[10px] text-muted-foreground/80">{text.sources.tapToOpen}</p>
         </div>

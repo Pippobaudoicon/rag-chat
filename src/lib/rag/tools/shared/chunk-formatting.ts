@@ -36,9 +36,26 @@ export interface ToolChunkPayload {
   section?: string;
   url?: string;
   text: string;
+  // Enrichment context (present on enriched sources) to aid thematic synthesis.
+  summary?: string;
+  topics?: string[];
+  entities?: string[];
+  references?: string[];
 }
 
 const TEXT_PREVIEW_LIMIT = 1200;
+
+/** Flatten {people,places,doctrines} into a single deduped list for the model. */
+function flattenEntities(entities?: SourceChunk["entities"]): string[] | undefined {
+  if (!entities) return undefined;
+  const all = [
+    ...(entities.people ?? []),
+    ...(entities.places ?? []),
+    ...(entities.doctrines ?? []),
+  ];
+  const flat = uniqueStrings(all);
+  return flat.length > 0 ? flat : undefined;
+}
 
 export function toToolChunk(chunk: SourceChunk, citationIndex?: number): ToolChunkPayload {
   return {
@@ -58,5 +75,9 @@ export function toToolChunk(chunk: SourceChunk, citationIndex?: number): ToolChu
       chunk.text.length > TEXT_PREVIEW_LIMIT
         ? `${chunk.text.slice(0, TEXT_PREVIEW_LIMIT)}...`
         : chunk.text,
+    summary: chunk.summary,
+    topics: chunk.topics?.length ? chunk.topics : undefined,
+    entities: flattenEntities(chunk.entities),
+    references: chunk.references?.length ? chunk.references : undefined,
   };
 }

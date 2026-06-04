@@ -4,13 +4,13 @@ import { INDEXED_LANGUAGES } from "@/lib/types";
 import type { SourceChunk, SourceType, Language } from "@/lib/types";
 import {
   parseScriptureSelection,
-  isWholeChapterIntent,
   withVerseHighlight,
 } from "./scripture-reference";
 
-// Index name must match the ingestion target. Defaults to the live "lds-rag"
-// index; override with PINECONE_INDEX (e.g. "lds-rag-v1") to test a new build.
-const INDEX_NAME = process.env.PINECONE_INDEX ?? "lds-rag";
+// Index name must match the ingestion target. Defaults to "lds-rag-v1" (the
+// English-main corpus with study_helps + graph related_ids); override with
+// PINECONE_INDEX to point at a different build.
+const INDEX_NAME = process.env.PINECONE_INDEX ?? "lds-rag-v1";
 
 // Singleton Pinecone client — one per serverless instance
 let _pc: Pinecone | null = null;
@@ -55,7 +55,23 @@ function toChunk(
     date: match.metadata?.date as string | undefined,
     section: match.metadata?.section as string | undefined,
     url: enrichScriptureUrl(rawUrl, verse, source),
+    relatedIds: (match.metadata?.related_ids as string[] | undefined) ?? undefined,
+    summary: (match.metadata?.summary as string | undefined) || undefined,
+    topics: (match.metadata?.topics as string[] | undefined) ?? undefined,
+    entities: toEntities(match.metadata),
+    references: (match.metadata?.references as string[] | undefined) ?? undefined,
   };
+}
+
+function toEntities(
+  metadata?: Record<string, unknown>
+): SourceChunk["entities"] | undefined {
+  if (!metadata) return undefined;
+  const people = metadata.entities_people as string[] | undefined;
+  const places = metadata.entities_places as string[] | undefined;
+  const doctrines = metadata.entities_doctrines as string[] | undefined;
+  if (!people && !places && !doctrines) return undefined;
+  return { people, places, doctrines };
 }
 
 function parseVerseStart(verse?: string): number {
@@ -84,6 +100,34 @@ function orderRetrievalLanguages(answerLanguage: Language): Language[] {
     answerLanguage,
     ...INDEXED_LANGUAGES.filter((language) => language !== answerLanguage),
   ];
+}
+
+function tokenizeForBoost(value: string): string[] {
+  return value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter((token) => token.length > 2);
+}
+
+// Small lexical boost when the query's terms overlap a chunk's enriched topics /
+// entities. Refines ordering among semantically-close candidates without
+// overriding the vector score. Capped so it can't dominate relevance.
+function topicEntityBoost(queryTokens: Set<string>, chunk: SourceChunk): number {
+  const terms = [
+    ...(chunk.topics ?? []),
+    ...(chunk.entities?.doctrines ?? []),
+    ...(chunk.entities?.people ?? []),
+    ...(chunk.entities?.places ?? []),
+  ];
+  if (terms.length === 0) return 0;
+  let hits = 0;
+  for (const term of terms) {
+    if (tokenizeForBoost(term).some((token) => queryTokens.has(token))) hits += 1;
+  }
+  return Math.min(0.04, hits * 0.01);
 }
 
 function mergeChunks(chunks: SourceChunk[]): SourceChunk[] {
@@ -135,6 +179,15 @@ function isRequestedScriptureChunk(
   bookSlug: string,
   chapter: number
 ): boolean {
+  // Primary, language-invariant signal: the chunk id encodes the book slug as
+  // its 3rd segment (`scriptures:<lang>:<bookSlug>:<chapter>:…`). This is the
+  // same slug parseScriptureSelection yields, so it matches regardless of the
+  // chunk's display-language book name. (Chapter is already constrained by the
+  // Pinecone metadata filter at every call site.)
+  if (chunk.id.split(":")[2] === bookSlug) {
+    return true;
+  }
+
   const path = maybeScripturePath(chunk.url);
   if (
     path.includes(`/study/scriptures/${volumeSlug}/${bookSlug}/${chapter}`) ||
@@ -171,12 +224,9 @@ async function retrieveWholeChapterChunks(
     return [];
   }
 
-  const shouldForceStructured =
-    selection.wholeBook || selection.chapters.length > 1 || isWholeChapterIntent(query);
-  if (!shouldForceStructured) {
-    return [];
-  }
-
+  // Any chapter-level reference ("Alma 32", "2 Nephi 2") should retrieve that
+  // exact chapter structurally — not lean on semantic similarity, which surfaces
+  // neighboring chapters and mixes in the other indexed language.
   const index = getPinecone().index(INDEX_NAME);
 
   const limitedChapters = selection.wholeBook
@@ -185,20 +235,22 @@ async function retrieveWholeChapterChunks(
 
   const chapterResults = await Promise.all(
     limitedChapters.map(async (chapter, chapterIndex) => {
-      const [vector] = await Promise.all([
-        embedQuery(`${selection.canonicalBook} ${chapter}`),
-      ]);
+      const [vector] = await Promise.all([embedQuery(`${query} ${chapter}`)]);
 
-      // Retrieve chunks constrained by exact book + chapter metadata.
+      // Constrain by language-invariant signals (language + chapter); the book
+      // is enforced by the slug-based post-filter below. We do NOT filter on the
+      // `book` metadata because it is the display name in the chunk's language
+      // (e.g. "Giovanni" vs "John"), which would not match across languages.
+      // topK is generous so the requested book's verses are captured among all
+      // same-chapter chunks before the post-filter narrows to the right book.
       const chapterRes = await index
         .namespace("scriptures")
         .query({
           vector,
-          topK: selection.wholeBook ? 8 : 20,
+          topK: selection.wholeBook ? 40 : 80,
           includeMetadata: true,
           filter: {
             language: { $eq: language },
-            book: { $eq: selection.canonicalBook },
             chapter: { $eq: chapter },
           },
         });
@@ -229,6 +281,20 @@ async function retrieveWholeChapterChunks(
   return chapterResults.flat();
 }
 
+async function retrievePreferredLanguage(
+  fn: (query: string, language: Language) => Promise<SourceChunk[]>,
+  query: string,
+  languages: Language[]
+): Promise<SourceChunk[]> {
+  // Try languages in preference order (answer language first); return the first
+  // non-empty result so an English question yields English scripture.
+  for (const language of languages) {
+    const chunks = await fn(query, language);
+    if (chunks.length > 0) return chunks;
+  }
+  return [];
+}
+
 async function retrieveSpecificVerseChunks(
   query: string,
   language: Language
@@ -241,19 +307,23 @@ async function retrieveSpecificVerseChunks(
   const chapter = selection.chapters[0];
   const requestedStart = selection.verseStart;
   const requestedEnd = selection.verseEnd ?? selection.verseStart;
-  const referenceQuery = `${selection.canonicalBook} ${chapter}:${requestedStart}-${requestedEnd}`;
+  // Embed the user's reference (already in the index language) rather than the
+  // Italian canonicalBook, so ranking favors the requested book's verses.
+  const referenceQuery = `${query} ${chapter}:${requestedStart}-${requestedEnd}`;
   const index = getPinecone().index(INDEX_NAME);
 
   const [vector] = await Promise.all([embedQuery(referenceQuery)]);
+  // Constrain by language + chapter only; the book is enforced by the
+  // slug-based post-filter (see isRequestedScriptureChunk). Filtering on the
+  // `book` metadata would fail across languages ("Giovanni" vs "John").
   const res = await index
     .namespace("scriptures")
     .query({
       vector,
-      topK: 48,
+      topK: 80,
       includeMetadata: true,
       filter: {
         language: { $eq: language },
-        book: { $eq: selection.canonicalBook },
         chapter: { $eq: chapter },
       },
     });
@@ -295,30 +365,14 @@ export async function retrieve(
 ): Promise<SourceChunk[]> {
   const retrievalLanguages = orderRetrievalLanguages(language);
   const scriptureSelection = parseScriptureSelection(query, language);
-  const verseChunks =
-    sources.includes("scriptures")
-      ? mergeChunks(
-          (
-            await Promise.all(
-              retrievalLanguages.map((retrievalLanguage) =>
-                retrieveSpecificVerseChunks(query, retrievalLanguage)
-              )
-            )
-          ).flat()
-        )
-      : [];
-  const chapterChunks =
-    sources.includes("scriptures")
-      ? mergeChunks(
-          (
-            await Promise.all(
-              retrievalLanguages.map((retrievalLanguage) =>
-                retrieveWholeChapterChunks(query, retrievalLanguage)
-              )
-            )
-          ).flat()
-        )
-      : [];
+  // Scriptures are bilingual (eng+ita) in the index. Prefer the answer language:
+  // use it if it has the passage, and only fall back to another language if empty.
+  const verseChunks = sources.includes("scriptures")
+    ? await retrievePreferredLanguage(retrieveSpecificVerseChunks, query, retrievalLanguages)
+    : [];
+  const chapterChunks = sources.includes("scriptures")
+    ? await retrievePreferredLanguage(retrieveWholeChapterChunks, query, retrievalLanguages)
+    : [];
 
   if (scriptureSelection && verseChunks.length > 0) {
     const limit = Math.max(topK, Math.min(48, verseChunks.length));
@@ -359,12 +413,19 @@ export async function retrieve(
   const merged = [...verseChunks, ...chapterChunks, ...results.flat()];
   const deduped = mergeChunks(merged);
 
+  // Light rerank: nudge chunks whose enriched topics/entities match query terms.
+  const queryTokens = new Set(tokenizeForBoost(query));
+  const boosted = deduped.map((chunk) => {
+    const boost = topicEntityBoost(queryTokens, chunk);
+    return boost > 0 ? { ...chunk, score: Math.min(0.999, chunk.score + boost) } : chunk;
+  });
+
   const limit = chapterChunks.length
     ? Math.max(topK, Math.min(topK * 2, chapterChunks.length))
     : topK;
 
   // Flatten, sort by score descending, return top topK overall.
-  return sortRetrievedChunks(deduped, language).slice(0, limit);
+  return sortRetrievedChunks(boosted, language).slice(0, limit);
 }
 
 export async function retrieveConferenceCandidates(
@@ -408,4 +469,53 @@ export async function retrieveConferenceCandidates(
   );
 
   return mergeChunks(candidateResults.flat());
+}
+
+// Fixed score for graph-related context (below a directly-matched passage, so
+// these read as supporting cross-references rather than primary hits).
+const RELATED_CHUNK_SCORE = 0.55;
+
+/**
+ * Fetch related chunks by id (the cross-reference graph projection stored in
+ * `related_ids`). Ids encode their namespace as the first segment
+ * (`scriptures:…`, `study_helps:…`), so we group and fetch per namespace.
+ * Used to expand a scripture passage with its footnote/topic cross-references
+ * and study-help entries for fuller, scholar-grade context.
+ */
+export async function fetchRelatedChunks(
+  ids: string[],
+  fallbackLanguage: Language
+): Promise<SourceChunk[]> {
+  if (ids.length === 0) return [];
+  const index = getPinecone().index(INDEX_NAME);
+
+  const byNamespace = new Map<string, string[]>();
+  for (const id of ids) {
+    const namespace = id.split(":")[0];
+    if (!namespace) continue;
+    (byNamespace.get(namespace) ?? byNamespace.set(namespace, []).get(namespace)!).push(id);
+  }
+
+  const groups = await Promise.all(
+    [...byNamespace.entries()].map(async ([namespace, nsIds]) => {
+      try {
+        const res = await index.namespace(namespace).fetch({ ids: nsIds });
+        const records =
+          (res as { records?: Record<string, { id: string; metadata?: Record<string, unknown> }> })
+            .records ?? {};
+        return Object.values(records).map((rec) => {
+          const language = ((rec.metadata?.language as string) ?? fallbackLanguage) as Language;
+          return toChunk(namespace as SourceType, language, {
+            id: rec.id,
+            score: RELATED_CHUNK_SCORE,
+            metadata: rec.metadata,
+          });
+        });
+      } catch {
+        return [] as SourceChunk[];
+      }
+    })
+  );
+
+  return groups.flat();
 }
