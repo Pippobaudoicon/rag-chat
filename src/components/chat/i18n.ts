@@ -58,6 +58,28 @@ export const UI_TEXT = {
     },
     settings: {
       searchAllSources: "Cerca in tutte le fonti:",
+      responseStyle: "Stile di risposta",
+      responseStyleAria: "Scegli lo stile di risposta",
+      setAsDefault: "Imposta come predefinito",
+      isDefault: "Stile predefinito",
+      styles: {
+        balanced: {
+          label: "Equilibrato",
+          description: "Profondità da studioso spiegata con parole semplici, comprensibili a tutti (predefinito).",
+        },
+        scholar: {
+          label: "Studioso",
+          description: "Più approfondito, per un lettore adulto; sono ammessi termini dottrinali e accademici.",
+        },
+        simple: {
+          label: "Semplice",
+          description: "Per un bambino della Primaria: frasi brevissime, parole semplici, una sola idea.",
+        },
+        concise: {
+          label: "Conciso",
+          description: "Una risposta breve e diretta in parole semplici, al massimo poche frasi.",
+        },
+      },
     },
     search: {
       badge: "Console di recupero",
@@ -289,6 +311,28 @@ export const UI_TEXT = {
     },
     settings: {
       searchAllSources: "Search all sources:",
+      responseStyle: "Response style",
+      responseStyleAria: "Choose response style",
+      setAsDefault: "Set as default",
+      isDefault: "Default style",
+      styles: {
+        balanced: {
+          label: "Balanced",
+          description: "Scholar-level depth explained in plain words anyone can follow (default).",
+        },
+        scholar: {
+          label: "Scholar",
+          description: "Deeper, for a serious adult reader; doctrinal and academic terms allowed.",
+        },
+        simple: {
+          label: "Simple",
+          description: "For a young child in Primary: very short, very plain, one idea.",
+        },
+        concise: {
+          label: "Concise",
+          description: "A short, direct answer in plain words — a few sentences at most.",
+        },
+      },
     },
     search: {
       badge: "Retrieval console",

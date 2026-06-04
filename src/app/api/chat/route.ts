@@ -12,7 +12,12 @@ import {
 import { eq, and, asc } from "drizzle-orm";
 import { getDb } from "@/lib/db";
 import { conversations, messages } from "@/lib/db/schema";
-import { SYSTEM_PROMPT, buildUserMessage } from "@/lib/rag/system-prompt";
+import {
+  buildSystemPrompt,
+  buildUserMessage,
+  coerceResponseStyle,
+} from "@/lib/rag/system-prompt";
+import { getUserPreferences } from "@/lib/db/user-settings";
 import {
   cacheKey,
   conversationTitleCacheKey,
@@ -87,6 +92,7 @@ export async function POST(req: Request) {
     conversationId,
     language: uiLanguage,
     sources,
+    responseStyle: requestedResponseStyle,
     topK,
     fixedChunks,
     regenerateQuestion,
@@ -228,6 +234,18 @@ export async function POST(req: Request) {
       return new Response("Conversation not found", { status: 404 });
     }
 
+    // Persist a per-conversation style override when the client sent a new one.
+    if (
+      requestedResponseStyle &&
+      requestedResponseStyle !== conversation.responseStyle
+    ) {
+      await db
+        .update(conversations)
+        .set({ responseStyle: requestedResponseStyle })
+        .where(eq(conversations.id, conversation.id));
+      conversation.responseStyle = requestedResponseStyle;
+    }
+
     storedMessages = await db
       .select({
         id: messages.id,
@@ -271,7 +289,12 @@ export async function POST(req: Request) {
   } else {
     const [createdConversation] = await db
       .insert(conversations)
-      .values({ clerkUserId: userId, language: uiLanguage, sources })
+      .values({
+        clerkUserId: userId,
+        language: uiLanguage,
+        sources,
+        responseStyle: requestedResponseStyle ?? null,
+      })
       .returning();
 
     conversation = createdConversation;
@@ -436,9 +459,20 @@ export async function POST(req: Request) {
   });
 
   const chatMessages: ChatMessage[] = [...modelHistory, { role: "user", content: augmentedQuestion }];
+
+  // Effective response style: per-conversation override → user default → system
+  // default. The conversation override (if any) already reflects this turn's
+  // requestedResponseStyle, which was persisted above.
+  const conversationStyle = conversation?.responseStyle
+    ? coerceResponseStyle(conversation.responseStyle)
+    : null;
+  const effectiveStyle =
+    conversationStyle ?? (await getUserPreferences(userId)).defaultResponseStyle;
+
+  const baseSystemPrompt = buildSystemPrompt(effectiveStyle);
   const systemPrompt = memoryBrief.prompt
-    ? `${SYSTEM_PROMPT}\n\nMemory brief:\n${memoryBrief.prompt}`
-    : SYSTEM_PROMPT;
+    ? `${baseSystemPrompt}\n\nMemory brief:\n${memoryBrief.prompt}`
+    : baseSystemPrompt;
 
   // ── 7. Stream with AI SDK v6 ──────────────────────────────────────────────
   const toolNamesUsed: string[] = [];

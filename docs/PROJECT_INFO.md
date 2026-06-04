@@ -107,24 +107,36 @@ Read this first before deep code exploration.
 - `GET /api/conversations`
   - List user conversations (latest first).
 - `POST /api/conversations`
-  - Create conversation with language/sources defaults.
+  - Create conversation with language/sources defaults and an optional
+    `responseStyle` override.
 - `GET /api/conversations/[id]`
   - Fetch conversation with full messages.
 - `PATCH /api/conversations/[id]`
-  - Rename conversation.
+  - Rename conversation and/or set its `responseStyle` override (at least one
+    field required).
 - `DELETE /api/conversations/[id]`
   - Delete conversation and cascading messages.
+- `GET /api/settings`
+  - Auth required. Returns the user's persistent preferences (currently
+    `defaultResponseStyle`).
+- `PUT /api/settings`
+  - Auth required. Updates the user's default response style.
 
 ## 6) Data model summary
 
 - `rag_conversations`
-  - UUID primary key, owner (`clerk_user_id`), title, language, sources, timestamps.
+  - UUID primary key, owner (`clerk_user_id`), title, language, sources,
+    `response_style` (nullable per-conversation override), timestamps.
 - `rag_messages`
   - UUID conversation FK, integer message id, role (`user|assistant`), content,
     `sources_json`, `versions_json`, `details_json`, timestamp.
 - `rag_message_feedback`
   - UUID conversation FK, optional assistant message FK, owner, rating/comment,
     copied answer context, timestamp.
+- `rag_user_settings`
+  - Owner (`clerk_user_id`) primary key, `default_response_style`, timestamps.
+    Persistent per-user preferences, kept separate from the memory-profile
+    tables so background profiling can never clobber a settings change.
 
 Notes:
 
@@ -239,6 +251,23 @@ Notes:
   - include canonical links only when present in chunk metadata.
   - religious-scholar depth with clear, plain explanations suitable for adults,
     youth, and new learners.
+- The system prompt is composed from a constant CORE (identity + the retrieval,
+  grounding, citation, and memory rules above) plus a swappable **response-style**
+  block that controls only voice/altitude — never grounding or citations.
+  `system-prompt.ts` exports `RESPONSE_STYLES` (`balanced` | `scholar` | `simple`
+  | `concise`), `DEFAULT_RESPONSE_STYLE` (`balanced`), and
+  `buildSystemPrompt(styleId)`. `SYSTEM_PROMPT` = `buildSystemPrompt(default)`.
+  The default "Balanced" style encodes an operational readability contract:
+  scholar-level depth in the substance, child-followable wording, define-on-first-
+  use for doctrinal terms, and a child-and-scholar dual self-check.
+- **Style resolution** (chat route): effective style =
+  conversation `response_style` override → user `default_response_style`
+  (`rag_user_settings`, via `getUserPreferences`) → `DEFAULT_RESPONSE_STYLE`
+  (`balanced`). The client sends `responseStyle` only for an explicit
+  per-conversation override; the chat route persists that override and calls
+  `buildSystemPrompt(effectiveStyle)`. The settings bar (`SettingsPanel`) exposes
+  the 4 styles plus a "set as default" action (`PUT /api/settings`); changing the
+  style mid-conversation persists via `PATCH /api/conversations/[id]`.
 
 ## 8) Environment variables
 
@@ -295,6 +324,9 @@ Reference template: `.env.example`.
   - `src/app/api/billing/subscription/route.ts`
   - `src/app/api/conversations/route.ts`
   - `src/app/api/conversations/[id]/route.ts`
+  - `src/app/api/settings/route.ts` (per-user default response style)
+- User settings:
+  - `src/lib/db/user-settings.ts` (read/write `rag_user_settings`)
 - RAG internals:
   - `src/lib/rag/system-prompt.ts`
   - `src/lib/rag/retriever.ts`

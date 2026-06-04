@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.11.0
+
+- Added a user-selectable **response style** so readers can choose how answers are written without ever relaxing source-grounding or citation rules. Four styles: `balanced` (default — scholar depth in plain words), `scholar` (deeper, adult, terms allowed), `simple` (Primary/child), `concise` (short and direct).
+- Two-level persistence with override resolution **conversation override → user default → system default (`balanced`)**:
+  - New `rag_user_settings` table (`default_response_style`) holds each user's persistent default, applied to new conversations. Kept separate from the memory-profile tables so background profiling can't clobber it. Read/written via `src/lib/db/user-settings.ts`.
+  - New nullable `rag_conversations.response_style` column holds a per-conversation override (NULL = inherit the user default). Migration `0008_clean_sway.sql`.
+- API: new `GET`/`PUT /api/settings` for the user default; `POST /api/conversations` and `PATCH /api/conversations/[id]` now accept `responseStyle` (PATCH also still renames); `POST /api/chat` accepts a per-turn `responseStyle`, persists it as the conversation override, resolves the effective style, and builds the system prompt with it.
+- UI: the chat settings bar (`SettingsPanel`) now shows the four styles with description tooltips plus a star "set as default" action (`PUT /api/settings`); mid-conversation changes persist immediately via `PATCH /api/conversations/[id]`. Italian + English labels added; other UI languages fall back to English. The search console reuses `SettingsPanel` for source filtering only (style controls are optional and hidden there).
+- The chat route now composes the system prompt via `buildSystemPrompt(effectiveStyle)` instead of the static `SYSTEM_PROMPT` constant.
+
+## 0.10.0
+
+- Restructured the chat system prompt (`src/lib/rag/system-prompt.ts`) into a constant CORE (identity, retrieval, grounding, citation, and memory rules) plus a swappable **response-style** block that controls only the *voice and altitude* of the answer. Depth, source-grounding, and citation rules are now style-independent and never relax.
+- Sharpened the default "Balanced" style from a vague "scholar-care + teacher-clarity" aspiration into an operational readability contract: it separates DEPTH (kept in the substance — close reading, context, cross-references) from SIMPLICITY (applied only to the wording), requires a plain one-sentence lead, define-on-first-use for doctrinal/technical terms, a concrete analogy for hard ideas, and a dual self-check ("could a child follow the main thread, and would a scholar find nothing oversimplified into error?").
+- Added scaffolding for a user-selectable response type: exported `ResponseStyleId`, `RESPONSE_STYLES` (`balanced` | `scholar` | `simple` | `concise`), `DEFAULT_RESPONSE_STYLE`, and `buildSystemPrompt(styleId)`. `SYSTEM_PROMPT` is retained as `buildSystemPrompt(DEFAULT_RESPONSE_STYLE)`, so the chat route is unchanged and behavior defaults to Balanced. Wiring a `styleId` through the client → chat route is a follow-up.
+
 ## 0.9.3
 
 - Fixed a cache-correctness issue in `lookup_scripture_passage`: it previously cached the *post-rerank* result while the cache key omitted `RAG_GRAPH_RERANK`, so flipping the flag wouldn't take effect on cache hits until TTL expiry (stale plain order after enabling, stale reranked order after disabling). It now caches the neutral, pre-rerank `{ passage, related }` split and applies the graph rerank *after* the cache read — matching `semantic_search`'s pattern. The cache-shape version (`v`) was bumped so old flat-array entries are ignored rather than mis-parsed.

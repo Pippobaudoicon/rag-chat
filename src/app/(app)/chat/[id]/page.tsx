@@ -5,6 +5,8 @@ import { getDb } from "@/lib/db";
 import { conversations, messageFeedback, messages } from "@/lib/db/schema";
 import { ChatInterface } from "@/components/chat/ChatInterface";
 import { uuidSchema } from "@/lib/api/validation";
+import { getUserPreferences } from "@/lib/db/user-settings";
+import { coerceResponseStyle } from "@/lib/rag/system-prompt";
 import type { AssistantVersion } from "@/lib/types";
 import type { UIMessage } from "ai";
 
@@ -89,6 +91,8 @@ export default async function ConversationPage({ params }: Props) {
     };
   }
 
+  const prefs = await getUserPreferences(userId);
+
   return (
     <ChatInterface
       conversationId={convo.id}
@@ -96,6 +100,10 @@ export default async function ConversationPage({ params }: Props) {
       initialMessageVersions={initialMessageVersions}
       initialAssistantVersions={initialAssistantVersions}
       initialFeedbackByMessageId={initialFeedbackByMessageId}
+      initialResponseStyle={
+        convo.responseStyle ? coerceResponseStyle(convo.responseStyle) : null
+      }
+      initialDefaultResponseStyle={prefs.defaultResponseStyle}
     />
   );
 }

@@ -57,6 +57,10 @@ import type {
 } from "@/lib/types";
 import { linkifyInlineCitations } from "@/lib/rag/citation-links";
 import { parseScriptureSelection } from "@/lib/rag/scripture-reference";
+import {
+  DEFAULT_RESPONSE_STYLE,
+  type ResponseStyleId,
+} from "@/lib/rag/system-prompt";
 import { useLanguage } from "./language-context";
 import { uiText } from "./i18n";
 import type { BillingEntitlements } from "@/lib/billing/entitlements";
@@ -68,6 +72,10 @@ interface ChatInterfaceProps {
   initialMessageVersions?: Record<string, AssistantVersion[]>;
   initialAssistantVersions?: AssistantVersion[][];
   initialFeedbackByMessageId?: Record<string, { value: "up" | "down"; comment: string | null }>;
+  // Per-conversation style override (null/undefined = inherit user default).
+  initialResponseStyle?: ResponseStyleId | null;
+  // The user's persistent default style (applied when no override is set).
+  initialDefaultResponseStyle?: ResponseStyleId;
 }
 
 type TextMessagePart = Extract<UIMessage["parts"][number], { type: "text" }>;
@@ -272,12 +280,69 @@ export function ChatInterface({
   initialMessageVersions = {},
   initialAssistantVersions = [],
   initialFeedbackByMessageId = {},
+  initialResponseStyle = null,
+  initialDefaultResponseStyle = DEFAULT_RESPONSE_STYLE,
 }: ChatInterfaceProps) {
   const { user } = useUser();
   const { language } = useLanguage();
   const text = uiText(language);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [sources, setSources] = useState<SourceType[]>(DEFAULT_SOURCES);
+
+  // Response style. The user's persistent default applies unless this
+  // conversation has an explicit override (conversationStyle !== null). The
+  // active style shown in the UI and sent for new conversations is derived
+  // below.
+  const [defaultResponseStyle, setDefaultResponseStyle] =
+    useState<ResponseStyleId>(initialDefaultResponseStyle);
+  const [conversationStyle, setConversationStyle] = useState<ResponseStyleId | null>(
+    initialResponseStyle
+  );
+  const activeResponseStyle = conversationStyle ?? defaultResponseStyle;
+
+  // Fallback: fetch the user's saved default if the server didn't provide one.
+  useEffect(() => {
+    if (initialDefaultResponseStyle !== DEFAULT_RESPONSE_STYLE) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch("/api/settings");
+        if (!res.ok) return;
+        const data = (await res.json()) as { defaultResponseStyle?: ResponseStyleId };
+        if (!cancelled && data.defaultResponseStyle) {
+          setDefaultResponseStyle(data.defaultResponseStyle);
+        }
+      } catch {
+        // Settings fetch is non-critical; keep the system default.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [initialDefaultResponseStyle]);
+
+  const handleResponseStyleChange = useCallback((style: ResponseStyleId) => {
+    setConversationStyle(style);
+    const convId = conversationIdRef.current;
+    if (convId) {
+      // Persist the override immediately so it sticks even without sending.
+      void fetch(`/api/conversations/${convId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ responseStyle: style }),
+      });
+    }
+  }, []);
+
+  const handleSetDefaultResponseStyle = useCallback(() => {
+    const style = activeResponseStyle;
+    setDefaultResponseStyle(style);
+    void fetch("/api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ defaultResponseStyle: style }),
+    });
+  }, [activeResponseStyle]);
 
   // Hydrate sources from localStorage after mount to avoid SSR mismatch
   useEffect(() => {
@@ -401,7 +466,11 @@ export function ChatInterface({
       const res = await fetch("/api/conversations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ language, sources }),
+        body: JSON.stringify({
+          language,
+          sources,
+          responseStyle: conversationStyle ?? undefined,
+        }),
       });
       if (res.ok) {
         const convo = await res.json();
@@ -418,7 +487,7 @@ export function ChatInterface({
     }
 
     return convId;
-  }, [language, sources]);
+  }, [language, sources, conversationStyle]);
 
   // Persist sources to localStorage (language is persisted by LanguageProvider)
   useEffect(() => {
@@ -468,11 +537,17 @@ export function ChatInterface({
       sendMessage(
         { text: trimmedText },
         {
-          body: { conversationId: convId, language, sources, topK: 20 },
+          body: {
+            conversationId: convId,
+            language,
+            sources,
+            responseStyle: conversationStyle ?? undefined,
+            topK: 20,
+          },
         }
       );
     },
-    [isStreaming, language, messages.length, sendMessage, sources]
+    [isStreaming, language, messages.length, sendMessage, sources, conversationStyle]
   );
 
   const handleRegenerate = useCallback(
@@ -497,13 +572,14 @@ export function ChatInterface({
           conversationId: convId,
           language,
           sources,
+          responseStyle: conversationStyle ?? undefined,
           topK: 20,
           fixedChunks,
           regenerateQuestion: question,
         },
       });
     },
-    [ensureConversation, isStreaming, language, regenerate, sources]
+    [ensureConversation, isStreaming, language, regenerate, sources, conversationStyle]
   );
 
   const handlePromptSubmit = useCallback(
@@ -741,6 +817,10 @@ export function ChatInterface({
         language={language}
         sources={sources}
         onSourcesChange={setSources}
+        responseStyle={activeResponseStyle}
+        defaultResponseStyle={defaultResponseStyle}
+        onResponseStyleChange={handleResponseStyleChange}
+        onSetDefaultResponseStyle={handleSetDefaultResponseStyle}
         disabled={isStreaming}
       />
 

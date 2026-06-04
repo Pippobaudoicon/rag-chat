@@ -119,12 +119,12 @@ export async function POST(req: Request) {
     return badRequestFromZod(parsedBody.error);
   }
 
-  const { language, sources } = parsedBody.data;
+  const { language, sources, responseStyle } = parsedBody.data;
 
   const db = getDb();
   const [convo] = await db
     .insert(conversations)
-    .values({ clerkUserId: userId, language, sources })
+    .values({ clerkUserId: userId, language, sources, responseStyle: responseStyle ?? null })
     .returning();
 
   void invalidateConversationCaches(userId);

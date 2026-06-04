@@ -2,7 +2,11 @@ import { auth } from "@clerk/nextjs/server";
 import { and, asc, eq } from "drizzle-orm";
 import { getDb } from "@/lib/db";
 import { conversations, messages } from "@/lib/db/schema";
-import { uuidSchema } from "@/lib/api/validation";
+import {
+  badRequestFromZod,
+  updateConversationSchema,
+  uuidSchema,
+} from "@/lib/api/validation";
 import {
   getConversationTitleFromCache,
   setConversationTitleInCache,
@@ -57,30 +61,45 @@ export async function GET(_: Request, { params }: Params) {
   return Response.json({ ...conversationWithCachedTitle, messages: msgs });
 }
 
-// PATCH /api/conversations/[id] — rename conversation
+// PATCH /api/conversations/[id] — rename and/or change the response-style
+// override.
 export async function PATCH(req: Request, { params }: Params) {
   const { userId } = await auth();
   if (!userId) return new Response("Unauthorized", { status: 401 });
 
   const { id } = await params;
-  const body = await req.json().catch(() => ({}));
-  const title = body.title?.trim();
-  if (!title) return new Response("Bad Request: title required", { status: 400 });
+  const parsed = updateConversationSchema.safeParse(
+    await req.json().catch(() => null)
+  );
+  if (!parsed.success) return badRequestFromZod(parsed.error);
 
   const convo = await getOwnedConversation(id, userId);
   if (!convo) return new Response("Not Found", { status: 404 });
 
+  const { title, responseStyle } = parsed.data;
+  const patch: { title?: string; responseStyle?: string; updatedAt: Date } = {
+    updatedAt: new Date(),
+  };
+  if (title !== undefined) patch.title = title.slice(0, 200);
+  if (responseStyle !== undefined) patch.responseStyle = responseStyle;
+
   const db = getDb();
   const [updated] = await db
     .update(conversations)
-    .set({ title: title.slice(0, 200), updatedAt: new Date() })
+    .set(patch)
     .where(eq(conversations.id, convo.id))
     .returning();
 
-  void Promise.all([
-    setConversationTitleInCache(conversationTitleCacheKey(userId, convo.id), updated.title),
-    invalidateConversationCaches(userId),
-  ]);
+  const invalidations: Promise<unknown>[] = [invalidateConversationCaches(userId)];
+  if (title !== undefined) {
+    invalidations.push(
+      setConversationTitleInCache(
+        conversationTitleCacheKey(userId, convo.id),
+        updated.title
+      )
+    );
+  }
+  void Promise.all(invalidations);
 
   return Response.json(updated);
 }

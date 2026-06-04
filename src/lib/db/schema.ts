@@ -15,6 +15,9 @@ export const conversations = pgTable(
     clerkUserId: text("clerk_user_id").notNull(),
     title: text("title"), // null until first message auto-titles it
     language: text("language").notNull().default("ita"),
+    // Per-conversation response-style override. NULL = inherit the user's
+    // default from rag_user_settings (which itself falls back to "balanced").
+    responseStyle: text("response_style"),
     sources: jsonb("sources")
       .$type<SourceType[]>()
       .notNull()
@@ -84,6 +87,21 @@ export const messageFeedback = pgTable("rag_message_feedback", {
     table.clerkUserId
   ),
 ]);
+
+// Per-user preferences that persist across conversations. Kept separate from
+// the memory-profile tables (which the profiler upserts) so a settings change
+// can never be clobbered by background profiling.
+export const userSettings = pgTable("rag_user_settings", {
+  clerkUserId: text("clerk_user_id").primaryKey(),
+  // The user's default response style; applied to new conversations and to any
+  // conversation without an explicit override. Mirrors ResponseStyleId values.
+  defaultResponseStyle: text("default_response_style").notNull().default("balanced"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at")
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date()),
+});
 
 // Long-lived user profile distilled from conversations and feedback.
 export const userMemoryProfiles = pgTable("rag_user_memory_profiles", {
@@ -163,6 +181,8 @@ export type Message = typeof messages.$inferSelect;
 export type NewMessage = typeof messages.$inferInsert;
 export type MessageFeedback = typeof messageFeedback.$inferSelect;
 export type NewMessageFeedback = typeof messageFeedback.$inferInsert;
+export type UserSettings = typeof userSettings.$inferSelect;
+export type NewUserSettings = typeof userSettings.$inferInsert;
 export type UserMemoryProfile = typeof userMemoryProfiles.$inferSelect;
 export type NewUserMemoryProfile = typeof userMemoryProfiles.$inferInsert;
 export type ConversationMemory = typeof conversationMemories.$inferSelect;

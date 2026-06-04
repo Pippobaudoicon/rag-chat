@@ -1,8 +1,18 @@
 import { z } from "zod";
 import { DEFAULT_SOURCES, SUPER_SOURCES } from "@/lib/types";
 import type { CorpusLanguage, SourceType, UiLanguage } from "@/lib/types";
+import { RESPONSE_STYLE_IDS } from "@/lib/rag/system-prompt";
+import type { ResponseStyleId } from "@/lib/rag/system-prompt";
 
 const sourceValues = SUPER_SOURCES as [SourceType, ...SourceType[]];
+
+const responseStyleValues = RESPONSE_STYLE_IDS as readonly [
+  ResponseStyleId,
+  ...ResponseStyleId[]
+];
+export const responseStyleSchema = z.enum(
+  responseStyleValues
+) satisfies z.ZodType<ResponseStyleId>;
 
 export const uuidSchema = z.string().uuid();
 export const corpusLanguageSchema = z.enum(["ita", "eng"]) satisfies z.ZodType<CorpusLanguage>;
@@ -43,6 +53,9 @@ export const chatRequestSchema = z.object({
   conversationId: uuidSchema.optional().nullable(),
   language: uiLanguageSchema.default("ita"),
   sources: sourcesSchema.default(DEFAULT_SOURCES),
+  // Per-turn response style for this conversation. Omitted = leave the stored
+  // conversation/user default unchanged.
+  responseStyle: responseStyleSchema.optional(),
   topK: z.number().int().min(1).max(50).default(20),
   fixedChunks: z.array(sourceChunkSchema).max(120).optional(),
   regenerateQuestion: z.string().max(4000).optional(),
@@ -53,6 +66,23 @@ export const chatRequestSchema = z.object({
 export const createConversationSchema = z.object({
   language: uiLanguageSchema.default("ita"),
   sources: sourcesSchema.default(DEFAULT_SOURCES),
+  responseStyle: responseStyleSchema.optional(),
+});
+
+// PATCH /api/conversations/[id] — rename and/or change the per-conversation
+// response-style override. At least one field must be present.
+export const updateConversationSchema = z
+  .object({
+    title: z.string().trim().min(1).max(200).optional(),
+    responseStyle: responseStyleSchema.optional(),
+  })
+  .refine((data) => data.title !== undefined || data.responseStyle !== undefined, {
+    message: "At least one of title or responseStyle is required",
+  });
+
+// PUT /api/settings — update the user's persistent default response style.
+export const userSettingsSchema = z.object({
+  defaultResponseStyle: responseStyleSchema,
 });
 
 export const searchParamsSchema = z.object({

@@ -2,9 +2,11 @@
 
 import { Separator } from "@/components/ui/separator";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { ZapIcon } from "lucide-react";
+import { StarIcon, ZapIcon } from "lucide-react";
 import { ALL_SOURCES, SUPER_SOURCES } from "@/lib/types";
 import type { SourceType, UiLanguage } from "@/lib/types";
+import { RESPONSE_STYLE_IDS } from "@/lib/rag/system-prompt";
+import type { ResponseStyleId } from "@/lib/rag/system-prompt";
 import { LanguageToggle } from "./LanguageToggle";
 import { sourceLabel, uiText } from "./i18n";
 
@@ -12,6 +14,12 @@ interface SettingsPanelProps {
   language: UiLanguage;
   sources: SourceType[];
   onSourcesChange: (sources: SourceType[]) => void;
+  // Response-style controls are optional: only the chat surface renders them.
+  // The search console reuses this panel for source filtering only.
+  responseStyle?: ResponseStyleId;
+  defaultResponseStyle?: ResponseStyleId;
+  onResponseStyleChange?: (style: ResponseStyleId) => void;
+  onSetDefaultResponseStyle?: () => void;
   disabled?: boolean;
 }
 
@@ -26,10 +34,16 @@ export function SettingsPanel({
   language,
   sources,
   onSourcesChange,
+  responseStyle,
+  defaultResponseStyle,
+  onResponseStyleChange,
+  onSetDefaultResponseStyle,
   disabled = false,
 }: SettingsPanelProps) {
   const isSuperActive = arraysEqual(sources, SUPER_SOURCES);
   const text = uiText(language);
+  const showStylePicker = !!responseStyle && !!onResponseStyleChange;
+  const isStyleDefault = responseStyle === defaultResponseStyle;
 
   function toggleSource(source: SourceType) {
     if (sources.includes(source)) {
@@ -109,6 +123,59 @@ export function SettingsPanel({
           </TooltipContent>
         </Tooltip>
       </div>
+
+      {/* Response-style picker — controls the voice/altitude of answers */}
+      {showStylePicker && (
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="text-xs font-medium text-muted-foreground">
+            {text.settings.responseStyle}:
+          </span>
+          {RESPONSE_STYLE_IDS.map((id) => {
+            const active = responseStyle === id;
+            const style = text.settings.styles[id];
+            return (
+              <Tooltip key={id}>
+                <TooltipTrigger
+                  onClick={() => onResponseStyleChange?.(id)}
+                  disabled={disabled}
+                  aria-label={text.settings.responseStyleAria}
+                  className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-medium transition-all disabled:opacity-50 ${
+                    active
+                      ? "border-indigo-500/30 bg-indigo-500/10 text-indigo-300"
+                      : "border-border/50 bg-transparent text-muted-foreground hover:text-foreground hover:border-border"
+                  }`}
+                >
+                  {style.label}
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="max-w-xs text-xs leading-relaxed">
+                  {style.description}
+                </TooltipContent>
+              </Tooltip>
+            );
+          })}
+
+          {/* Set the active style as the user's persistent default */}
+          {onSetDefaultResponseStyle && (
+            <Tooltip>
+              <TooltipTrigger
+                onClick={onSetDefaultResponseStyle}
+                disabled={disabled || isStyleDefault}
+                aria-label={text.settings.setAsDefault}
+                className={`inline-flex items-center justify-center rounded-md border p-1 transition-all disabled:opacity-60 ${
+                  isStyleDefault
+                    ? "border-amber-500/40 bg-amber-500/15 text-amber-300"
+                    : "border-border/50 bg-transparent text-muted-foreground hover:text-foreground hover:border-border"
+                }`}
+              >
+                <StarIcon size={12} className={isStyleDefault ? "fill-current" : ""} />
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="text-xs">
+                {isStyleDefault ? text.settings.isDefault : text.settings.setAsDefault}
+              </TooltipContent>
+            </Tooltip>
+          )}
+        </div>
+      )}
 
       {/* Language switch — desktop only; on mobile it lives in the top bar */}
       <div className="ml-auto hidden md:flex">
