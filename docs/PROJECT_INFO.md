@@ -266,8 +266,9 @@ Notes:
   (`balanced`). The client sends `responseStyle` only for an explicit
   per-conversation override; the chat route persists that override and calls
   `buildSystemPrompt(effectiveStyle)`. The settings bar (`SettingsPanel`) exposes
-  the 4 styles plus a "set as default" action (`PUT /api/settings`); changing the
-  style mid-conversation persists via `PATCH /api/conversations/[id]`.
+  a compact `ResponseStylePicker` dropdown with the 4 styles plus a "set as
+  default" action (`PUT /api/settings`); changing the style mid-conversation
+  persists via `PATCH /api/conversations/[id]`.
 
 ## 8) Environment variables
 

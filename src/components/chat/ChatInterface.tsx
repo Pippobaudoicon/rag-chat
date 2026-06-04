@@ -334,15 +334,14 @@ export function ChatInterface({
     }
   }, []);
 
-  const handleSetDefaultResponseStyle = useCallback(() => {
-    const style = activeResponseStyle;
+  const handleSetDefaultResponseStyle = useCallback((style: ResponseStyleId) => {
     setDefaultResponseStyle(style);
     void fetch("/api/settings", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ defaultResponseStyle: style }),
     });
-  }, [activeResponseStyle]);
+  }, []);
 
   // Hydrate sources from localStorage after mount to avoid SSR mismatch
   useEffect(() => {

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.11.1
+
+- Reduced the UI footprint of the response-style control. The four chips + label + star that took a full row in the settings bar are now a single compact dropdown pill (`ResponseStylePicker`) showing the active style's glyph + label, sitting inline after the Super toggle. The popover holds the four styles (each with a distinct glyph + description and a radio check). Each row carries a small "make this the default" star pinned to its bottom-right (below the active check); the current default is filled, the rest brighten on hover. On mobile the trigger collapses to just the glyph. No behavior or API change — purely presentational.
+- Added a reusable `secondary-accent` theme color (`--secondary-accent: #415a77`, a slate-blue) to `globals.css`, exposed as `text-/bg-/fill-/border-secondary-accent`. Used for the default-style star so it matches the page's restrained, monochrome-plus-indigo palette instead of a bright accent. Defined once in `:root` and inherited by `.dark` (theme-independent), kept separate from the shadcn `secondary` token so secondary buttons are unaffected.
+
 ## 0.11.0
 
 - Added a user-selectable **response style** so readers can choose how answers are written without ever relaxing source-grounding or citation rules. Four styles: `balanced` (default — scholar depth in plain words), `scholar` (deeper, adult, terms allowed), `simple` (Primary/child), `concise` (short and direct).

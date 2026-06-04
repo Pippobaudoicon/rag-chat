@@ -33,6 +33,7 @@
   --color-muted: var(--muted);
   --color-secondary-foreground: var(--secondary-foreground);
   --color-secondary: var(--secondary);
+  --color-secondary-accent: var(--secondary-accent);
   --color-primary-foreground: var(--primary-foreground);
   --color-primary: var(--primary);
   --color-popover-foreground: var(--popover-foreground);
@@ -60,6 +61,11 @@
   --primary-foreground: oklch(0.985 0 0);
   --secondary: oklch(0.97 0 0);
   --secondary-foreground: oklch(0.205 0 0);
+  /* Brand secondary accent (slate-blue). Theme-independent: reads well on both
+   * the light and dark popover/card surfaces, so it is defined once here and
+   * inherited by .dark. Exposed as the `secondary-accent` color utility
+   * (text-/bg-/fill-/border-secondary-accent). */
+  --secondary-accent: #415a77;
   --muted: oklch(0.97 0 0);
   --muted-foreground: oklch(0.556 0 0);
   --accent: oklch(0.97 0 0);

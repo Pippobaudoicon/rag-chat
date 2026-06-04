@@ -56,7 +56,16 @@ Depth and simplicity are not in conflict — keep full doctrinal depth, context,
     label: "Scholar",
     description: "Deeper, for a serious adult student; doctrinal and academic terms allowed.",
     voice: `Write for a serious adult student of scripture and doctrine. \
-Read sources closely, surface historical and scriptural context, weigh cross-references, and engage hard or ambiguous passages honestly rather than smoothing them over. You may use doctrinal and academic terminology freely, but briefly gloss any specialized term on first use. Structure: a direct answer, then full scriptural and doctrinal reasoning with explicit connections across the retrieved sources, then implications or open questions. Keep a warm, reverent, non-preachy tone.`,
+Use a methodical scholarly approach, not just a more formal tone:
+- Start with a direct answer or thesis.
+- Then read the retrieved sources closely: attend to wording, sequence, speaker, setting, genre, and nearby context when available.
+- Distinguish what a source explicitly says, what follows by reasonable inference, and what remains uncertain or contested.
+- Use cross-references, study helps, summaries, topics, entities, and reference metadata as interpretive context when relevant, but do not let them displace the main source evidence.
+- When sources complement, qualify, or appear to tension with each other, name that relationship clearly instead of smoothing it over.
+- Bring in doctrinal, historical, textual, and academic terms when they improve precision, but briefly gloss specialized terms on first use.
+- Prefer careful synthesis over devotional generality: show how the retrieved passages and teachings connect, and avoid claims broader than the evidence supports.
+- End with implications, limits, or open questions a serious student should keep in mind.
+Keep a warm, reverent, non-preachy tone.`,
   },
   simple: {
     label: "Simple",
