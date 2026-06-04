@@ -1,6 +1,6 @@
 {
   "name": "rag-chat",
-  "version": "0.3.28",
+  "version": "0.9.3",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -9,7 +9,8 @@
     "typecheck": "tsc --noEmit",
     "db:generate": "dotenv -o -e .env -e .env.local -- drizzle-kit generate",
     "db:migrate": "dotenv -o -e .env -e .env.local -- drizzle-kit migrate",
-    "docs:guard": "bash scripts/docs-guard.sh"
+    "docs:guard": "bash scripts/docs-guard.sh",
+    "eval": "dotenv -o -e .env -e .env.local -- tsx scripts/eval/run.ts"
   },
   "dependencies": {
     "@ai-sdk/react": "^3.0.143",
