@@ -1,6 +1,6 @@
 # ChatLDS Project Knowledge Base
 
-Last updated: 2026-05-29
+Last updated: 2026-06-03
 
 This document is the single source of truth for project context.
 Read this first before deep code exploration.
@@ -28,11 +28,13 @@ Read this first before deep code exploration.
 ## 3) User-facing capabilities
 
 - Multi-turn chat with persisted conversation history.
-- Source filters:
+- Source filters (individual toggles):
   - Scriptures
   - Conference
   - Handbook
-  - Liahona
+  - Study Helps (Bible Dictionary, Guide to the Scriptures, JST; Topical Guide is graph-only, not retrievable)
+  - Topics
+  - plus a "Super" toggle exposing all Pinecone namespaces
 - Language selector: UI-only language preference. Current selectable UI languages are Italian, English, French, Spanish, Portuguese, and German; non-translated UI copy falls back to English.
 - Inline numeric citations linked to source cards.
 - Sources panel with scripture coverage behavior for chapter/book requests.
@@ -55,7 +57,7 @@ Read this first before deep code exploration.
 1. Client sends chat message to `POST /api/chat` with selected UI language/sources/topK.
 2. Server verifies auth and extracts the latest user question.
 3. Server loads Clerk Billing entitlements, checks Clerk plan access via `auth().has({ plan })`, and applies plan-aware chat rate limits plus a `topK` cap.
-4. Server detects the user's prompt language and translates the retrieval query into the configured Pinecone index language (`RAG_INDEX_LANGUAGE`, currently Italian by default).
+4. Server detects the user's prompt language and translates the retrieval query into the configured Pinecone index language (`RAG_INDEX_LANGUAGE`, English by default for `lds-rag-v1`).
 5. Server does NOT pre-fetch context. Instead it constructs an AI SDK `streamText`
    call with the RAG tool set and lets the model decide how to retrieve.
 6. The model calls one or more retrieval tools per turn as it sees fit, using the translated index-language search query:
@@ -145,11 +147,40 @@ Notes:
 
 ## 7) Retrieval and prompting behavior
 
-- Uses Pinecone index `lds-rag` and per-source namespaces.
+- Uses Pinecone index `lds-rag-v1` (override via `PINECONE_INDEX`) and per-source
+  namespaces. v1 namespaces: scriptures, conference, handbook, study_helps,
+  gospel_topics, gospel_selfreliance, gospel_teachings, gospel_other, gospel_study,
+  gospel_history, gospel_youth (plus gospel_music kept as a planned-but-empty
+  namespace). Legacy namespaces liahona / gospel_family / gospel_videos /
+  gospel_handbook were retired (gospel_handbook content now lives under handbook).
+  Vectors carry a `related_ids` cross-reference projection from the graph.
+  Both `lookup_scripture_passage` and `semantic_search` consume it via the shared
+  `expandRelatedContext` helper: after retrieval they fetch the results'
+  `related_ids` by id (cross-referenced verses + Bible Dictionary / Guide to the
+  Scriptures study-help entries) and attach them as supporting context for fuller,
+  scholar-grade answers. The scripture tool expands from every passage chunk (cap
+  24); `semantic_search` is conservative — it seeds only from the strongest hits
+  (top 4), caps the total (8), and keeps related context within the user's
+  selected source filters.
+  After expansion, results are **graph-reranked** (`tools/shared/graph-rerank.ts`):
+  a chunk cross-referenced by several others in the retrieved neighborhood is
+  central to the topic and gets a small, capped score boost. This is multi-hop
+  (expanded chunks carry their own `related_ids`) and uses only the in-Pinecone
+  edges — the 60MB `cross_references.jsonl` sidecar is never shipped to the
+  runtime. `semantic_search` reranks the whole set; `lookup_scripture_passage`
+  pins the requested passage and reranks only the supporting context.
+  NOTE: `related_ids` are projected only onto English chunks (the graph is built
+  from English footnotes), so Italian scripture chunks have none until a
+  scraper-side cross-language projection + re-ingest. Full-graph authority signals
+  (e.g. TG-hub co-citation) remain a future offline metadata enhancement.
+  (The earlier scripture-reference language leak — Italian chunks surfacing for
+  English reference lookups — was fixed in 0.9.1 via slug-based book matching.)
 - The language selector controls only UI labels. It does not affect search language or final answer language.
 - Each user prompt is language-detected, translated into the configured index language before Pinecone search, then answered in the original prompt language.
-- `RAG_INDEX_LANGUAGE` controls the single-language retrieval target. It defaults to Italian (`ita`) for the current Pinecone corpus and can be switched to English (`eng`) after the index migration.
-- Retrieval still preserves each chunk's source-language metadata; scripture sources can later add multilingual namespaces/chunks while other documents remain in one primary index language.
+- `RAG_INDEX_LANGUAGE` controls the single-language retrieval target. It defaults to English (`eng`) for `lds-rag-v1` (English-main corpus; scriptures also carry Italian chunks). Set to `ita` only to target the legacy `lds-rag` index.
+- Retrieval still preserves each chunk's source-language metadata. Scriptures are bilingual (eng+ita); scripture verse/chapter retrieval **prefers the answer language** (queries it first, falls back to the other indexed language only if empty), so an English question returns English scripture. Other namespaces are English-only.
+- Structured scripture retrieval (verse + chapter, including bare chapter refs like "Alma 32") filters Pinecone on **language-invariant** signals (`language` + `chapter`) and enforces the requested book via its **slug** (chunk id 3rd segment `scriptures:<lang>:<bookSlug>:…` / URL path), NOT the display book name. This is deliberate: `parseScriptureSelection().canonicalBook` is Italian (legacy table — "Giovanni", "Salmi", "2 Nefi") and does not match the English `book` metadata, so a `book: { $eq }` filter would silently return nothing and fall back to Italian or to unfiltered semantic results. (If the canonicalBook table is ever localized to English, the slug-based matching still holds.)
+- Enrichment metadata is consumed (present on enriched namespaces — scriptures + conference): the retriever maps `summary`, `topics`, `entities` (people/places/doctrines), and `references` onto each chunk. These are (a) sent to the model as per-source context via `toToolChunk` (context only — not citable sources), (b) shown as tags/reference chips on source cards, and (c) used for a small, capped topic/entity rerank boost when query terms overlap a chunk's topics/entities.
 - Special scripture handling for whole chapter/book requests:
   - parses scripture references,
   - enforces chapter-oriented retrieval,
@@ -167,7 +198,13 @@ Notes:
   - `semantic_search` — general topical retrieval over the user's selected
     sources, with Upstash Redis caching.
   - `lookup_scripture_passage` — scripture-by-reference retrieval with strict
-    book/chapter filtering, with Upstash Redis caching of retrieval results.
+    book/chapter (slug-based) filtering. Then expands the passage with its
+    cross-reference graph (`related_ids`): cited passages + Bible Dictionary /
+    Guide to the Scriptures entries, attached as supporting context (capped) for
+    scholar-grade answers. Upstash Redis caches the **neutral, pre-rerank**
+    `{ passage, related }` split; the flag-dependent graph rerank is applied after
+    the cache read so toggling `RAG_GRAPH_RERANK` is honored on cache hits (same
+    pattern as `semantic_search`).
   - `search_conference_talks` — conference-talk retrieval with optional
     speaker / year / title filters; uses strict speaker/year/title filtering
     first, retries title-focused query variants, and returns a
@@ -192,11 +229,16 @@ Notes:
 - System prompt enforces:
   - tool-first retrieval (at least one retrieval tool for any substantive
     question; multiple tools allowed when justified),
+  - automatic use of retrieved cross-references, study-help entries, enrichment
+    metadata, and related chunks when they improve the answer, without requiring
+    the user to ask for "useful cross-references",
   - same-language answers based on the user's latest question, independent from the selected UI language,
   - no unsupported claims,
   - no fabricated citations,
   - citation mapping to tool-returned chunks only,
   - include canonical links only when present in chunk metadata.
+  - religious-scholar depth with clear, plain explanations suitable for adults,
+    youth, and new learners.
 
 ## 8) Environment variables
 
@@ -209,7 +251,8 @@ Notes:
 - `UPSTASH_REDIS_REST_TOKEN`
 - `VOYAGE_API_KEY`
 - `PINECONE_API_KEY`
-- `RAG_INDEX_LANGUAGE` (optional; defaults to `ita`; set to `eng` after the Pinecone index migration)
+- `PINECONE_INDEX` (optional; defaults to `lds-rag-v1`; set to `lds-rag` for the legacy index)
+- `RAG_INDEX_LANGUAGE` (optional; defaults to `eng` for `lds-rag-v1`; set to `ita` for the legacy index)
 - `CHAT_MODEL` (optional; defaults to `deepseek/deepseek-v4-flash`)
 - `CHAT_MEMORY_ENABLED` (optional; set to `false` to disable chat personalization memory)
 - `CHAT_MEMORY_BRIEF_CHARS` (optional; defaults to 700; caps the compact memory brief injected into each chat request)
@@ -285,7 +328,7 @@ Reference template: `.env.example`.
 - Chat and search usage display uses Redis sorted-set counters keyed per user and rolling window. If Redis is unavailable, enforcement and usage display gracefully degrade.
 - Embedding model must remain compatible with index dimensions.
 - Chat route uses a limited recent history window for context size control.
-- Current Pinecone search language defaults to Italian until `RAG_INDEX_LANGUAGE` is changed during the future English-index migration.
+- Pinecone search language defaults to English (`lds-rag-v1`). Scriptures retrieve in both English and Italian; all other namespaces are English-only.
 
 ## 11) Operations quick start
 
@@ -296,6 +339,16 @@ Reference template: `.env.example`.
 - Generate migrations: `npm run db:generate`
 - Apply migrations: `npm run db:migrate`
 - Docs guard: `npm run docs:guard`
+- Retrieval eval: `npm run eval` (golden set in `scripts/eval/dataset.ts`; reports
+  MRR/recall/structural checks with graph-rerank off vs on; writes JSON to
+  `scripts/eval/results/`). Hits live Pinecone + Voyage. Add a filter:
+  `npm run eval -- faith`.
+
+### Feature flags
+- `RAG_GRAPH_RERANK` (default **on**) — graph-aware reranking (`src/lib/rag/flags.ts`).
+  Enabled by default (eval shows it improves ranking with no regressions); set to
+  `false` as a kill-switch. The eval harness toggles rerank directly, independent
+  of this flag.
 
 ## 12) Update policy for agents
 
