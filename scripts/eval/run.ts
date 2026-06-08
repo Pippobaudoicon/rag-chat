@@ -26,6 +26,7 @@
  * retrieval calls per case, so reranker A/B costs two embeds per case.
  */
 import { retrieve } from "@/lib/rag/retriever";
+import { routeQueryLanguage } from "@/lib/rag/language-routing";
 import { expandRelatedContext } from "@/lib/rag/tools/shared/related-context";
 import { graphRerank } from "@/lib/rag/tools/shared/graph-rerank";
 import { normalizeBookForStrictMatch, normalizeForMatch } from "@/lib/rag/tools/shared/text-normalize";
@@ -171,11 +172,27 @@ function structuralChecks(c: EvalCase, results: SourceChunk[]): StructuralResult
   return { languageOk, sourcesPresentOk, titleOk, speakerOk, contentOk, minResultsOk };
 }
 
+interface ResolvedQuery {
+  query: string;
+  language: Language;
+}
+
+// Resolve the query the pipeline should actually retrieve on. For `routeQuery`
+// cases this mirrors production: translate the foreign-language prompt into the
+// index language first, so both arms (and the cross-encoder) see the same query
+// they would in prod. Resolved once per case so the off/on arms stay identical.
+async function resolveQuery(c: EvalCase): Promise<ResolvedQuery> {
+  if (!c.routeQuery) return { query: c.query, language: c.language ?? "eng" };
+  const routing = await routeQueryLanguage(c.query);
+  return { query: routing.searchQuery, language: routing.indexLanguage };
+}
+
 async function buildCandidates(
   c: EvalCase,
-  rerank: boolean
+  rerank: boolean,
+  resolved: ResolvedQuery
 ): Promise<{ primary: SourceChunk[]; combined: SourceChunk[] }> {
-  const language: Language = c.language ?? "eng";
+  const { query, language } = resolved;
   const topK = c.topK ?? DEFAULT_TOPK;
   const sources = c.kind === "scripture" ? (["scriptures"] as const).slice() : c.sources ?? DEFAULT_SOURCES;
 
@@ -190,7 +207,7 @@ async function buildCandidates(
   //
   // `rerank` is forced here (not read from env) so the off/on arms are the only
   // variable; `diversity`/`multiQuery` follow their env flags and apply to both.
-  const primary = await retrieve(c.query, sources, language, topK, { rerank });
+  const primary = await retrieve(query, sources, language, topK, { rerank });
 
   const related =
     c.kind === "scripture"
@@ -257,9 +274,12 @@ async function main() {
   for (const c of cases) {
     try {
       // OFF arm: no cross-encoder rerank. ON arm: RAG_RERANK applied. Graph
-      // rerank is applied identically to both so it is not the variable.
-      const off = await buildCandidates(c, false);
-      const on = await buildCandidates(c, true);
+      // rerank is applied identically to both so it is not the variable. The
+      // query is resolved once so both arms (and any routeQuery translation)
+      // are identical apart from the rerank toggle.
+      const resolved = await resolveQuery(c);
+      const off = await buildCandidates(c, false, resolved);
+      const on = await buildCandidates(c, true, resolved);
       const offRanked = applyGraphRerank(c, off.primary, off.combined);
       const onRanked = applyGraphRerank(c, on.primary, on.combined);
       const refs = c.expectRefsAnyOf ?? [];

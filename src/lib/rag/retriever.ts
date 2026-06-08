@@ -411,6 +411,9 @@ export async function retrieve(
   topK = 20,
   options: RetrieveOptions = {}
 ): Promise<SourceChunk[]> {
+  // Rerank the candidate pool when enabled. In production the query reaching the
+  // cross-encoder is already translated into the index language (see route.ts
+  // language routing), so there is no per-input-language quality split to gate on.
   const useRerank = options.rerank ?? isRerankEnabled();
   const useDiversity = options.diversity ?? isDiversityEnabled();
   const useMultiQuery = options.multiQuery ?? isMultiQueryEnabled();
@@ -536,6 +539,59 @@ export async function retrieveConferenceCandidates(
   );
 
   return mergeChunks(candidateResults.flat());
+}
+
+// A conference talk is fully identified by its chunk-id prefix
+// `conference:<lang>:<year>:<session>:<slug>` (chunks add `:c<n>:v<n>`).
+export function conferenceTalkKey(chunkId: string): string {
+  return chunkId.split(":").slice(0, 5).join(":");
+}
+
+// Sort key for a talk's chunks: `:c<chapter>:v<verse>` → reading order.
+function conferenceChunkOrder(chunkId: string): number {
+  const m = chunkId.match(/:c(\d+):v(\d+)$/);
+  return m ? Number(m[1]) * 1000 + Number(m[2]) : Number.MAX_SAFE_INTEGER;
+}
+
+/**
+ * Fetch the COMPLETE set of chunks for a single conference talk, identified by
+ * its id prefix (see {@link conferenceTalkKey}), in reading order. Used to turn
+ * a semantic title match into a deterministic, whole-talk result — instead of
+ * whatever partial slice semantic search happened to surface. Prefix listing is
+ * authoritative (it enumerates exactly that talk's vectors), so the talk is
+ * returned complete and in order.
+ */
+export async function fetchConferenceTalkChunks(
+  talkKey: string,
+  fallbackLanguage: Language
+): Promise<SourceChunk[]> {
+  const ns = getPinecone().index(INDEX_NAME).namespace("conference");
+
+  const ids: string[] = [];
+  let token: string | undefined;
+  do {
+    const page = await ns.listPaginated({ prefix: `${talkKey}:`, paginationToken: token });
+    for (const v of page.vectors ?? []) if (v.id) ids.push(v.id);
+    token = page.pagination?.next;
+  } while (token && ids.length < 200); // safety cap: talks are ~7 chunks
+  if (ids.length === 0) return [];
+
+  const res = await ns.fetch({ ids });
+  const records =
+    (res as { records?: Record<string, { id: string; metadata?: Record<string, unknown> }> })
+      .records ?? {};
+
+  return Object.values(records)
+    .sort((a, b) => conferenceChunkOrder(a.id) - conferenceChunkOrder(b.id))
+    .map((rec, i) => {
+      const language = ((rec.metadata?.language as string) ?? fallbackLanguage) as Language;
+      // High, descending scores keep the talk on top and in reading order.
+      return toChunk("conference", language, {
+        id: rec.id,
+        score: 0.99 - i * 0.0005,
+        metadata: rec.metadata,
+      });
+    });
 }
 
 // Fixed score for graph-related context (below a directly-matched passage, so

@@ -1,6 +1,10 @@
 import { tool } from "ai";
 import { z } from "zod";
-import { retrieveConferenceCandidates } from "@/lib/rag/retriever";
+import {
+  retrieveConferenceCandidates,
+  fetchConferenceTalkChunks,
+  conferenceTalkKey,
+} from "@/lib/rag/retriever";
 import {
   getToolResultFromCache,
   setToolResultInCache,
@@ -176,7 +180,35 @@ export function createSearchConferenceTalksTool({
             ? "not-found"
             : "semantic";
 
-      const returned = final.slice(0, topK);
+      // Deterministic completion: when a requested title is confirmed among the
+      // semantic results, replace the partial slice with the COMPLETE talk,
+      // fetched by its id prefix (`conference:lang:year:session:slug`) in reading
+      // order — so the model sees the whole talk, not whichever chunks semantic
+      // search happened to surface. Falls through to the semantic slice if the
+      // talk could not be identified or fetched.
+      const titleMatchedChunks =
+        exactTitleMatch || confirmedTitleMatch
+          ? (strict.length > 0 ? strict : final).filter(titleMatches)
+          : [];
+      const talkKey = pickDominantTalkKey(titleMatchedChunks);
+      // Fail open: completion is a best-effort upgrade over the semantic slice.
+      // If listing/fetching the full talk errors (transient failure, or a
+      // non-serverless index where listPaginated is unsupported), keep the
+      // already-valid semantic results rather than failing the whole tool.
+      let fullTalk: SourceChunk[] = [];
+      if (talkKey) {
+        try {
+          fullTalk = await fetchConferenceTalkChunks(talkKey, language);
+        } catch (error) {
+          console.error(
+            "Conference talk completion failed; using semantic results",
+            error
+          );
+        }
+      }
+      const completedTalk = fullTalk.length > 0;
+
+      const returned = completedTalk ? fullTalk : final.slice(0, topK);
       const indexedChunks = context.registerChunks(returned);
       onProgress?.({
         phase: "tools",
@@ -198,11 +230,13 @@ export function createSearchConferenceTalksTool({
         matchType,
         strictMatches: strict.length,
         total: returned.length,
+        completedTalk,
         note: buildNote({
           requestedTitle,
           returnedCount: returned.length,
           exactTitleMatch,
           confirmedTitleMatch,
+          completedTalk,
         }),
         chunks: indexedChunks.map(({ chunk, citationIndex }) =>
           toToolChunk(chunk, citationIndex)
@@ -212,15 +246,38 @@ export function createSearchConferenceTalksTool({
   });
 }
 
+// Among title-matched chunks, choose the talk (by id prefix) with the most
+// matching chunks — the dominant talk the user almost certainly meant. Returns
+// undefined when there are no candidates.
+function pickDominantTalkKey(chunks: SourceChunk[]): string | undefined {
+  const counts = new Map<string, number>();
+  for (const chunk of chunks) {
+    const key = conferenceTalkKey(chunk.id);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  let best: string | undefined;
+  let bestCount = 0;
+  for (const [key, count] of counts) {
+    if (count > bestCount) {
+      best = key;
+      bestCount = count;
+    }
+  }
+  return best;
+}
+
 function buildNote(args: {
   requestedTitle: string | undefined;
   returnedCount: number;
   exactTitleMatch: boolean;
   confirmedTitleMatch: boolean;
+  completedTalk: boolean;
 }): string {
-  const { requestedTitle, returnedCount, exactTitleMatch, confirmedTitleMatch } = args;
+  const { requestedTitle, returnedCount, exactTitleMatch, confirmedTitleMatch, completedTalk } = args;
 
   if (returnedCount > 0) {
+    if (completedTalk)
+      return "Returned the complete talk, fetched deterministically by id — these are all of that talk's chunks in reading order.";
     if (exactTitleMatch) return "Results include at least one exact title match.";
     if (confirmedTitleMatch)
       return "Results include chunks whose metadata title matches the requested title.";

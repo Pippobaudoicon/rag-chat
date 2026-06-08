@@ -40,6 +40,13 @@ export interface EvalCase {
   expectScriptureLanguage?: Language;
   /** Minimum number of results expected. */
   minResults?: number;
+  /**
+   * Mirror production language routing: translate `query` into the index
+   * language (via routeQueryLanguage) before retrieving, instead of feeding the
+   * raw foreign-language string to the pipeline. Use for cross-language cases so
+   * the harness exercises the same English query the cross-encoder sees in prod.
+   */
+  routeQuery?: boolean;
 }
 
 export const EVAL_CASES: EvalCase[] = [
@@ -398,5 +405,28 @@ export const EVAL_CASES: EvalCase[] = [
     expectSourcePresent: ["gospel_selfreliance"],
     expectContentAnyOf: ["emotional resilience", "resilience"],
     minResults: 1,
+  },
+
+  // --- Cross-language (Italian) topical: an Italian user prompt. `routeQuery`
+  // mirrors production — the prompt is translated into the index language before
+  // retrieval, so the cross-encoder sees the same English query it does in prod
+  // (not the raw Italian string). No expectScriptureLanguage: the semantic
+  // fan-out returns both indexed languages, and "Alma" is identical in Italian,
+  // so the ref match holds either way. ---
+  {
+    id: "italian-topic-faith",
+    query: "Cosa insegnano le Scritture sulla fede?",
+    kind: "semantic",
+    routeQuery: true,
+    expectRefsAnyOf: ["Alma 32"],
+    minResults: 3,
+  },
+  {
+    id: "italian-topic-repentance",
+    query: "Come posso pentirmi dei miei peccati?",
+    kind: "semantic",
+    routeQuery: true,
+    expectRefsAnyOf: ["Alma 34", "Alma 36"],
+    minResults: 3,
   },
 ];
