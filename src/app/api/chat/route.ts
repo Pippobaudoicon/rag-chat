@@ -51,6 +51,7 @@ import type {
   ChatProgressData,
   SourceChunk,
   MessageDetails,
+  RetrievalToolEvent,
 } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -179,6 +180,7 @@ export async function POST(req: Request) {
   // model populates the source list by calling tools during streaming.
   const initialChunks: SourceChunk[] = hasFixedChunks ? validatedFixedChunks : [];
   const toolChunksUsed: SourceChunk[] = [];
+  const retrievalToolEvents: RetrievalToolEvent[] = [];
   let writeProgress: ((progress: ChatProgressData) => void) | null = null;
 
   const addToolChunks = (newChunks: SourceChunk[]) => {
@@ -365,6 +367,9 @@ export async function POST(req: Request) {
           finishReason: cachedAnswer.details?.finishReason,
           toolNames: cachedAnswer.details?.toolNames ?? [],
           latencyMs: Date.now() - startTime,
+          // Replay the original turn's retrieval trace so cache-hit messages are
+          // still mineable into the eval gold set.
+          retrieval: cachedAnswer.details?.retrieval,
         };
 
         await db.insert(messages).values({
@@ -494,7 +499,19 @@ export async function POST(req: Request) {
         topK: effectiveTopK,
         initialChunks,
         onSources: addToolChunks,
-        onProgress: (progress) => writeProgress?.(progress),
+        onProgress: (progress) => {
+          // A tool's terminal "tools" event carries its result stats — capture
+          // them for the persisted retrieval trace, then forward to the stream.
+          if (progress.phase === "tools" && progress.toolName) {
+            retrievalToolEvents.push({
+              toolName: progress.toolName,
+              sourceCount: progress.sourceCount,
+              cacheHit: progress.cacheHit,
+              elapsedMs: progress.elapsedMs,
+            });
+          }
+          writeProgress?.(progress);
+        },
       }),
       ...(conversation
         ? createMemoryTools({
@@ -530,6 +547,17 @@ export async function POST(req: Request) {
         model: CHAT_MODEL,
         finishReason,
         toolNames: getToolNames(steps),
+        // Retrieval trace: how this turn retrieved (routing + flags + per-tool
+        // stats), so real conversations can be mined into the eval gold set.
+        retrieval: {
+          inputLanguageCode: languageRouting.inputLanguageCode,
+          searchQuery: languageRouting.searchQuery,
+          indexLanguage: languageRouting.indexLanguage,
+          sources,
+          topK: effectiveTopK,
+          flags: retrievalFlagsSignature(),
+          tools: retrievalToolEvents,
+        },
       };
 
       // Update cache with the final assistant answer + tool-collected chunks.
@@ -549,6 +577,7 @@ export async function POST(req: Request) {
             model: CHAT_MODEL,
             finishReason,
             toolNames: getToolNames(steps),
+            retrieval: details.retrieval,
           },
         });
       }

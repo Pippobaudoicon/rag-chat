@@ -119,6 +119,31 @@ export interface AssistantVersion {
   sources: SourceChunk[];
 }
 
+/** Per-tool retrieval event captured during a turn (one per retrieval tool call). */
+export interface RetrievalToolEvent {
+  toolName?: string;
+  sourceCount?: number;
+  cacheHit?: boolean;
+  elapsedMs?: number;
+}
+
+/**
+ * Retrieval trace persisted alongside an assistant message so real conversations
+ * can be mined into the eval gold set and so retrieval behavior is debuggable
+ * after the fact. The retrieved chunks themselves live in `sourcesJson`; this
+ * captures the *how* (query routing, flags, per-tool timings/cache hits).
+ */
+export interface RetrievalTrace {
+  inputLanguageCode?: string;
+  searchQuery?: string;
+  indexLanguage?: string;
+  sources: SourceType[];
+  topK: number;
+  /** Retrieval ranking-flag signature, e.g. "rr1mq0mmr0" (see flags.ts). */
+  flags: string;
+  tools: RetrievalToolEvent[];
+}
+
 export interface MessageDetails {
   inputTokens?: number;
   outputTokens?: number;
@@ -128,6 +153,7 @@ export interface MessageDetails {
   model?: string;
   finishReason?: string;
   toolNames?: string[];
+  retrieval?: RetrievalTrace;
 }
 
 export type ChatProgressPhase =

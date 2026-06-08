@@ -3,7 +3,7 @@ import { Ratelimit } from "@upstash/ratelimit";
 import type { Duration } from "@upstash/ratelimit";
 import { Redis } from "@upstash/redis";
 import type { FinishReason } from "ai";
-import type { SourceChunk, SourceType } from "@/lib/types";
+import type { RetrievalTrace, SourceChunk, SourceType } from "@/lib/types";
 
 // Distributed cache via Upstash Redis — survives cold starts and works
 // across all Vercel serverless instances.
@@ -45,6 +45,9 @@ export type SessionAnswerCacheEntry = {
     model?: string;
     finishReason?: FinishReason;
     toolNames?: string[];
+    // Retrieval trace from the original turn, replayed on cache hits so mined
+    // conversations keep their routing/flags/per-tool stats (see RetrievalTrace).
+    retrieval?: RetrievalTrace;
   };
 };
 
