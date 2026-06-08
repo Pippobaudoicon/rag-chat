@@ -2,7 +2,7 @@ import { tool } from "ai";
 import { z } from "zod";
 import { retrieve } from "@/lib/rag/retriever";
 import { cacheKey, getFromCache, setInCache } from "@/lib/rag/cache";
-import { ALL_SOURCES, SUPER_SOURCES } from "@/lib/types";
+import { SUPER_SOURCES } from "@/lib/types";
 import type { ChatProgressData, Language, SourceChunk, SourceType } from "@/lib/types";
 import { toToolChunk } from "../shared/chunk-formatting";
 import { expandRelatedContext } from "../shared/related-context";
@@ -76,13 +76,12 @@ export function createSemanticSearchTool({
   onProgress,
   retrievalLanguageName = "the configured index language",
 }: SemanticSearchDeps) {
-  // Restrict the LLM to sources the user has actually enabled in the UI
-  // (or any source if the user opted into "Super").
-  const allowedSources = new Set<SourceType>(
-    defaultSources.length === ALL_SOURCES.length || defaultSources.length === SUPER_SOURCES.length
-      ? SUPER_SOURCES
-      : defaultSources
-  );
+  // Ceiling for the model's `sources` override = exactly what the user enabled in
+  // the UI. "Super" is explicit: it sends the full SUPER_SOURCES set, so that case
+  // is already covered without special-casing. (Previously, selecting all 5 VISIBLE
+  // toggles — ALL_SOURCES.length — was mis-read as Super and silently unlocked the
+  // hidden namespaces the user never picked.)
+  const allowedSources = new Set<SourceType>(defaultSources);
 
   return tool({
     description: `Run a general semantic search across the user's selected LDS sources. Tool input query must be in ${retrievalLanguageName}. Use this when the question is topical and does not target a specific scripture reference or a specific conference talk. Results may include bounded related context from the same selected sources; use it to refine the answer when relevant. Returns ranked chunks with citation indices.`,
