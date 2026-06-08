@@ -142,7 +142,12 @@ Notes:
 
 - Assistant messages may include `sources_json` used by UI source panel.
 - Assistant `details_json` stores response details and the `toolNames` list so
-  tool-use badges remain visible after reloading a conversation.
+  tool-use badges remain visible after reloading a conversation. It also stores a
+  `retrieval` trace (`RetrievalTrace`): input language, translated search query,
+  index language, source filters, topK, the ranking-flag signature, and per-tool
+  stats (sourceCount / cacheHit / elapsedMs). The retrieved chunks live in
+  `sources_json`; the trace captures the *how* so real conversations can be mined
+  into the eval gold set.
 - Conversation auto-title is derived from first user message.
 - Conversation titles are cached in Redis and the conversation list endpoint is
   cached per user/page cursor with invalidation on create, rename, delete, and
@@ -234,7 +239,10 @@ Notes:
   the number of model + tool steps per turn.
 - AI function tools available in the chat runtime:
   - `semantic_search` — general topical retrieval over the user's selected
-    sources, with Upstash Redis caching.
+    sources, with Upstash Redis caching. The model may override `sources`, but
+    only WITHIN what the user enabled in the UI: the allow-list is exactly the
+    selected sources ("Super" is explicit — it sends the full namespace set).
+    Selecting all visible toggles no longer implicitly unlocks hidden namespaces.
   - `lookup_scripture_passage` — scripture-by-reference retrieval with strict
     book/chapter (slug-based) filtering. Then expands the passage with its
     cross-reference graph (`related_ids`): cited passages + Bible Dictionary /
@@ -248,9 +256,20 @@ Notes:
     first, retries title-focused query variants, and returns a
     title-not-found result instead of unrelated same-speaker talks when a
     requested title is not present in conference metadata; retrieval results are
-    cached in Upstash Redis.
-  - `citation_verifier` — validates inline numeric citations against the
-    chunks accumulated during the turn.
+    cached in Upstash Redis. **Deterministic title completion:** when a requested
+    title is confirmed among the semantic results, the tool identifies the talk by
+    its chunk-id prefix (`conference:<lang>:<year>:<session>:<slug>`) and fetches
+    the COMPLETE talk in reading order via prefix listing (`fetchConferenceTalkChunks`),
+    so the model sees the whole talk rather than whichever chunks semantic search
+    surfaced (`matchType` exact/confirmed, `completedTalk: true`).
+  - `citation_verifier` — two checks on the draft answer: (1) structural —
+    inline numeric citations map to chunks accumulated during the turn, malformed
+    markers flagged; (2) claim support — a bounded, fail-open LLM pass that checks
+    each cited sentence is actually backed by the source it cites (`supported` /
+    `partial` / `unsupported`), catching a well-formed citation pointing at a real
+    chunk that does not support the claim. `isValid` is false when indices are
+    invalid/malformed OR any claim is unsupported; the system prompt instructs the
+    model to fix unsupported/partial claims before sending.
   - `read_personal_memory` — reads the user's full saved personalization memory
     on demand when the compact memory brief is insufficient for the current turn.
   - `update_personal_memory` — stores durable personalization memory only when
@@ -419,7 +438,14 @@ Reference template: `.env.example`.
   kill-switch.
 - `RAG_RERANK` (default **off**) — Voyage `rerank-2.5` cross-encoder rerank of the
   merged candidate pool (`reranker.ts`). Adds an external API call (cost + latency);
-  validate against `npm run eval` before enabling per-deployment.
+  validate against `npm run eval` before enabling per-deployment. Applies uniformly
+  to all languages — in production the query reaching the cross-encoder is already
+  translated into the index language by `route.ts` language routing, so there is no
+  per-input-language axis to gate on. Net-positive on the gold set (recall
+  0.629 → 0.696). Caveat: the win is uneven per query — the reranker still demotes
+  Alma 32 on faith queries (`italian-topic-faith` recall 1.0 → 0.0 even with the
+  production-style translation now applied via the eval's `routeQuery` flag), so it
+  is a narrow query-specific weakness, not a language one. Weigh per-deployment.
 - `RAG_MULTI_QUERY` (default **off**) — multi-query expansion (`query-expansion.ts`).
   Adds one small LLM call per search.
 - `RAG_MMR` (default **off**) — per-source / per-title diversity caps on the top-k.
