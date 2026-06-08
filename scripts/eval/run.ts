@@ -2,22 +2,38 @@
  * Retrieval eval harness.
  *
  * Runs each golden case through the real retrieval pipeline (the same shared
- * helpers the tools use), then reports relevance metrics with graph-rerank OFF
- * vs ON so the two can be compared head-to-head. Retrieval runs once per case;
- * the rerank is applied to the same candidate set both ways, so the only
- * variable is the rerank itself (and embedding cost stays at one call per case).
+ * helpers the tools use), then reports relevance metrics with the cross-encoder
+ * reranker (RAG_RERANK / Voyage rerank-2.5) OFF vs ON, head-to-head. The harness
+ * forces both arms itself (independent of the RAG_RERANK env value). Graph rerank
+ * is held CONSTANT across both arms (per its own env flag), so it is not the
+ * variable here.
+ *
+ * CAVEAT — clean isolation requires multi-query OFF: the two arms run separate
+ * retrievals, so with RAG_MULTI_QUERY=on each arm's LLM generates its OWN (non-
+ * deterministic) query variants and the candidate sets differ — the off→on
+ * columns then conflate reranking with pool differences. Measure the reranker
+ * with multi-query off (the default). RAG_MULTI_QUERY / RAG_MMR are themselves
+ * measured the right way regardless: run twice toggling the env flag and compare
+ * the SAME arm's aggregate across the two runs (not the off→on columns).
  *
  * Usage:
  *   npm run eval               # all cases
  *   npm run eval -- faith      # only cases whose id/query contains "faith"
+ *   RAG_MULTI_QUERY=on npm run eval   # measure multi-query expansion vs a plain run
  *
  * Requires the same env as the app (PINECONE_*, VOYAGE_*, RAG_INDEX_LANGUAGE).
- * The npm script injects .env / .env.local.
+ * The npm script injects .env / .env.local. NOTE: the off→on arms issue two
+ * retrieval calls per case, so reranker A/B costs two embeds per case.
  */
 import { retrieve } from "@/lib/rag/retriever";
 import { expandRelatedContext } from "@/lib/rag/tools/shared/related-context";
 import { graphRerank } from "@/lib/rag/tools/shared/graph-rerank";
 import { normalizeBookForStrictMatch, normalizeForMatch } from "@/lib/rag/tools/shared/text-normalize";
+import {
+  isGraphRerankEnabled,
+  isDiversityEnabled,
+  isMultiQueryEnabled,
+} from "@/lib/rag/flags";
 import { DEFAULT_SOURCES } from "@/lib/types";
 import type { Language, SourceChunk } from "@/lib/types";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -155,7 +171,10 @@ function structuralChecks(c: EvalCase, results: SourceChunk[]): StructuralResult
   return { languageOk, sourcesPresentOk, titleOk, speakerOk, contentOk, minResultsOk };
 }
 
-async function buildCandidates(c: EvalCase): Promise<{ primary: SourceChunk[]; combined: SourceChunk[] }> {
+async function buildCandidates(
+  c: EvalCase,
+  rerank: boolean
+): Promise<{ primary: SourceChunk[]; combined: SourceChunk[] }> {
   const language: Language = c.language ?? "eng";
   const topK = c.topK ?? DEFAULT_TOPK;
   const sources = c.kind === "scripture" ? (["scriptures"] as const).slice() : c.sources ?? DEFAULT_SOURCES;
@@ -168,7 +187,10 @@ async function buildCandidates(c: EvalCase): Promise<{ primary: SourceChunk[]; c
   // expansion therefore mirrors the tool's *effective* behavior, and lets the
   // `expectScriptureLanguage` / `expectRefsAnyOf` checks surface the real gaps
   // (Italian leakage; specific chapters not ranking into the top-k).
-  const primary = await retrieve(c.query, sources, language, topK);
+  //
+  // `rerank` is forced here (not read from env) so the off/on arms are the only
+  // variable; `diversity`/`multiQuery` follow their env flags and apply to both.
+  const primary = await retrieve(c.query, sources, language, topK, { rerank });
 
   const related =
     c.kind === "scripture"
@@ -181,7 +203,10 @@ async function buildCandidates(c: EvalCase): Promise<{ primary: SourceChunk[]; c
   return { primary, combined: [...primary, ...related] };
 }
 
-function applyRerank(c: EvalCase, primary: SourceChunk[], combined: SourceChunk[]): SourceChunk[] {
+// Graph rerank is held constant across both arms (applied per its env flag), so
+// it is not the off→on variable.
+function applyGraphRerank(c: EvalCase, primary: SourceChunk[], combined: SourceChunk[]): SourceChunk[] {
+  if (!isGraphRerankEnabled()) return combined;
   if (c.kind === "scripture") {
     const related = combined.slice(primary.length);
     return graphRerank(primary, related, { rerankSeeds: false });
@@ -218,21 +243,33 @@ async function main() {
     process.exit(1);
   }
 
-  console.log(`\nRunning ${cases.length} eval case(s)${filter ? ` (filter: "${filter}")` : ""}...\n`);
+  const onOff = (v: boolean) => (v ? "on" : "off");
+  console.log(`\nRunning ${cases.length} eval case(s)${filter ? ` (filter: "${filter}")` : ""}...`);
+  console.log(
+    `off→on = cross-encoder rerank (RAG_RERANK) | held constant: graph-rerank ${onOff(
+      isGraphRerankEnabled()
+    )} | both arms: multi-query ${onOff(isMultiQueryEnabled())}, diversity ${onOff(
+      isDiversityEnabled()
+    )}\n`
+  );
 
   const reports: CaseReport[] = [];
   for (const c of cases) {
     try {
-      const { primary, combined } = await buildCandidates(c);
-      const reranked = applyRerank(c, primary, combined);
+      // OFF arm: no cross-encoder rerank. ON arm: RAG_RERANK applied. Graph
+      // rerank is applied identically to both so it is not the variable.
+      const off = await buildCandidates(c, false);
+      const on = await buildCandidates(c, true);
+      const offRanked = applyGraphRerank(c, off.primary, off.combined);
+      const onRanked = applyGraphRerank(c, on.primary, on.combined);
       const refs = c.expectRefsAnyOf ?? [];
       reports.push({
         id: c.id,
         kind: c.kind,
-        resultCount: combined.length,
-        baseline: refMetrics(combined, refs),
-        reranked: refMetrics(reranked, refs),
-        structural: structuralChecks(c, combined),
+        resultCount: on.combined.length,
+        baseline: refMetrics(offRanked, refs),
+        reranked: refMetrics(onRanked, refs),
+        structural: structuralChecks(c, onRanked),
       });
       process.stdout.write(".");
     } catch (err) {
@@ -325,7 +362,7 @@ async function main() {
     else if (b > a) worsened++;
   }
 
-  console.log("\n=== Aggregate ===");
+  console.log("\n=== Aggregate (off→on = cross-encoder rerank) ===");
   console.log(`cases run:            ${ok.length}/${reports.length}`);
   console.log(`structural checks:    ${structuralPass}/${structuralAll.length} pass`);
   console.log(`MRR     (rerank off): ${fmt(mrrOff)}   (rerank on): ${fmt(mrrOn)}   Δ ${fmt(mrrOn - mrrOff)}`);
@@ -345,6 +382,12 @@ async function main() {
         ranAt: new Date().toISOString(),
         indexLanguage: process.env.RAG_INDEX_LANGUAGE ?? "eng",
         index: process.env.PINECONE_INDEX ?? "lds-rag-v1",
+        variable: "rerank",
+        flags: {
+          graphRerank: isGraphRerankEnabled(),
+          multiQuery: isMultiQueryEnabled(),
+          diversity: isDiversityEnabled(),
+        },
         aggregate: { mrrOff, mrrOn, recallOff, recallOn, structuralPass, structuralTotal: structuralAll.length, improved, worsened },
         reports,
       },

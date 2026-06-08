@@ -7,7 +7,7 @@ import type { ChatProgressData, Language, SourceChunk, SourceType } from "@/lib/
 import { toToolChunk } from "../shared/chunk-formatting";
 import { expandRelatedContext } from "../shared/related-context";
 import { graphRerank } from "../shared/graph-rerank";
-import { isGraphRerankEnabled } from "@/lib/rag/flags";
+import { isGraphRerankEnabled, retrievalFlagsSignature } from "@/lib/rag/flags";
 import type { RagToolContext } from "../shared/tool-context";
 
 const SOURCE_VALUES: SourceType[] = SUPER_SOURCES;
@@ -99,7 +99,13 @@ export function createSemanticSearchTool({
         toolName: "semantic_search",
       });
 
-      const key = cacheKey(query, language, effectiveSources, effectiveTopK);
+      const key = cacheKey(
+        query,
+        language,
+        effectiveSources,
+        effectiveTopK,
+        retrievalFlagsSignature()
+      );
       const cached = await getFromCache(key);
       const effectiveSourceSet = new Set(effectiveSources);
       let combined: SourceChunk[];

@@ -1,6 +1,6 @@
 # ChatLDS Project Knowledge Base
 
-Last updated: 2026-06-03
+Last updated: 2026-06-08
 
 This document is the single source of truth for project context.
 Read this first before deep code exploration.
@@ -187,6 +187,32 @@ Notes:
   (e.g. TG-hub co-citation) remain a future offline metadata enhancement.
   (The earlier scripture-reference language leak — Italian chunks surfacing for
   English reference lookups — was fixed in 0.9.1 via slug-based book matching.)
+- **Optional ranking stack in `retrieve()`** (semantic fan-out path only; the
+  structured scripture verse/chapter short-circuits are untouched). Three
+  independent, flag-gated, default-OFF stages:
+  - **Multi-query expansion** (`RAG_MULTI_QUERY`, `query-expansion.ts`): an LLM
+    generates up to 2 alternative phrasings (canonical LDS wording + plainer
+    rewording) that are embedded alongside the original and fanned out across the
+    namespaces, then merged/deduped — lifting recall before reranking.
+  - **Cross-encoder rerank** (`RAG_RERANK`, `reranker.ts`): the merged candidate
+    pool is scored against the query by Voyage `rerank-2.5`. Because a cross-encoder
+    scores every candidate directly, its scores ARE comparable across namespaces/
+    languages (unlike raw Pinecone cosine, where a 0.62 in `conference` is not worth
+    a 0.62 in `gospel_study`). The relevance score becomes the primary sort key; the
+    topic/entity boost and language tiebreak remain small secondary nudges. Fails
+    open: on any API error it keeps the input order. This is distinct from the
+    in-Pinecone **graph** rerank above (which runs later, in the tools).
+  - **Diversity caps** (`RAG_MMR`): per-source (max 6) and per-title/talk (max 3)
+    caps applied to the sorted top-k so one namespace or talk cannot crowd out
+    complementary evidence; over-cap chunks spill to the end and can still backfill.
+  - `retrieve()` accepts a `RetrieveOptions` override (`{ rerank, diversity,
+    multiQuery }`) so the eval harness can force a stage on/off independent of env.
+  - The reranker ranks the **globally strongest** candidates (the pool is sorted
+    before the 100-candidate cap) and demotes any unreranked tail below all
+    reranked chunks (cosine and Voyage relevance are different scales).
+  - Retrieval/answer **cache keys include `retrievalFlagsSignature()`** so toggling
+    these flags is not masked by a stale cache (graph rerank excluded — it runs
+    after the cache read in the tools).
 - The language selector controls only UI labels. It does not affect search language or final answer language.
 - Each user prompt is language-detected, translated into the configured index language before Pinecone search, then answered in the original prompt language.
 - `RAG_INDEX_LANGUAGE` controls the single-language retrieval target. It defaults to English (`eng`) for `lds-rag-v1` (English-main corpus; scriptures also carry Italian chunks). Set to `ita` only to target the legacy `lds-rag` index.
@@ -284,6 +310,10 @@ Notes:
 - `PINECONE_INDEX` (optional; defaults to `lds-rag-v1`; set to `lds-rag` for the legacy index)
 - `RAG_INDEX_LANGUAGE` (optional; defaults to `eng` for `lds-rag-v1`; set to `ita` for the legacy index)
 - `CHAT_MODEL` (optional; defaults to `deepseek/deepseek-v4-flash`)
+- `RAG_GRAPH_RERANK` (optional; defaults to `true`) — graph-aware rerank kill-switch
+- `RAG_RERANK` (optional; defaults to `false`) — Voyage cross-encoder rerank
+- `RAG_MULTI_QUERY` (optional; defaults to `false`) — multi-query expansion
+- `RAG_MMR` (optional; defaults to `false`) — per-source/per-title diversity caps
 - `CHAT_MEMORY_ENABLED` (optional; set to `false` to disable chat personalization memory)
 - `CHAT_MEMORY_BRIEF_CHARS` (optional; defaults to 700; caps the compact memory brief injected into each chat request)
 - `CHAT_MEMORY_CONTEXT_CHARS` (optional; defaults to 3500; caps full memory context available through the memory read tool)
@@ -332,6 +362,9 @@ Reference template: `.env.example`.
   - `src/lib/rag/system-prompt.ts`
   - `src/lib/rag/retriever.ts`
   - `src/lib/rag/embedder.ts`
+  - `src/lib/rag/reranker.ts` (Voyage cross-encoder rerank, `RAG_RERANK`)
+  - `src/lib/rag/query-expansion.ts` (multi-query expansion, `RAG_MULTI_QUERY`)
+  - `src/lib/rag/flags.ts` (retrieval feature flags)
   - `src/lib/rag/cache.ts`
   - `src/lib/rag/scripture-reference.ts`
   - `src/lib/rag/citation-links.ts`
@@ -373,15 +406,23 @@ Reference template: `.env.example`.
 - Apply migrations: `npm run db:migrate`
 - Docs guard: `npm run docs:guard`
 - Retrieval eval: `npm run eval` (golden set in `scripts/eval/dataset.ts`; reports
-  MRR/recall/structural checks with graph-rerank off vs on; writes JSON to
-  `scripts/eval/results/`). Hits live Pinecone + Voyage. Add a filter:
-  `npm run eval -- faith`.
+  MRR/recall/structural checks with the cross-encoder reranker off vs on, writes
+  JSON to `scripts/eval/results/`). The harness forces both rerank arms itself, so
+  off→on isolates `RAG_RERANK` regardless of the env value (graph rerank is held
+  constant across both arms; multi-query/diversity follow their env flags and apply
+  to both arms — toggle their env and re-run to measure those). Two retrieval calls
+  per case. Hits live Pinecone + Voyage. Add a filter: `npm run eval -- faith`.
 
-### Feature flags
-- `RAG_GRAPH_RERANK` (default **on**) — graph-aware reranking (`src/lib/rag/flags.ts`).
-  Enabled by default (eval shows it improves ranking with no regressions); set to
-  `false` as a kill-switch. The eval harness toggles rerank directly, independent
-  of this flag.
+### Feature flags (`src/lib/rag/flags.ts`)
+- `RAG_GRAPH_RERANK` (default **on**) — graph-aware reranking. Enabled by default
+  (eval shows it improves ranking with no regressions); set to `false` as a
+  kill-switch.
+- `RAG_RERANK` (default **off**) — Voyage `rerank-2.5` cross-encoder rerank of the
+  merged candidate pool (`reranker.ts`). Adds an external API call (cost + latency);
+  validate against `npm run eval` before enabling per-deployment.
+- `RAG_MULTI_QUERY` (default **off**) — multi-query expansion (`query-expansion.ts`).
+  Adds one small LLM call per search.
+- `RAG_MMR` (default **off**) — per-source / per-title diversity caps on the top-k.
 
 ## 12) Update policy for agents
 

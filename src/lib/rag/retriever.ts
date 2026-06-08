@@ -6,6 +6,14 @@ import {
   parseScriptureSelection,
   withVerseHighlight,
 } from "./scripture-reference";
+import { rerankChunks } from "./reranker";
+import { generateQueryVariants } from "./query-expansion";
+import { getCorpusLanguageName } from "./language-routing";
+import {
+  isRerankEnabled,
+  isDiversityEnabled,
+  isMultiQueryEnabled,
+} from "./flags";
 
 // Index name must match the ingestion target. Defaults to "lds-rag-v1" (the
 // English-main corpus with study_helps + graph related_ids); override with
@@ -144,6 +152,36 @@ function sortRetrievedChunks(chunks: SourceChunk[], preferredLanguage: Language)
     if (b.language === preferredLanguage && a.language !== preferredLanguage) return 1;
     return scoreDelta;
   });
+}
+
+// Diversity caps applied within the returned top-k so one namespace or one
+// talk/chapter cannot crowd out complementary evidence. Chunks over a cap are
+// not dropped — they spill to the end so the caller's slice can still backfill
+// if the caps would otherwise leave the top-k short.
+const MAX_PER_SOURCE = 6;
+const MAX_PER_TITLE = 3;
+
+function diversify(sorted: SourceChunk[], limit: number): SourceChunk[] {
+  const perSource = new Map<SourceType, number>();
+  const perTitle = new Map<string, number>();
+  const picked: SourceChunk[] = [];
+  const overflow: SourceChunk[] = [];
+
+  for (const chunk of sorted) {
+    const sourceCount = perSource.get(chunk.source) ?? 0;
+    const titleKey = chunk.title ?? chunk.book ?? chunk.id;
+    const titleCount = perTitle.get(titleKey) ?? 0;
+
+    if (picked.length < limit && sourceCount < MAX_PER_SOURCE && titleCount < MAX_PER_TITLE) {
+      picked.push(chunk);
+      perSource.set(chunk.source, sourceCount + 1);
+      perTitle.set(titleKey, titleCount + 1);
+    } else {
+      overflow.push(chunk);
+    }
+  }
+
+  return [...picked, ...overflow];
 }
 
 function verseOverlaps(
@@ -357,12 +395,26 @@ async function retrieveSpecificVerseChunks(
   return filtered;
 }
 
+export interface RetrieveOptions {
+  /** Override RAG_RERANK for this call (eval A/B). Defaults to the env flag. */
+  rerank?: boolean;
+  /** Override RAG_MMR for this call. Defaults to the env flag. */
+  diversity?: boolean;
+  /** Override RAG_MULTI_QUERY for this call. Defaults to the env flag. */
+  multiQuery?: boolean;
+}
+
 export async function retrieve(
   query: string,
   sources: SourceType[],
   language: Language,
-  topK = 20
+  topK = 20,
+  options: RetrieveOptions = {}
 ): Promise<SourceChunk[]> {
+  const useRerank = options.rerank ?? isRerankEnabled();
+  const useDiversity = options.diversity ?? isDiversityEnabled();
+  const useMultiQuery = options.multiQuery ?? isMultiQueryEnabled();
+
   const retrievalLanguages = orderRetrievalLanguages(language);
   const scriptureSelection = parseScriptureSelection(query, language);
   // Scriptures are bilingual (eng+ita) in the index. Prefer the answer language:
@@ -384,28 +436,35 @@ export async function retrieve(
     return chapterChunks.slice(0, limit);
   }
 
-  const [vector] = await Promise.all([embedQuery(query)]);
+  // Multi-query expansion: fan a few phrasings (canonical LDS wording + plainer
+  // rewording) across the namespaces and merge, lifting recall before rerank.
+  const queries = useMultiQuery
+    ? [query, ...(await generateQueryVariants(query, getCorpusLanguageName(language)))]
+    : [query];
+  const vectors = await embedQueries(queries);
   const index = getPinecone().index(INDEX_NAME);
 
-  // Query all selected namespaces and indexed languages in parallel. The UI
-  // language controls the answer, but retrieval can use any corpus language.
+  // Query all variants × selected namespaces × indexed languages in parallel.
+  // The UI language controls the answer, but retrieval can use any corpus language.
   const results = await Promise.all(
-    sources.flatMap((source) =>
-      retrievalLanguages.map((retrievalLanguage) =>
-        index
-          .namespace(source)
-          .query({
-            vector,
-            topK,
-            includeMetadata: true,
-            filter: { language: { $eq: retrievalLanguage } },
-          })
-          .then((res) =>
-            res.matches.map(
-              (match): SourceChunk =>
-                toChunk(source, retrievalLanguage, match)
+    vectors.flatMap((vector) =>
+      sources.flatMap((source) =>
+        retrievalLanguages.map((retrievalLanguage) =>
+          index
+            .namespace(source)
+            .query({
+              vector,
+              topK,
+              includeMetadata: true,
+              filter: { language: { $eq: retrievalLanguage } },
+            })
+            .then((res) =>
+              res.matches.map(
+                (match): SourceChunk =>
+                  toChunk(source, retrievalLanguage, match)
+              )
             )
-          )
+        )
       )
     )
   );
@@ -413,9 +472,14 @@ export async function retrieve(
   const merged = [...verseChunks, ...chapterChunks, ...results.flat()];
   const deduped = mergeChunks(merged);
 
-  // Light rerank: nudge chunks whose enriched topics/entities match query terms.
+  // Cross-encoder rerank (flag-gated): scores every candidate against the query
+  // directly, calibrating relevance across namespaces/languages. Primary sort
+  // signal when enabled; the topic/entity boost below is a small secondary nudge.
+  const reranked = useRerank ? await rerankChunks(query, deduped) : deduped;
+
+  // Light lexical nudge: bump chunks whose enriched topics/entities match query terms.
   const queryTokens = new Set(tokenizeForBoost(query));
-  const boosted = deduped.map((chunk) => {
+  const boosted = reranked.map((chunk) => {
     const boost = topicEntityBoost(queryTokens, chunk);
     return boost > 0 ? { ...chunk, score: Math.min(0.999, chunk.score + boost) } : chunk;
   });
@@ -424,8 +488,11 @@ export async function retrieve(
     ? Math.max(topK, Math.min(topK * 2, chapterChunks.length))
     : topK;
 
-  // Flatten, sort by score descending, return top topK overall.
-  return sortRetrievedChunks(boosted, language).slice(0, limit);
+  // Sort by score descending; optionally apply per-source/per-title diversity
+  // caps so one namespace or talk cannot dominate the returned top-k.
+  const sorted = sortRetrievedChunks(boosted, language);
+  const diversified = useDiversity ? diversify(sorted, limit) : sorted;
+  return diversified.slice(0, limit);
 }
 
 export async function retrieveConferenceCandidates(

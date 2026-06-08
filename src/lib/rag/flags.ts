@@ -26,3 +26,50 @@ function envBool(value: string | undefined, fallback: boolean): boolean {
 export function isGraphRerankEnabled(): boolean {
   return envBool(process.env.RAG_GRAPH_RERANK, true);
 }
+
+/**
+ * Hosted cross-encoder reranking (Voyage `rerank-2.5`) over the merged candidate
+ * pool. Scores every candidate against the query directly, which calibrates
+ * relevance across namespaces/languages that raw Pinecone cosine cannot compare.
+ *
+ * Default: OFF. It adds an external API call (cost + latency) and should be
+ * validated against the eval harness before enabling per-deployment via
+ * `RAG_RERANK=true`.
+ */
+export function isRerankEnabled(): boolean {
+  return envBool(process.env.RAG_RERANK, false);
+}
+
+/**
+ * Diversity pass (per-source / per-title caps) applied after ranking so a single
+ * namespace or talk cannot crowd out complementary evidence in the top-k.
+ *
+ * Default: OFF. Enable per-deployment via `RAG_MMR=true`.
+ */
+export function isDiversityEnabled(): boolean {
+  return envBool(process.env.RAG_MMR, false);
+}
+
+/**
+ * Multi-query expansion: fan a few LLM-generated phrasings of the query across
+ * the namespaces and merge before reranking, to lift recall on topical queries.
+ *
+ * Default: OFF. Adds one small LLM call per search. Enable via
+ * `RAG_MULTI_QUERY=true`.
+ */
+export function isMultiQueryEnabled(): boolean {
+  return envBool(process.env.RAG_MULTI_QUERY, false);
+}
+
+/**
+ * Compact signature of the retrieval ranking flags, for cache keys. Retrieval
+ * caches must vary with these flags, otherwise toggling rerank / multi-query /
+ * diversity would keep serving stale results until the cache TTL expires.
+ * (Graph rerank is applied after the cache read in the tools, so it is not part
+ * of the cached retrieval payload and is intentionally excluded here.)
+ */
+export function retrievalFlagsSignature(): string {
+  return `rr${isRerankEnabled() ? 1 : 0}mq${isMultiQueryEnabled() ? 1 : 0}mmr${
+    isDiversityEnabled() ? 1 : 0
+  }`;
+}

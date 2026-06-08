@@ -177,11 +177,15 @@ export function cacheKey(
   query: string,
   lang: string,
   sources: string[],
-  topK: number
+  topK: number,
+  // Signature of retrieval ranking flags (rerank/multi-query/diversity) so the
+  // cache varies with them; see retrievalFlagsSignature(). Defaults to "" so
+  // structured callers that do not use those flags keep a stable key.
+  flags: string = ""
 ): string {
   return (
     RETRIEVAL_CACHE_PREFIX +
-    hash([query, lang, [...sources].sort().join(","), topK])
+    hash([query, lang, [...sources].sort().join(","), topK, flags])
   );
 }
 

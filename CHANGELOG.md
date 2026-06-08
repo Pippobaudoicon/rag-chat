@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.12.1
+
+- Reranker correctness fixes (follow-up to 0.12.0 review):
+  - **Rerank the globally strongest candidates.** `rerankChunks` now sorts the merged pool by score before taking the top `MAX_RERANK_CANDIDATES` (100). Previously it sliced the first 100 in namespace/multi-query fan-out order (which is grouped, not globally score-sorted), so strong later-namespace / later-variant candidates could be excluded from reranking.
+  - **Keep the unreranked tail below all reranked chunks.** Candidates beyond the cap (and any Voyage omits) kept raw cosine scores that were then sorted together with Voyage relevance scores — a different scale — so a tail chunk at cosine ~0.85 could outrank a reranked chunk at relevance ~0.5. They are now demoted just below the lowest relevance score, preserving order.
+- **Retrieval cache keys now vary with the ranking flags.** Added `retrievalFlagsSignature()` (`flags.ts`); `cacheKey()` takes it and the chat route's session-answer key includes it. Previously, toggling `RAG_RERANK` / `RAG_MULTI_QUERY` / `RAG_MMR` left the cache key unchanged, so old behavior could be served until the TTL expired. (Graph rerank is excluded — it is applied after the cache read in the tools.)
+- **Eval harness caveat corrected.** The off→on columns cleanly isolate the reranker only with multi-query OFF; with `RAG_MULTI_QUERY=on` the two arms generate independent (non-deterministic) variants, so the columns conflate reranking with pool differences. Documented; multi-query/diversity are still measured correctly by comparing the same arm's aggregate across two runs.
+- Stripped pre-existing trailing whitespace in `AGENTS.md` (failed `git diff --check`).
+
+## 0.12.0
+
+- Added an optional, flag-gated **retrieval ranking stack** to `retrieve()` (semantic fan-out path only — the structured scripture verse/chapter short-circuits are untouched). Three independent stages, all default OFF, each A/B-able with `npm run eval`:
+  - **Cross-encoder rerank** (`RAG_RERANK`, new `src/lib/rag/reranker.ts`): the merged candidate pool is scored against the query by Voyage `rerank-2.5`. A cross-encoder scores every candidate directly, so its relevance scores are comparable across namespaces/languages — dissolving the long-standing problem that raw Pinecone cosine isn't calibrated across namespaces (a 0.62 in `conference` ≠ a 0.62 in `gospel_study`). The relevance score becomes the primary sort key; the existing topic/entity boost and language tiebreak remain small secondary nudges. Fails open (keeps input order on any API error). Distinct from, and complementary to, the in-Pinecone graph rerank.
+  - **Multi-query expansion** (`RAG_MULTI_QUERY`, new `src/lib/rag/query-expansion.ts`): an LLM generates up to 2 alternative phrasings (canonical LDS terminology + plainer wording), embedded alongside the original and fanned out across the namespaces, then merged/deduped to lift recall before reranking. Falls back to the single original query on any error.
+  - **Diversity caps** (`RAG_MMR`): per-source (max 6) and per-title/talk (max 3) caps on the sorted top-k so one namespace or talk can't crowd out complementary evidence; over-cap chunks spill to the end and can still backfill.
+- `retrieve()` now takes an optional `RetrieveOptions` (`{ rerank, diversity, multiQuery }`) so callers and the eval harness can force a stage independent of the env flag. All existing call sites are unchanged (options default to the env flags).
+- Eval harness (`scripts/eval/run.ts`) now measures the cross-encoder reranker off→on directly (forces both arms itself, two retrieval calls per case), holding graph rerank constant across both arms; multi-query/diversity follow their env flags and apply to both arms. Prints the active flags and records them in the results JSON.
+- New flags in `src/lib/rag/flags.ts`: `isRerankEnabled` (`RAG_RERANK`), `isDiversityEnabled` (`RAG_MMR`), `isMultiQueryEnabled` (`RAG_MULTI_QUERY`), all default OFF. Documented in `.env.example` and `docs/PROJECT_INFO.md`.
+
 ## 0.11.1
 
 - Reduced the UI footprint of the response-style control. The four chips + label + star that took a full row in the settings bar are now a single compact dropdown pill (`ResponseStylePicker`) showing the active style's glyph + label, sitting inline after the Super toggle. The popover holds the four styles (each with a distinct glyph + description and a radio check). Each row carries a small "make this the default" star pinned to its bottom-right (below the active check); the current default is filled, the rest brighten on hover. On mobile the trigger collapses to just the glyph. No behavior or API change — purely presentational.

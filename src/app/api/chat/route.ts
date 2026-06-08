@@ -35,6 +35,7 @@ import {
   getIndexLanguage,
   routeQueryLanguage,
 } from "@/lib/rag/language-routing";
+import { retrievalFlagsSignature } from "@/lib/rag/flags";
 import { badRequestFromZod, chatRequestSchema } from "@/lib/api/validation";
 import {
   createMemoryTools,
@@ -316,7 +317,8 @@ export async function POST(req: Request) {
     languageRouting.searchQuery,
     languageRouting.indexLanguage,
     sources,
-    effectiveTopK
+    effectiveTopK,
+    retrievalFlagsSignature()
   );
 
   const historySignature = JSON.stringify(
@@ -333,6 +335,7 @@ export async function POST(req: Request) {
           `ui:${uiLanguage}`,
           `answer:${languageRouting.inputLanguageCode}`,
           `index:${languageRouting.indexLanguage}`,
+          `flags:${retrievalFlagsSignature()}`,
         ].join("|"),
         sources,
         topK: effectiveTopK,
