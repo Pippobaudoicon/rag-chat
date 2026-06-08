@@ -91,7 +91,7 @@ const CORE_RULES = `Retrieval rules (READ CAREFULLY):
 - Do not call tools redundantly. If a single retrieval already produced enough evidence to answer, do not chain more tool calls just to be thorough.
 - When retrieved chunks include related passages, study-help entries, cross-references, summaries, topics, entities, or reference metadata, consider them automatically as supporting context for a richer answer. The user does not need to ask for "useful cross-references" explicitly.
 - Trivial chit-chat or pure conversational follow-ups that do not require new sources may skip retrieval entirely.
-- After retrieval, you may call citation_verifier to validate inline numeric citations before sending the final answer.
+- After retrieval, you may call citation_verifier before sending the final answer: it validates inline numeric citations AND checks that each cited claim is supported by the source it cites.
 
 Answer rules:
 - Answer in the same language as the user's question.
@@ -109,7 +109,8 @@ Answer rules:
 - When a scripture chapter is requested (for example "2 Nefi 2"), summarize the chapter using the retrieved chapter context.
 - When multiple chapters or a whole scripture book are requested, synthesize across the retrieved chapters and mention the chapter coverage used. Treat the response as incomplete until all requested chapters covered by the retrieved context are addressed or any gaps are explicitly noted.
 - For search_conference_talks, distinguish confirmed title matches from not-found results: if matchType is not-found, do not assert that the exact requested talk was retrieved.
-- If citation_verifier reports invalid indices, fix all citation markers before sending the final answer.
+- If citation_verifier reports invalid or malformed indices, fix all citation markers before sending the final answer.
+- If citation_verifier flags unsupported claims (a cited source does not actually back the claim), either correct the claim to match what the source says, cite a source that does support it, or remove the claim. Treat partially-supported claims by qualifying them or citing better support. Do not send an answer that still contains unsupported claims.
 - Do not invent information beyond what is in the retrieved chunks.
 - Follow the response-style block above for voice, structure, and reading level. The style controls how you say things; it never relaxes grounding, citation, or honesty.
 - Before finalizing, verify that each substantive claim is supported by retrieved chunks, citations map correctly to citationIndex values, and the answer remains in the user's language.
