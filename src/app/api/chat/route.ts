@@ -11,7 +11,7 @@ import {
 } from "ai";
 import { eq, and, asc } from "drizzle-orm";
 import { getDb } from "@/lib/db";
-import { conversations, messages } from "@/lib/db/schema";
+import { conversations, messages, type Conversation } from "@/lib/db/schema";
 import {
   buildSystemPrompt,
   buildUserMessage,
@@ -216,9 +216,16 @@ export async function POST(req: Request) {
     ];
   };
 
-  // ── 4. Conversation ownership ─────────────────────────────────────────────
+  // ── 4. Preamble: ownership gate, then independent reads concurrently ───────
+  // The 401/429 gates (auth, ratelimit) already resolved above. We resolve the
+  // conversation OWNERSHIP gate next — a single indexed lookup — so a deleted
+  // or unowned conversationId returns 404 promptly, before we issue the routing
+  // LLM call or the memory/prefs reads (and without one of those failing or
+  // stalling and masking the 404; codex review). Everything that depends only
+  // on a valid, owned request then runs in one Promise.all instead of a serial
+  // await chain, so `preStreamMs` collapses from the sum of those phases toward
+  // their max.
   const db = getDb();
-  let conversation = null;
   type StoredMessage = {
     id: number;
     role: string;
@@ -226,52 +233,84 @@ export async function POST(req: Request) {
     sourcesJson: SourceChunk[] | null;
     versionsJson: AssistantVersion[] | null;
   };
-  let storedMessages: StoredMessage[] = [];
-  let targetAssistantMessage: StoredMessage | null = null;
-  let createdConversationTitle: string | null = null;
 
+  // Reject an empty new-chat question before doing any work or writes.
   if (!conversationId && !question.trim()) {
     return new Response("Bad Request: empty question", { status: 400 });
   }
 
+  // Ownership gate: resolve (and 404) before any parallel work. New chats have
+  // no conversation to load — they are created below, post-gate.
+  let conversation: Conversation | null = null;
   if (conversationId) {
-    conversation = await latency.phase("convLoad", () =>
-      db.query.conversations.findFirst({
-        where: and(
-          eq(conversations.id, conversationId),
-          eq(conversations.clerkUserId, userId)
-        ),
-      })
-    );
+    conversation =
+      (await latency.phase("convLoad", () =>
+        db.query.conversations.findFirst({
+          where: and(
+            eq(conversations.id, conversationId),
+            eq(conversations.clerkUserId, userId)
+          ),
+        })
+      )) ?? null;
     if (!conversation) {
       return new Response("Conversation not found", { status: 404 });
     }
+  }
 
+  // `routeQueryLanguage` only needs the question, known up front EXCEPT for
+  // regenerate requests whose body omits the text (resolved from history
+  // below). For the common case route in parallel; otherwise defer the (single)
+  // routing call until the fallback question is known.
+  const startRouting = (q: string) =>
+    latency.phase("routing", () =>
+      routeQueryLanguage(q, {
+        indexLanguage: getIndexLanguage(),
+        model: CHAT_MODEL,
+      })
+    );
+  const questionKnownEarly = question.trim().length > 0;
+
+  // Independent reads behind the ownership gate: messages load (only when a
+  // conversation exists), language routing, memory brief, and user prefs. The
+  // `ownedConversation` const snapshot keeps the closure's non-null narrowing.
+  const ownedConversation = conversation;
+  const [storedMessages, memoryBrief, userPreferences, earlyRouting] =
+    await Promise.all([
+      ownedConversation
+        ? latency.phase("messagesLoad", () =>
+            db
+              .select({
+                id: messages.id,
+                role: messages.role,
+                content: messages.content,
+                sourcesJson: messages.sourcesJson,
+                versionsJson: messages.versionsJson,
+              })
+              .from(messages)
+              .where(eq(messages.conversationId, ownedConversation.id))
+              .orderBy(asc(messages.createdAt))
+          )
+        : Promise.resolve([] as StoredMessage[]),
+      latency.phase("memoryBrief", () => getUserMemoryBrief(userId)),
+      latency.phase("prefs", () => getUserPreferences(userId)),
+      questionKnownEarly ? startRouting(question) : Promise.resolve(null),
+    ]);
+
+  let targetAssistantMessage: StoredMessage | null = null;
+  let createdConversationTitle: string | null = null;
+
+  if (conversationId) {
     // Persist a per-conversation style override when the client sent a new one.
     if (
       requestedResponseStyle &&
-      requestedResponseStyle !== conversation.responseStyle
+      requestedResponseStyle !== conversation!.responseStyle
     ) {
       await db
         .update(conversations)
         .set({ responseStyle: requestedResponseStyle })
-        .where(eq(conversations.id, conversation.id));
-      conversation.responseStyle = requestedResponseStyle;
+        .where(eq(conversations.id, conversation!.id));
+      conversation!.responseStyle = requestedResponseStyle;
     }
-
-    storedMessages = await latency.phase("messagesLoad", () =>
-      db
-        .select({
-          id: messages.id,
-          role: messages.role,
-          content: messages.content,
-          sourcesJson: messages.sourcesJson,
-          versionsJson: messages.versionsJson,
-        })
-        .from(messages)
-        .where(eq(messages.conversationId, conversation!.id))
-        .orderBy(asc(messages.createdAt))
-    );
 
     if (isRegenerateRequest && messageId) {
       const numericMessageId = Number(messageId);
@@ -320,12 +359,9 @@ export async function POST(req: Request) {
     return new Response("Bad Request: empty question", { status: 400 });
   }
 
-  const languageRouting = await latency.phase("routing", () =>
-    routeQueryLanguage(question, {
-      indexLanguage: getIndexLanguage(),
-      model: CHAT_MODEL,
-    })
-  );
+  // Route now if it was deferred (regenerate request whose question was just
+  // resolved from history); otherwise reuse the result computed in parallel.
+  const languageRouting = earlyRouting ?? (await startRouting(question));
 
   // Retrieval caches use the translated index-language query. The UI language
   // is intentionally not part of search routing.
@@ -343,9 +379,6 @@ export async function POST(req: Request) {
       role: message.role,
       content: message.content,
     }))
-  );
-  const memoryBrief = await latency.phase("memoryBrief", () =>
-    getUserMemoryBrief(userId)
   );
   const answerCacheKey = conversation
     ? sessionAnswerCacheKey(userId, conversation.id, question, {
@@ -500,9 +533,7 @@ export async function POST(req: Request) {
     ? coerceResponseStyle(conversation.responseStyle)
     : null;
   const effectiveStyle =
-    conversationStyle ??
-    (await latency.phase("prefs", () => getUserPreferences(userId)))
-      .defaultResponseStyle;
+    conversationStyle ?? userPreferences.defaultResponseStyle;
 
   const baseSystemPrompt = buildSystemPrompt(effectiveStyle);
   const systemPrompt = memoryBrief.prompt
