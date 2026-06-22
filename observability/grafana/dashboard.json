@@ -51,8 +51,8 @@
     {
       "id": 2,
       "type": "timeseries",
-      "title": "Tool-decision + retrieval gap (serverFirstText − firstToolCall)",
-      "description": "The empty tool-decision model turn plus retrieval cost — what speculative/eager retrieval is meant to remove.",
+      "title": "Tool-decision turn & retrieval→first-text",
+      "description": "decision = firstToolCall − preStream (the empty tool-decision model turn — the P1 target). toolcall_to_text = serverFirstText − firstToolCall (retrieval plus any later model/verifier work, NOT the decision itself).",
       "datasource": "${DS_POSTGRES}",
       "gridPos": { "h": 9, "w": 12, "x": 12, "y": 0 },
       "fieldConfig": { "defaults": { "unit": "ms" }, "overrides": [] },
@@ -61,7 +61,7 @@
           "refId": "A",
           "datasource": "${DS_POSTGRES}",
           "format": "time_series",
-          "rawSql": "SELECT $__timeGroupAlias(created_at, $__interval), percentile_cont(0.5) within group (order by (server_first_text_ms - first_tool_call_ms)) AS p50_gap, percentile_cont(0.95) within group (order by (server_first_text_ms - first_tool_call_ms)) AS p95_gap FROM rag_latency_metrics WHERE $__timeFilter(created_at) AND path = 'generated' AND server_first_text_ms IS NOT NULL AND first_tool_call_ms IS NOT NULL GROUP BY 1 ORDER BY 1"
+          "rawSql": "SELECT $__timeGroupAlias(created_at, $__interval), percentile_cont(0.5) within group (order by (first_tool_call_ms - pre_stream_ms)) AS decision_p50, percentile_cont(0.95) within group (order by (first_tool_call_ms - pre_stream_ms)) AS decision_p95, percentile_cont(0.5) within group (order by (server_first_text_ms - first_tool_call_ms)) AS toolcall_to_text_p50 FROM rag_latency_metrics WHERE $__timeFilter(created_at) AND path = 'generated' AND pre_stream_ms IS NOT NULL AND first_tool_call_ms IS NOT NULL AND server_first_text_ms IS NOT NULL GROUP BY 1 ORDER BY 1"
         }
       ]
     },

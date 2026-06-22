@@ -380,7 +380,8 @@ export async function POST(req: Request) {
           content: question,
         });
 
-        latency.milestone("totalMs");
+        // Cached answer resolved; the inserts/updates below are not included here.
+        latency.milestone("answerReadyMs");
         const cachedDetails: MessageDetails = {
           model: cachedAnswer.details?.model,
           finishReason: cachedAnswer.details?.finishReason,
@@ -545,8 +546,10 @@ export async function POST(req: Request) {
     latency.addTool
   );
 
-  // Per-step durations: time since the previous step boundary (or stream start
-  // for step 1). `preStreamMs` is the last thing recorded before streaming.
+  // Per-step INCLUSIVE wall time: elapsed since the previous step boundary (or
+  // stream start for step 1). onStepFinish fires after in-step tool execution, so
+  // this includes tool time, not just model decode. `preStreamMs` is the last
+  // thing recorded before streaming.
   let stepIndex = 0;
   let lastStepMark = performance.now();
   latency.milestone("preStreamMs");
@@ -576,7 +579,7 @@ export async function POST(req: Request) {
       const nowMark = performance.now();
       latency.addStep({
         index: stepIndex,
-        durationMs: Math.round(nowMark - lastStepMark),
+        wallMs: Math.round(nowMark - lastStepMark),
         finishReason,
         toolCalls: (toolCalls ?? []).length,
       });
@@ -595,7 +598,8 @@ export async function POST(req: Request) {
     },
 
     onFinish: async ({ text, totalUsage, finishReason, steps }) => {
-      latency.milestone("totalMs");
+      // Generation finished; the cache/DB writes below are not included here.
+      latency.milestone("answerReadyMs");
       const latencyTrace = latency.build(
         isRegenerateRequest ? "regenerate" : "generated"
       );

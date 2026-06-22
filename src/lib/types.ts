@@ -173,13 +173,23 @@ export interface LatencyTrace {
     firstToolCallMs?: number;
     /** First text-delta emitted by the server (post-smoothStream, not browser paint). */
     serverFirstTextMs?: number;
-    /** Total handler wall time. */
-    totalMs?: number;
+    /**
+     * When the answer text became fully available — generation finished (generated
+     * path) or the cached answer resolved (answer-cache path). Captured BEFORE the
+     * cache/DB writes, conversation updates, and cache invalidation that follow, so
+     * it is NOT total handler wall time.
+     */
+    answerReadyMs?: number;
   };
-  /** Per model step (one streamText "step" = one model turn). */
-  modelSteps?: Array<{
+  /**
+   * Per streamText step. `wallMs` is INCLUSIVE wall time for the step — model
+   * generation plus any server-side tool execution within it (onStepFinish fires
+   * after tools run), not model-only latency. Subtract the matching `tools[]`
+   * durations to approximate exclusive model time.
+   */
+  steps?: Array<{
     index: number;
-    durationMs: number;
+    wallMs: number;
     finishReason?: string;
     toolCalls?: number;
   }>;

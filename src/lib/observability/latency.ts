@@ -9,7 +9,7 @@
 import type { LatencyTrace } from "@/lib/types";
 
 type Milestone = keyof LatencyTrace["milestones"];
-type ModelStep = NonNullable<LatencyTrace["modelSteps"]>[number];
+type Step = NonNullable<LatencyTrace["steps"]>[number];
 type ToolTiming = NonNullable<LatencyTrace["tools"]>[number];
 
 const round = (ms: number): number => Math.round(ms);
@@ -21,7 +21,7 @@ const round = (ms: number): number => Math.round(ms);
 export function createLatencyTrace(t0: number) {
   const phases: Record<string, number> = {};
   const milestones: LatencyTrace["milestones"] = {};
-  const modelSteps: ModelStep[] = [];
+  const steps: Step[] = [];
   const tools: ToolTiming[] = [];
 
   return {
@@ -42,15 +42,15 @@ export function createLatencyTrace(t0: number) {
       }
     },
 
-    addStep(step: ModelStep): void {
-      modelSteps.push(step);
+    addStep(step: Step): void {
+      steps.push(step);
     },
 
     addTool(tool: ToolTiming): void {
       tools.push(tool);
     },
 
-    /** ms since t0 (for ad-hoc reads, e.g. final totalMs). */
+    /** ms since t0 (for ad-hoc reads, e.g. final answerReadyMs). */
     elapsed(): number {
       return round(performance.now() - t0);
     },
@@ -62,7 +62,7 @@ export function createLatencyTrace(t0: number) {
         release: process.env.VERCEL_GIT_COMMIT_SHA,
         phases,
         milestones,
-        modelSteps: modelSteps.length > 0 ? modelSteps : undefined,
+        steps: steps.length > 0 ? steps : undefined,
         tools: tools.length > 0 ? tools : undefined,
       };
     },

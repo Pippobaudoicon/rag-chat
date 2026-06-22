@@ -153,8 +153,11 @@ Notes:
   traffic. It records independent pre-stream phase durations (auth, entitlements,
   ratelimit, convLoad, messagesLoad, routing, memoryBrief, answerCacheLookup,
   userMsgInsert, prefs), ordered milestones (`preStreamMs`, `firstModelChunkMs`,
-  `firstToolCallMs`, `serverFirstTextMs`, `totalMs`), per-model-step durations,
-  and per-tool `{name, durationMs, ok, cacheHit}`. `path` (`generated` |
+  `firstToolCallMs`, `serverFirstTextMs`, `answerReadyMs` — generation/cache
+  resolved, captured before the trailing DB/cache writes, so not total handler
+  time), per-step **inclusive** wall time (`steps[].wallMs` covers model + any
+  in-step tool execution, since `onStepFinish` fires after tools run), and
+  per-tool `{name, durationMs, ok, cacheHit}`. `path` (`generated` |
   `answer-cache` | `regenerate`) separates cache-hit returns from cold-path
   percentiles, and `release` (`VERCEL_GIT_COMMIT_SHA`) enables before/after
   comparison. Built by `src/lib/observability/latency.ts` (`createLatencyTrace`
