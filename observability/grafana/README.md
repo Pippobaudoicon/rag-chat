@@ -7,13 +7,20 @@ homeserver needs to be exposed to Vercel.
 
 ## One-time setup
 
-1. **Provision the read-only role out-of-band** (no secret in the repo). Create
-   `grafana_ro` with a strong password via the **Neon Console → Roles** (which
-   never echoes the secret), or a one-off command kept out of version control:
+1. **Provision the read-only role out-of-band** (no secret in the repo, and
+   never on a command line). **Preferred: Neon Console → Roles** — create
+   `grafana_ro` with a generated password; Neon never exposes it in shell history
+   or process arguments.
 
-   ```bash
-   # leading space avoids shell history; prefer the Neon Console
-    psql "$DATABASE_URL" -c "create role grafana_ro login password '<strong-secret>'"
+   If you must use `psql`, do it **interactively** and disable psql history first
+   so the password is neither persisted nor passed as a process argument (avoid
+   `psql -c "...password..."`, which leaks via `ps`):
+
+   ```text
+   psql "$DATABASE_URL"
+   -- then, inside the psql prompt:
+   \set HISTFILE /dev/null
+   create role grafana_ro login password '<strong-secret>';
    ```
 
 2. **Create the view + grants** (run against Neon as an owner/admin role). This

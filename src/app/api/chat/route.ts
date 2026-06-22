@@ -567,9 +567,10 @@ export async function POST(req: Request) {
     }),
 
     onChunk: ({ chunk }) => {
-      // First visible-text + tool-call milestones (set-once). The gap between
-      // firstToolCallMs and serverFirstTextMs is the empty tool-decision turn +
-      // retrieval cost we plan to cut.
+      // First visible-text + tool-call milestones (set-once). The empty
+      // tool-decision turn is firstToolCallMs − preStreamMs (the cost we plan to
+      // cut); firstToolCallMs → serverFirstTextMs is retrieval + later
+      // model/verifier work, not the decision itself.
       latency.milestone("firstModelChunkMs");
       if (chunk.type === "tool-call") latency.milestone("firstToolCallMs");
       if (chunk.type === "text-delta") latency.milestone("serverFirstTextMs");

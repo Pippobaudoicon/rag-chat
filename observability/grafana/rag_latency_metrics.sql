@@ -35,13 +35,9 @@ where role = 'assistant'
 -- ── Grant only (role provisioned out-of-band) ───────────────────────────────
 -- This tracked script intentionally does NOT create the login role or set any
 -- password. Provision `grafana_ro` out-of-band with a strong, non-committed
--- secret (Neon Console → Roles, or a one-off psql command kept out of version
--- control), then run the grants below. Keeping credentials out of tracked SQL
--- avoids shipping a known/default password in the repo.
---
---   Example (run manually, NOT committed — note the leading space to skip shell
---   history, and prefer the Neon Console which never echoes the secret):
---    psql "$DATABASE_URL" -c "create role grafana_ro login password '<strong-secret>'"
+-- secret — preferably the Neon Console (Roles), which never exposes the secret
+-- in shell history or process arguments. See observability/grafana/README.md
+-- for the provisioning steps. Then run the grants below.
 --
 -- The grants are safe to keep here — they reference the role but contain no
 -- secret. They no-op-error if the role is missing, which is the intended signal
