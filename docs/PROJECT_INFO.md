@@ -454,6 +454,10 @@ Reference template: `.env.example`.
   constant across both arms; multi-query/diversity follow their env flags and apply
   to both arms — toggle their env and re-run to measure those). Two retrieval calls
   per case. Hits live Pinecone + Voyage. Add a filter: `npm run eval -- faith`.
+- Routing fast-path test: `npm run test:routing` (`scripts/test/language-routing.test.ts`)
+  — pure, network-free assertions that the local same-language short-circuit
+  (`detectIndexLanguageMatch`) fires only for confidently, dominantly index-language
+  prompts and that mixed/quoted/cross-language prompts fall through to the LLM.
 
 ### Feature flags (`src/lib/rag/flags.ts`)
 - `RAG_GRAPH_RERANK` (default **on**) — graph-aware reranking. Enabled by default

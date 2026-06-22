@@ -1,5 +1,5 @@
 import { generateText, gateway, Output } from "ai";
-import { detect } from "tinyld";
+import { detectAll } from "tinyld";
 import { z } from "zod";
 import type { CorpusLanguage } from "@/lib/types";
 
@@ -16,6 +16,36 @@ const CORPUS_LANGUAGE_BCP47: Record<CorpusLanguage, string> = {
   ita: "it",
   eng: "en",
 };
+
+// Same-language fast-path thresholds (calibrated against tinyld). A *pure*
+// index-language prompt classifies as that language with accuracy ~1.0 and a
+// single detected language. Any language mixing — an instruction like
+// "Rispondi in italiano: <English question>", or a non-English question quoting
+// a long English passage — drops the dominant accuracy to ≤ ~0.83 and/or
+// surfaces a significant secondary language. Requiring high dominance keeps
+// those mixed/quoted prompts on the LLM translation path (codex review).
+const LOCAL_DETECTION_MIN_CONFIDENCE = 0.9;
+const LOCAL_DETECTION_MAX_SECONDARY = 0.15;
+
+/**
+ * Decide locally whether a prompt is confidently, dominantly in the index
+ * language (so routing is identity and the LLM call can be skipped). Returns the
+ * detected ISO 639-1 code on a match, or `null` when the LLM path must be used:
+ * a different/undetectable language, low confidence, or a mixed-language prompt.
+ * Pure (no network) so it can be unit-tested deterministically.
+ */
+export function detectIndexLanguageMatch(
+  query: string,
+  indexLanguage: CorpusLanguage
+): string | null {
+  const detections = detectAll(query.trim());
+  const top = detections[0];
+  if (!top || top.lang !== CORPUS_LANGUAGE_BCP47[indexLanguage]) return null;
+  if (top.accuracy < LOCAL_DETECTION_MIN_CONFIDENCE) return null;
+  const second = detections[1];
+  if (second && second.accuracy >= LOCAL_DETECTION_MAX_SECONDARY) return null;
+  return top.lang;
+}
 
 const languageRoutingSchema = z.object({
   inputLanguageCode: z
@@ -66,19 +96,17 @@ export async function routeQueryLanguage(
   const indexLanguageName = getCorpusLanguageName(indexLanguage);
   const trimmedQuery = query.trim();
 
-  // Local same-language fast-path. When the prompt is already in the index
-  // language, translation is identity and the routing LLM call is pure
-  // latency/cost — so detect the language locally and skip `generateText`.
-  // tinyld is a small profile-based detector (ISO 639-1) that returns "" for
-  // too-short/ambiguous input; we treat empty or any non-index result as "not
-  // confidently the index language" and fall through to the LLM, so genuine
-  // cross-language prompts (e.g. Italian → English index) still get translated.
-  const detectedCode = detect(trimmedQuery);
-  if (detectedCode && detectedCode === CORPUS_LANGUAGE_BCP47[indexLanguage]) {
+  // Local same-language fast-path. When the prompt is confidently, dominantly
+  // in the index language, translation is identity and the routing LLM call is
+  // pure latency/cost — so skip `generateText`. Mixed/quoted-language prompts
+  // and cross-language prompts (e.g. Italian → English index) fall through to
+  // the LLM so translation and answer-language fidelity are preserved.
+  const localCode = detectIndexLanguageMatch(trimmedQuery, indexLanguage);
+  if (localCode) {
     return {
       originalQuery: trimmedQuery,
       searchQuery: trimmedQuery,
-      inputLanguageCode: detectedCode,
+      inputLanguageCode: localCode,
       inputLanguageName: indexLanguageName,
       indexLanguage,
       indexLanguageName,

@@ -10,7 +10,8 @@
     "db:generate": "dotenv -o -e .env -e .env.local -- drizzle-kit generate",
     "db:migrate": "dotenv -o -e .env -e .env.local -- drizzle-kit migrate",
     "docs:guard": "bash scripts/docs-guard.sh",
-    "eval": "dotenv -o -e .env -e .env.local -- tsx scripts/eval/run.ts"
+    "eval": "dotenv -o -e .env -e .env.local -- tsx scripts/eval/run.ts",
+    "test:routing": "tsx scripts/test/language-routing.test.ts"
   },
   "dependencies": {
     "@ai-sdk/react": "^3.0.143",
