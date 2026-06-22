@@ -216,13 +216,15 @@ export async function POST(req: Request) {
     ];
   };
 
-  // ── 4. Preamble: gate, then run independent reads concurrently ────────────
-  // The 401/429 gates (auth, ratelimit) already resolved above, so nothing
-  // below speculatively burns LLM/DB work on a request we're about to reject.
-  // The remaining preamble reads (conversation+messages, memory brief, prefs,
-  // language routing) are mutually independent, so we issue them in one
-  // Promise.all instead of the original serial await chain — `preStreamMs`
-  // collapses from the sum of these phases toward their max.
+  // ── 4. Preamble: ownership gate, then independent reads concurrently ───────
+  // The 401/429 gates (auth, ratelimit) already resolved above. We resolve the
+  // conversation OWNERSHIP gate next — a single indexed lookup — so a deleted
+  // or unowned conversationId returns 404 promptly, before we issue the routing
+  // LLM call or the memory/prefs reads (and without one of those failing or
+  // stalling and masking the 404; codex review). Everything that depends only
+  // on a valid, owned request then runs in one Promise.all instead of a serial
+  // await chain, so `preStreamMs` collapses from the sum of those phases toward
+  // their max.
   const db = getDb();
   type StoredMessage = {
     id: number;
@@ -237,48 +239,28 @@ export async function POST(req: Request) {
     return new Response("Bad Request: empty question", { status: 400 });
   }
 
-  // Load the conversation and its messages (reads only — ownership is surfaced
-  // via `notFound` and enforced by the caller after the gate). Returns a null
-  // conversation for new chats, which are created below, post-gate.
-  const loadConversationContext = async (): Promise<{
-    conversation: Conversation | null;
-    storedMessages: StoredMessage[];
-    notFound: boolean;
-  }> => {
-    if (!conversationId) {
-      return { conversation: null, storedMessages: [], notFound: false };
-    }
-    const found = await latency.phase("convLoad", () =>
-      db.query.conversations.findFirst({
-        where: and(
-          eq(conversations.id, conversationId),
-          eq(conversations.clerkUserId, userId)
-        ),
-      })
-    );
-    if (!found) {
-      return { conversation: null, storedMessages: [], notFound: true };
-    }
-    const loadedMessages = await latency.phase("messagesLoad", () =>
-      db
-        .select({
-          id: messages.id,
-          role: messages.role,
-          content: messages.content,
-          sourcesJson: messages.sourcesJson,
-          versionsJson: messages.versionsJson,
+  // Ownership gate: resolve (and 404) before any parallel work. New chats have
+  // no conversation to load — they are created below, post-gate.
+  let conversation: Conversation | null = null;
+  if (conversationId) {
+    conversation =
+      (await latency.phase("convLoad", () =>
+        db.query.conversations.findFirst({
+          where: and(
+            eq(conversations.id, conversationId),
+            eq(conversations.clerkUserId, userId)
+          ),
         })
-        .from(messages)
-        .where(eq(messages.conversationId, found.id))
-        .orderBy(asc(messages.createdAt))
-    );
-    return { conversation: found, storedMessages: loadedMessages, notFound: false };
-  };
+      )) ?? null;
+    if (!conversation) {
+      return new Response("Conversation not found", { status: 404 });
+    }
+  }
 
   // `routeQueryLanguage` only needs the question, known up front EXCEPT for
   // regenerate requests whose body omits the text (resolved from history
-  // below). For the common case route in parallel with the DB reads; otherwise
-  // defer the (single) routing call until the fallback question is known.
+  // below). For the common case route in parallel; otherwise defer the (single)
+  // routing call until the fallback question is known.
   const startRouting = (q: string) =>
     latency.phase("routing", () =>
       routeQueryLanguage(q, {
@@ -288,24 +270,36 @@ export async function POST(req: Request) {
     );
   const questionKnownEarly = question.trim().length > 0;
 
-  const [convContext, memoryBrief, userPreferences, earlyRouting] =
+  // Independent reads behind the ownership gate: messages load (only when a
+  // conversation exists), language routing, memory brief, and user prefs. The
+  // `ownedConversation` const snapshot keeps the closure's non-null narrowing.
+  const ownedConversation = conversation;
+  const [storedMessages, memoryBrief, userPreferences, earlyRouting] =
     await Promise.all([
-      loadConversationContext(),
+      ownedConversation
+        ? latency.phase("messagesLoad", () =>
+            db
+              .select({
+                id: messages.id,
+                role: messages.role,
+                content: messages.content,
+                sourcesJson: messages.sourcesJson,
+                versionsJson: messages.versionsJson,
+              })
+              .from(messages)
+              .where(eq(messages.conversationId, ownedConversation.id))
+              .orderBy(asc(messages.createdAt))
+          )
+        : Promise.resolve([] as StoredMessage[]),
       latency.phase("memoryBrief", () => getUserMemoryBrief(userId)),
       latency.phase("prefs", () => getUserPreferences(userId)),
       questionKnownEarly ? startRouting(question) : Promise.resolve(null),
     ]);
 
-  let conversation: Conversation | null = convContext.conversation;
-  const storedMessages: StoredMessage[] = convContext.storedMessages;
   let targetAssistantMessage: StoredMessage | null = null;
   let createdConversationTitle: string | null = null;
 
   if (conversationId) {
-    if (convContext.notFound) {
-      return new Response("Conversation not found", { status: 404 });
-    }
-
     // Persist a per-conversation style override when the client sent a new one.
     if (
       requestedResponseStyle &&
