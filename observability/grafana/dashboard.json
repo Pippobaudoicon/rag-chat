@@ -1,0 +1,120 @@
+{
+  "__inputs": [
+    {
+      "name": "DS_POSTGRES",
+      "label": "Neon (rag_latency_metrics)",
+      "description": "Postgres data source pointing at Neon, using the grafana_ro role",
+      "type": "datasource",
+      "pluginId": "postgres",
+      "pluginName": "PostgreSQL"
+    }
+  ],
+  "title": "rag-chat latency",
+  "description": "Per-turn chat latency baseline. Cold-path metrics filter path='generated'; answer-cache returns are excluded so percentiles aren't skewed.",
+  "tags": ["rag-chat", "latency"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "refresh": "5m",
+  "time": { "from": "now-7d", "to": "now" },
+  "annotations": {
+    "list": [
+      {
+        "name": "Releases",
+        "datasource": "${DS_POSTGRES}",
+        "enable": true,
+        "iconColor": "purple",
+        "target": {
+          "rawSql": "SELECT min(created_at) AS time, release AS text, 'release' AS tags FROM rag_latency_metrics WHERE $__timeFilter(created_at) AND release IS NOT NULL GROUP BY release",
+          "format": "table"
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Server first-text (generated) — p50 / p95 / p99",
+      "description": "Time-to-first-emitted-text on the cold generation path. The headline metric the optimizations move.",
+      "datasource": "${DS_POSTGRES}",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "ms" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": "${DS_POSTGRES}",
+          "format": "time_series",
+          "rawSql": "SELECT $__timeGroupAlias(created_at, $__interval), percentile_cont(0.5) within group (order by server_first_text_ms) AS p50, percentile_cont(0.95) within group (order by server_first_text_ms) AS p95, percentile_cont(0.99) within group (order by server_first_text_ms) AS p99 FROM rag_latency_metrics WHERE $__timeFilter(created_at) AND path = 'generated' AND server_first_text_ms IS NOT NULL GROUP BY 1 ORDER BY 1"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Tool-decision turn & retrieval→first-text",
+      "description": "decision = firstToolCall − preStream (the empty tool-decision model turn — the P1 target). toolcall_to_text = serverFirstText − firstToolCall (retrieval plus any later model/verifier work, NOT the decision itself).",
+      "datasource": "${DS_POSTGRES}",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "ms" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": "${DS_POSTGRES}",
+          "format": "time_series",
+          "rawSql": "SELECT $__timeGroupAlias(created_at, $__interval), percentile_cont(0.5) within group (order by (first_tool_call_ms - pre_stream_ms)) AS decision_p50, percentile_cont(0.95) within group (order by (first_tool_call_ms - pre_stream_ms)) AS decision_p95, percentile_cont(0.5) within group (order by (server_first_text_ms - first_tool_call_ms)) AS toolcall_to_text_p50 FROM rag_latency_metrics WHERE $__timeFilter(created_at) AND path = 'generated' AND pre_stream_ms IS NOT NULL AND first_tool_call_ms IS NOT NULL AND server_first_text_ms IS NOT NULL GROUP BY 1 ORDER BY 1"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Pre-stream phases (avg) — routing vs total pre-stream",
+      "description": "Average routing-LLM cost and total pre-stream time on the generated path.",
+      "datasource": "${DS_POSTGRES}",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 9 },
+      "fieldConfig": { "defaults": { "unit": "ms" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": "${DS_POSTGRES}",
+          "format": "time_series",
+          "rawSql": "SELECT $__timeGroupAlias(created_at, $__interval), avg(routing_ms) AS routing, avg(pre_stream_ms) AS pre_stream FROM rag_latency_metrics WHERE $__timeFilter(created_at) AND path = 'generated' GROUP BY 1 ORDER BY 1"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Turn volume by path",
+      "description": "generated vs answer-cache vs regenerate.",
+      "datasource": "${DS_POSTGRES}",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 9 },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": "${DS_POSTGRES}",
+          "format": "time_series",
+          "rawSql": "SELECT $__timeGroupAlias(created_at, $__interval), path AS metric, count(*) AS turns FROM rag_latency_metrics WHERE $__timeFilter(created_at) GROUP BY 1, path ORDER BY 1"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "table",
+      "title": "Per-tool latency (generated)",
+      "description": "Wall time and success per tool, unnested from the latency.tools array.",
+      "datasource": "${DS_POSTGRES}",
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 18 },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": "${DS_POSTGRES}",
+          "format": "table",
+          "rawSql": "SELECT t->>'name' AS tool, count(*) AS calls, round(avg((t->>'durationMs')::numeric)) AS avg_ms, round(percentile_cont(0.95) within group (order by (t->>'durationMs')::numeric)) AS p95_ms, sum(((t->>'ok')::boolean)::int) AS ok_calls, sum((coalesce((t->>'cacheHit')::boolean, false))::int) AS cache_hits FROM rag_latency_metrics, jsonb_array_elements(tools) AS t WHERE $__timeFilter(created_at) AND tools IS NOT NULL GROUP BY 1 ORDER BY avg_ms DESC"
+        }
+      ]
+    }
+  ]
+}
