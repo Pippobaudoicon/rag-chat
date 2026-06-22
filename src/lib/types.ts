@@ -144,6 +144,54 @@ export interface RetrievalTrace {
   tools: RetrievalToolEvent[];
 }
 
+/**
+ * Per-turn latency trace persisted on assistant messages so chat response
+ * latency is quantifiable (and optimizations provable) from real traffic.
+ * Records the *where* (independent phase durations + ordered milestones +
+ * per-step / per-tool timings); the existing single `latencyMs` is retained
+ * separately for backward-compat.
+ *
+ * NOTE: written on completed responses only — aborted/rejected/errored requests
+ * are absent, so percentiles derived from this are an optimization baseline, not
+ * an operational request SLO.
+ */
+export interface LatencyTrace {
+  version: 1;
+  /** "generated" = full cold generation; cache-hit and regenerate paths differ. */
+  path: "generated" | "answer-cache" | "regenerate";
+  /** Deploy identifier for before/after comparison (VERCEL_GIT_COMMIT_SHA). */
+  release?: string;
+  /** Independent durations (ms) per pre-stream phase, measured in isolation. */
+  phases: Record<string, number>;
+  /** Milestones as ms since handler entry. */
+  milestones: {
+    /** Everything before streamText() started. */
+    preStreamMs?: number;
+    /** First stream chunk of any type (tool-call or text). */
+    firstModelChunkMs?: number;
+    /** First tool-call chunk — exposes the empty tool-decision turn. */
+    firstToolCallMs?: number;
+    /** First text-delta emitted by the server (post-smoothStream, not browser paint). */
+    serverFirstTextMs?: number;
+    /** Total handler wall time. */
+    totalMs?: number;
+  };
+  /** Per model step (one streamText "step" = one model turn). */
+  modelSteps?: Array<{
+    index: number;
+    durationMs: number;
+    finishReason?: string;
+    toolCalls?: number;
+  }>;
+  /** Per tool execution (name, wall time, success, retrieval-cache hit). */
+  tools?: Array<{
+    name: string;
+    durationMs: number;
+    ok: boolean;
+    cacheHit?: boolean;
+  }>;
+}
+
 export interface MessageDetails {
   inputTokens?: number;
   outputTokens?: number;
@@ -154,6 +202,7 @@ export interface MessageDetails {
   finishReason?: string;
   toolNames?: string[];
   retrieval?: RetrievalTrace;
+  latency?: LatencyTrace;
 }
 
 export type ChatProgressPhase =

@@ -148,6 +148,21 @@ Notes:
   stats (sourceCount / cacheHit / elapsedMs). The retrieved chunks live in
   `sources_json`; the trace captures the *how* so real conversations can be mined
   into the eval gold set.
+- Assistant `details_json` also stores a versioned `latency` trace
+  (`LatencyTrace` in `types.ts`) for quantifying chat-response latency from real
+  traffic. It records independent pre-stream phase durations (auth, entitlements,
+  ratelimit, convLoad, messagesLoad, routing, memoryBrief, answerCacheLookup,
+  userMsgInsert, prefs), ordered milestones (`preStreamMs`, `firstModelChunkMs`,
+  `firstToolCallMs`, `serverFirstTextMs`, `totalMs`), per-model-step durations,
+  and per-tool `{name, durationMs, ok, cacheHit}`. `path` (`generated` |
+  `answer-cache` | `regenerate`) separates cache-hit returns from cold-path
+  percentiles, and `release` (`VERCEL_GIT_COMMIT_SHA`) enables before/after
+  comparison. Built by `src/lib/observability/latency.ts` (`createLatencyTrace`
+  for independent `performance.now()` durations + `withToolTiming` to wrap the
+  tool set). Written on completed responses only (failed/aborted requests are
+  absent), so derived percentiles are an optimization baseline, not an SLO.
+  `serverFirstTextMs` is the server's first emitted text after `smoothStream`,
+  not browser first paint.
 - Conversation auto-title is derived from first user message.
 - Conversation titles are cached in Redis and the conversation list endpoint is
   cached per user/page cursor with invalidation on create, rename, delete, and
@@ -393,6 +408,8 @@ Reference template: `.env.example`.
   - `src/lib/rag/tools/lookup-scripture-passage/`
   - `src/lib/rag/tools/search-conference-talks/`
   - `src/lib/rag/tools/citation-verifier/`
+- Observability:
+  - `src/lib/observability/latency.ts` (per-turn `LatencyTrace` builder + tool-timing wrapper)
 - DB:
   - `src/lib/db/schema.ts`
   - `src/lib/db/index.ts`

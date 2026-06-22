@@ -31,6 +31,7 @@ import {
   setSessionAnswerInCache,
 } from "@/lib/rag/cache";
 import { createRagTools } from "@/lib/rag/tools";
+import { createLatencyTrace, withToolTiming } from "@/lib/observability/latency";
 import {
   getIndexLanguage,
   routeQueryLanguage,
@@ -77,8 +78,11 @@ const MAX_RESPONSE_SOURCES = getPositiveInt(
 
 export async function POST(req: Request) {
   const startTime = Date.now();
+  // High-resolution clock for the latency trace (independent phase durations +
+  // milestones). `startTime` (wall clock) is kept for the legacy latencyMs field.
+  const latency = createLatencyTrace(performance.now());
   // ── 1. Auth ──────────────────────────────────────────────────────────────
-  const { userId, has } = await auth();
+  const { userId, has } = await latency.phase("auth", () => auth());
   if (!userId) {
     return new Response("Unauthorized", { status: 401 });
   }
@@ -101,9 +105,11 @@ export async function POST(req: Request) {
     trigger,
     messageId,
   } = parsedBody.data;
-  const entitlements = await getBillingEntitlements(userId, {
-    hasPlan: (plan) => has({ plan }),
-  });
+  const entitlements = await latency.phase("entitlements", () =>
+    getBillingEntitlements(userId, {
+      hasPlan: (plan) => has({ plan }),
+    })
+  );
   const effectiveTopK = Math.min(topK, entitlements.limits.maxTopK);
 
   const rateLimit = getSlidingWindowRateLimit(
@@ -112,7 +118,9 @@ export async function POST(req: Request) {
     entitlements.limits.window
   );
   if (rateLimit) {
-    const rateLimitResult = await rateLimit.limit(`chat:${entitlements.plan}:${userId}`);
+    const rateLimitResult = await latency.phase("ratelimit", () =>
+      rateLimit.limit(`chat:${entitlements.plan}:${userId}`)
+    );
     if (!rateLimitResult.success) {
       return Response.json(
         {
@@ -227,12 +235,14 @@ export async function POST(req: Request) {
   }
 
   if (conversationId) {
-    conversation = await db.query.conversations.findFirst({
-      where: and(
-        eq(conversations.id, conversationId),
-        eq(conversations.clerkUserId, userId)
-      ),
-    });
+    conversation = await latency.phase("convLoad", () =>
+      db.query.conversations.findFirst({
+        where: and(
+          eq(conversations.id, conversationId),
+          eq(conversations.clerkUserId, userId)
+        ),
+      })
+    );
     if (!conversation) {
       return new Response("Conversation not found", { status: 404 });
     }
@@ -249,17 +259,19 @@ export async function POST(req: Request) {
       conversation.responseStyle = requestedResponseStyle;
     }
 
-    storedMessages = await db
-      .select({
-        id: messages.id,
-        role: messages.role,
-        content: messages.content,
-        sourcesJson: messages.sourcesJson,
-        versionsJson: messages.versionsJson,
-      })
-      .from(messages)
-      .where(eq(messages.conversationId, conversation.id))
-      .orderBy(asc(messages.createdAt));
+    storedMessages = await latency.phase("messagesLoad", () =>
+      db
+        .select({
+          id: messages.id,
+          role: messages.role,
+          content: messages.content,
+          sourcesJson: messages.sourcesJson,
+          versionsJson: messages.versionsJson,
+        })
+        .from(messages)
+        .where(eq(messages.conversationId, conversation!.id))
+        .orderBy(asc(messages.createdAt))
+    );
 
     if (isRegenerateRequest && messageId) {
       const numericMessageId = Number(messageId);
@@ -308,10 +320,12 @@ export async function POST(req: Request) {
     return new Response("Bad Request: empty question", { status: 400 });
   }
 
-  const languageRouting = await routeQueryLanguage(question, {
-    indexLanguage: getIndexLanguage(),
-    model: CHAT_MODEL,
-  });
+  const languageRouting = await latency.phase("routing", () =>
+    routeQueryLanguage(question, {
+      indexLanguage: getIndexLanguage(),
+      model: CHAT_MODEL,
+    })
+  );
 
   // Retrieval caches use the translated index-language query. The UI language
   // is intentionally not part of search routing.
@@ -330,7 +344,9 @@ export async function POST(req: Request) {
       content: message.content,
     }))
   );
-  const memoryBrief = await getUserMemoryBrief(userId);
+  const memoryBrief = await latency.phase("memoryBrief", () =>
+    getUserMemoryBrief(userId)
+  );
   const answerCacheKey = conversation
     ? sessionAnswerCacheKey(userId, conversation.id, question, {
         language: [
@@ -354,7 +370,9 @@ export async function POST(req: Request) {
 
   if (conversation) {
     if (!isRegenerateRequest && answerCacheKey && !hasFixedChunks) {
-      const cachedAnswer = await getSessionAnswerFromCache(answerCacheKey);
+      const cachedAnswer = await latency.phase("answerCacheLookup", () =>
+        getSessionAnswerFromCache(answerCacheKey)
+      );
       if (cachedAnswer) {
         await db.insert(messages).values({
           conversationId: conversation.id,
@@ -362,6 +380,7 @@ export async function POST(req: Request) {
           content: question,
         });
 
+        latency.milestone("totalMs");
         const cachedDetails: MessageDetails = {
           model: cachedAnswer.details?.model,
           finishReason: cachedAnswer.details?.finishReason,
@@ -370,6 +389,9 @@ export async function POST(req: Request) {
           // Replay the original turn's retrieval trace so cache-hit messages are
           // still mineable into the eval gold set.
           retrieval: cachedAnswer.details?.retrieval,
+          // Freshly measured timings for *this* (cache-hit) turn — not replayed
+          // from the original generation.
+          latency: latency.build("answer-cache"),
         };
 
         await db.insert(messages).values({
@@ -426,11 +448,13 @@ export async function POST(req: Request) {
 
     if (!isRegenerateRequest) {
       // Persist the new user message immediately (before streaming starts)
-      await db.insert(messages).values({
-        conversationId: conversation.id,
-        role: "user",
-        content: question,
-      });
+      await latency.phase("userMsgInsert", () =>
+        db.insert(messages).values({
+          conversationId: conversation!.id,
+          role: "user",
+          content: question,
+        })
+      );
 
       const historyWindow = storedMessages.slice(-20);
       modelHistory.push(...(historyWindow as ChatMessage[]));
@@ -475,7 +499,9 @@ export async function POST(req: Request) {
     ? coerceResponseStyle(conversation.responseStyle)
     : null;
   const effectiveStyle =
-    conversationStyle ?? (await getUserPreferences(userId)).defaultResponseStyle;
+    conversationStyle ??
+    (await latency.phase("prefs", () => getUserPreferences(userId)))
+      .defaultResponseStyle;
 
   const baseSystemPrompt = buildSystemPrompt(effectiveStyle);
   const systemPrompt = memoryBrief.prompt
@@ -485,13 +511,10 @@ export async function POST(req: Request) {
   // ── 7. Stream with AI SDK v6 ──────────────────────────────────────────────
   const toolNamesUsed: string[] = [];
 
-  const result = streamText({
-    model: gateway(CHAT_MODEL),
-    system: systemPrompt,
-    messages: chatMessages,
-    maxOutputTokens: MAX_OUTPUT_TOKENS,
-    stopWhen: stepCountIs(8),
-    tools: {
+  // Wrap every tool's execute to record per-tool name / wall-time / success into
+  // the latency trace (covers retrieval tools, citation_verifier, and memory).
+  const chatTools = withToolTiming(
+    {
       ...createRagTools({
         language: languageRouting.indexLanguage,
         retrievalLanguageName: languageRouting.indexLanguageName,
@@ -519,12 +542,47 @@ export async function POST(req: Request) {
           })
         : {}),
     },
+    latency.addTool
+  );
+
+  // Per-step durations: time since the previous step boundary (or stream start
+  // for step 1). `preStreamMs` is the last thing recorded before streaming.
+  let stepIndex = 0;
+  let lastStepMark = performance.now();
+  latency.milestone("preStreamMs");
+
+  const result = streamText({
+    model: gateway(CHAT_MODEL),
+    system: systemPrompt,
+    messages: chatMessages,
+    maxOutputTokens: MAX_OUTPUT_TOKENS,
+    stopWhen: stepCountIs(8),
+    tools: chatTools,
     experimental_transform: smoothStream({
       delayInMs: 20,
       chunking: "word",
     }),
 
-    onStepFinish: ({ toolCalls }) => {
+    onChunk: ({ chunk }) => {
+      // First visible-text + tool-call milestones (set-once). The gap between
+      // firstToolCallMs and serverFirstTextMs is the empty tool-decision turn +
+      // retrieval cost we plan to cut.
+      latency.milestone("firstModelChunkMs");
+      if (chunk.type === "tool-call") latency.milestone("firstToolCallMs");
+      if (chunk.type === "text-delta") latency.milestone("serverFirstTextMs");
+    },
+
+    onStepFinish: ({ toolCalls, finishReason }) => {
+      const nowMark = performance.now();
+      latency.addStep({
+        index: stepIndex,
+        durationMs: Math.round(nowMark - lastStepMark),
+        finishReason,
+        toolCalls: (toolCalls ?? []).length,
+      });
+      stepIndex += 1;
+      lastStepMark = nowMark;
+
       // Collect tool names as they execute during streaming
       (toolCalls ?? []).forEach((toolCall) => {
         if (toolCall && typeof toolCall === "object") {
@@ -537,6 +595,21 @@ export async function POST(req: Request) {
     },
 
     onFinish: async ({ text, totalUsage, finishReason, steps }) => {
+      latency.milestone("totalMs");
+      const latencyTrace = latency.build(
+        isRegenerateRequest ? "regenerate" : "generated"
+      );
+      // Fold each retrieval tool's cache-hit flag onto its timed entry so a
+      // single tools[] array carries duration + success + cacheHit.
+      if (latencyTrace.tools) {
+        for (const event of retrievalToolEvents) {
+          const match = latencyTrace.tools.find(
+            (t) => t.name === event.toolName && t.cacheHit === undefined
+          );
+          if (match) match.cacheHit = event.cacheHit;
+        }
+      }
+
       // Build details object for persistence
       const details: MessageDetails = {
         inputTokens: totalUsage.inputTokens ?? undefined,
@@ -558,6 +631,7 @@ export async function POST(req: Request) {
           flags: retrievalFlagsSignature(),
           tools: retrievalToolEvents,
         },
+        latency: latencyTrace,
       };
 
       // Update cache with the final assistant answer + tool-collected chunks.
