@@ -62,6 +62,26 @@ export function isMultiQueryEnabled(): boolean {
 }
 
 /**
+ * Eager (speculative) retrieval: for the common topical, non-scripture turn the
+ * route runs the default `semantic_search` retrieval during the pre-stream
+ * preamble and injects the chunks into the user message, so the model answers on
+ * its first turn instead of spending an empty model turn just to emit a
+ * `semantic_search` tool call. The retrieval tools stay exposed for refinement,
+ * and the eager call warms the same Upstash cache a redundant tool call would
+ * read, so there is no double-retrieval.
+ *
+ * Default: ON. It removes a full model round-trip on the majority path; the only
+ * cost is one embed+Pinecone call on turns where the model would not have
+ * searched. Kill-switch: set `RAG_EAGER_RETRIEVAL=false` to disable without a
+ * code change (e.g. if speculative retrieval ever degrades answer quality).
+ * Scripture-reference queries are always excluded in the route regardless of
+ * this flag (they use `lookup_scripture_passage`).
+ */
+export function isEagerRetrievalEnabled(): boolean {
+  return envBool(process.env.RAG_EAGER_RETRIEVAL, true);
+}
+
+/**
  * Compact signature of the retrieval ranking flags, for cache keys. Retrieval
  * caches must vary with these flags, otherwise toggling rerank / multi-query /
  * diversity would keep serving stale results until the cache TTL expires.
