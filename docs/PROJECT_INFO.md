@@ -57,7 +57,7 @@ Read this first before deep code exploration.
 1. Client sends chat message to `POST /api/chat` with selected UI language/sources/topK.
 2. Server verifies auth and extracts the latest user question.
 3. Server loads Clerk Billing entitlements, checks Clerk plan access via `auth().has({ plan })`, and applies plan-aware chat rate limits plus a `topK` cap.
-4. Server detects the user's prompt language and translates the retrieval query into the configured Pinecone index language (`RAG_INDEX_LANGUAGE`, English by default for `lds-rag-v1`).
+4. Server detects the user's prompt language and translates the retrieval query into the configured Pinecone index language (`RAG_INDEX_LANGUAGE`, English by default for `lds-rag-v1`). Detection runs **locally first** (`tinyld`): when the prompt is already in the index language the routing LLM call is skipped entirely (identity translation, `routing` phase ≈ 0). Only cross-language prompts — or too-short/ambiguous input that the local detector can't classify — fall through to the `generateText` translation call. The `QueryLanguageRouting` contract is identical on both paths.
 5. Server does NOT pre-fetch context. Instead it constructs an AI SDK `streamText`
    call with the RAG tool set and lets the model decide how to retrieve.
 6. The model calls one or more retrieval tools per turn as it sees fit, using the translated index-language search query:

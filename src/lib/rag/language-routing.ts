@@ -1,4 +1,5 @@
 import { generateText, gateway, Output } from "ai";
+import { detect } from "tinyld";
 import { z } from "zod";
 import type { CorpusLanguage } from "@/lib/types";
 
@@ -7,6 +8,13 @@ const DEFAULT_CHAT_MODEL = "deepseek/deepseek-v4-flash";
 const CORPUS_LANGUAGE_NAMES: Record<CorpusLanguage, string> = {
   ita: "Italian",
   eng: "English",
+};
+
+// ISO 639-1 codes for the corpus languages — tinyld returns 2-letter codes, so
+// the local detector's result is compared against these.
+const CORPUS_LANGUAGE_BCP47: Record<CorpusLanguage, string> = {
+  ita: "it",
+  eng: "en",
 };
 
 const languageRoutingSchema = z.object({
@@ -57,6 +65,26 @@ export async function routeQueryLanguage(
   const indexLanguage = options.indexLanguage ?? getIndexLanguage();
   const indexLanguageName = getCorpusLanguageName(indexLanguage);
   const trimmedQuery = query.trim();
+
+  // Local same-language fast-path. When the prompt is already in the index
+  // language, translation is identity and the routing LLM call is pure
+  // latency/cost — so detect the language locally and skip `generateText`.
+  // tinyld is a small profile-based detector (ISO 639-1) that returns "" for
+  // too-short/ambiguous input; we treat empty or any non-index result as "not
+  // confidently the index language" and fall through to the LLM, so genuine
+  // cross-language prompts (e.g. Italian → English index) still get translated.
+  const detectedCode = detect(trimmedQuery);
+  if (detectedCode && detectedCode === CORPUS_LANGUAGE_BCP47[indexLanguage]) {
+    return {
+      originalQuery: trimmedQuery,
+      searchQuery: trimmedQuery,
+      inputLanguageCode: detectedCode,
+      inputLanguageName: indexLanguageName,
+      indexLanguage,
+      indexLanguageName,
+      translated: false,
+    };
+  }
 
   try {
     const result = await generateText({
