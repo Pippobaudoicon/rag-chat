@@ -12,6 +12,7 @@
  * (Phase A of docs/TOOL_SPECIFIC_LANGUAGE_ROUTING_PLAN.md. Tool-policy and route
  * integration cases are added as later phases land.)
  */
+import { readFileSync } from "node:fs";
 import {
   detectPromptLanguage,
   routeQueryLanguage,
@@ -20,6 +21,7 @@ import {
   type RoutingModelRequest,
 } from "@/lib/rag/language-routing";
 import { createRetrievalQueryResolver } from "@/lib/rag/retrieval-query-resolver";
+import { buildUserMessage } from "@/lib/rag/system-prompt";
 
 let failures = 0;
 function check(label: string, cond: boolean, detail = "") {
@@ -133,6 +135,28 @@ async function main() {
     check("resolver memoizes identical (query, target) -> one translation", calls === 2, `calls=${calls}`);
     check("resolver returns the same memoized routing object", a === b);
   }
+
+  // ── Phase B: no-tool turn makes zero routing-model calls ──────────────────
+  // The chat preamble no longer routes globally: it detects prompt language
+  // locally (pure, no model) and never calls routeQueryLanguage. A no-tool turn
+  // (e.g. "Ciao, come stai?") therefore issues no routing-model call at all —
+  // routing is lazy, inside the English-corpus tools, which a no-tool turn never
+  // invokes. Proven statically against the route source plus the user-message
+  // contract (the route handler can't be imported here — it pulls Clerk/DB).
+  const routeSrc = readFileSync("src/app/api/chat/route.ts", "utf8");
+  check("chat route no longer calls routeQueryLanguage (no global routing)", !routeSrc.includes("routeQueryLanguage"));
+  check("chat route detects prompt language locally", routeSrc.includes("detectPromptLanguage("));
+  check("chat route records no `routing` latency phase", !routeSrc.includes('phase("routing"'));
+
+  // The no-tool Italian greeting: local hint is Italian, the user message carries
+  // that answer-language hint and no globally translated "Search query" block.
+  const greetingMsg = buildUserMessage(
+    "Ciao, come stai?",
+    [],
+    { uiLanguage: "eng", promptLanguage: detectPromptLanguage("Ciao, come stai?") }
+  );
+  check("`Ciao, come stai?` user message hints Italian answer", greetingMsg.includes("Answer in Italian (it)"));
+  check("`Ciao, come stai?` user message has no translated Search query block", !/Search query/i.test(greetingMsg));
 
   console.log(`\n${failures === 0 ? "All language-policy checks passed" : `${failures} check(s) failed`}`);
   if (failures > 0) process.exit(1);

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.12.15
+
+- **Tool-specific language routing — Phase B (remove global chat translation; tools unchanged).** Second step of `docs/TOOL_SPECIFIC_LANGUAGE_ROUTING_PLAN.md`. `POST /api/chat` no longer issues a per-turn routing/translation LLM call.
+  - **No global `routeQueryLanguage()` in the chat preamble.** The deferred-routing helper and the routing slot in the ownership-gated `Promise.all` are gone; the `routing` latency phase is no longer recorded for chat turns (it should be absent/zero, per the plan's telemetry contract). A no-tool turn (e.g. `Ciao, come stai?`) now makes **zero routing-model calls** — proven by `test:language-policy` static checks on the route source.
+  - **Local prompt-language context drives answer + cache metadata.** The route now calls `detectPromptLanguage()` (pure, network-free) for the answer-language hint and indexed-scripture-language preference. The session answer-cache language metadata uses the locally detected `promptLanguage.code` (was the LLM-routed `inputLanguageCode`); the retrieval cache key is now keyed on the original question + `getIndexLanguage()` (was the translated `searchQuery`) — for the default flow the model passes the question to `semantic_search`, whose own `cacheKey` then matches, so the final-answer cache overwrite still lands on the same entry.
+  - **Simplified `buildUserMessage()`.** Carries the original question + locally detected answer-language hint (`und` → "answer in the same language as the original prompt") + the UI-language warning, and instructs the model to pass tool queries in the user's own language (each tool translates internally). Dropped the globally translated "Search query" block. `CORE_RULES` updated to match. The model still answers in the user's original prompt language.
+  - **Eager retrieval honors the new contract (still default-OFF).** Eager runs only when the prompt is **confidently English** (`detectPromptLanguage().code === "en"`) on the English index, classifying the original question — cross-language prompts are never translated in the preamble to become eager-eligible; they take the normal tool-first path.
+  - **Unchanged in this phase:** the retrieval tools (translation moves into them in Phase C), `/api/search` (migrates separately after chat is verified — it still passes `CHAT_MODEL`; the follow-up will switch it to `RAG_ROUTING_MODEL` without changing its API contract), all auth/billing/rate-limit/ownership gates, history/memory, write ordering, citations, source ordering, and response payload shapes. `typecheck` + `test:routing` (9/9) + `test:eager` (30/30) + `test:language-policy` (23/23) clean.
+
 ## 0.12.14
 
 - **Tool-specific language routing — Phase A (local context + lazy resolver; no route behavior change yet).** First implementation step of `docs/TOOL_SPECIFIC_LANGUAGE_ROUTING_PLAN.md`. Additive infrastructure only — the chat route still routes globally until Phase B.

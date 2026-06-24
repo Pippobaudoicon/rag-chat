@@ -34,7 +34,8 @@ import { createRagTools } from "@/lib/rag/tools";
 import { createLatencyTrace, withToolTiming } from "@/lib/observability/latency";
 import {
   getIndexLanguage,
-  routeQueryLanguage,
+  getCorpusLanguageName,
+  detectPromptLanguage,
 } from "@/lib/rag/language-routing";
 import { isEagerRetrievalEnabled, retrievalFlagsSignature } from "@/lib/rag/flags";
 import { parseScriptureSelection } from "@/lib/rag/scripture-reference";
@@ -261,44 +262,31 @@ export async function POST(req: Request) {
     }
   }
 
-  // `routeQueryLanguage` only needs the question, known up front EXCEPT for
-  // regenerate requests whose body omits the text (resolved from history
-  // below). For the common case route in parallel; otherwise defer the (single)
-  // routing call until the fallback question is known.
-  const startRouting = (q: string) =>
-    latency.phase("routing", () =>
-      routeQueryLanguage(q, {
-        indexLanguage: getIndexLanguage(),
-        model: CHAT_MODEL,
-      })
-    );
-  const questionKnownEarly = question.trim().length > 0;
-
   // Independent reads behind the ownership gate: messages load (only when a
-  // conversation exists), language routing, memory brief, and user prefs. The
-  // `ownedConversation` const snapshot keeps the closure's non-null narrowing.
+  // conversation exists), memory brief, and user prefs. Global language routing
+  // is gone — no per-turn translation LLM call. Retrieval-query translation is
+  // now lazy, inside the English-corpus tools, so a no-tool turn pays nothing.
+  // The `ownedConversation` const snapshot keeps the closure's non-null narrowing.
   const ownedConversation = conversation;
-  const [storedMessages, memoryBrief, userPreferences, earlyRouting] =
-    await Promise.all([
-      ownedConversation
-        ? latency.phase("messagesLoad", () =>
-            db
-              .select({
-                id: messages.id,
-                role: messages.role,
-                content: messages.content,
-                sourcesJson: messages.sourcesJson,
-                versionsJson: messages.versionsJson,
-              })
-              .from(messages)
-              .where(eq(messages.conversationId, ownedConversation.id))
-              .orderBy(asc(messages.createdAt))
-          )
-        : Promise.resolve([] as StoredMessage[]),
-      latency.phase("memoryBrief", () => getUserMemoryBrief(userId)),
-      latency.phase("prefs", () => getUserPreferences(userId)),
-      questionKnownEarly ? startRouting(question) : Promise.resolve(null),
-    ]);
+  const [storedMessages, memoryBrief, userPreferences] = await Promise.all([
+    ownedConversation
+      ? latency.phase("messagesLoad", () =>
+          db
+            .select({
+              id: messages.id,
+              role: messages.role,
+              content: messages.content,
+              sourcesJson: messages.sourcesJson,
+              versionsJson: messages.versionsJson,
+            })
+            .from(messages)
+            .where(eq(messages.conversationId, ownedConversation.id))
+            .orderBy(asc(messages.createdAt))
+        )
+      : Promise.resolve([] as StoredMessage[]),
+    latency.phase("memoryBrief", () => getUserMemoryBrief(userId)),
+    latency.phase("prefs", () => getUserPreferences(userId)),
+  ]);
 
   let targetAssistantMessage: StoredMessage | null = null;
   let createdConversationTitle: string | null = null;
@@ -363,15 +351,19 @@ export async function POST(req: Request) {
     return new Response("Bad Request: empty question", { status: 400 });
   }
 
-  // Route now if it was deferred (regenerate request whose question was just
-  // resolved from history); otherwise reuse the result computed in parallel.
-  const languageRouting = earlyRouting ?? (await startRouting(question));
+  // Local, network-free answer-language context (no routing LLM call). This is
+  // an answer-language hint + scripture-language preference, NOT a retrieval
+  // translation — that stays lazy inside the English-corpus tools.
+  const indexLanguage = getIndexLanguage();
+  const promptLanguage = detectPromptLanguage(question);
 
-  // Retrieval caches use the translated index-language query. The UI language
-  // is intentionally not part of search routing.
+  // Retrieval cache key. Keyed on the original question (no global translation):
+  // for the default flow the model passes the question to semantic_search, whose
+  // own cacheKey then matches this one so the final answer overwrite below lands
+  // on the same entry. The UI language is intentionally not part of search routing.
   const key = cacheKey(
-    languageRouting.searchQuery,
-    languageRouting.indexLanguage,
+    question,
+    indexLanguage,
     sources,
     effectiveTopK,
     retrievalFlagsSignature()
@@ -388,8 +380,8 @@ export async function POST(req: Request) {
     ? sessionAnswerCacheKey(userId, conversation.id, question, {
         language: [
           `ui:${uiLanguage}`,
-          `answer:${languageRouting.inputLanguageCode}`,
-          `index:${languageRouting.indexLanguage}`,
+          `answer:${promptLanguage.code}`,
+          `index:${indexLanguage}`,
           `flags:${retrievalFlagsSignature()}`,
         ].join("|"),
         sources,
@@ -529,24 +521,28 @@ export async function POST(req: Request) {
   // `searchQuery` (no multilingual heuristics). Warms the SAME cacheKey the tool
   // uses, so a redundant tool call is a cache hit. Default OFF; opt in with
   // RAG_EAGER_RETRIEVAL=true after trace validation.
-  const scriptureSelection = parseScriptureSelection(
-    languageRouting.searchQuery,
-    languageRouting.indexLanguage
-  );
+  // Eager runs on the ORIGINAL prompt and only when it is confidently English
+  // (§4.6): we never translate a cross-language prompt in the preamble just to
+  // make it eager-eligible — those take the normal tool-first path and translate
+  // lazily inside semantic_search. With an English prompt the original query is
+  // already English, so the existing English-only eligibility heuristics hold.
+  const promptIsEnglish = promptLanguage.code === "en";
+  const scriptureSelection = parseScriptureSelection(question, indexLanguage);
   const eagerEligible =
     isEagerRetrievalEnabled() &&
-    languageRouting.indexLanguage === "eng" &&
+    indexLanguage === "eng" &&
+    promptIsEnglish &&
     !hasFixedChunks &&
     !scriptureSelection &&
     sources.length > 0 &&
-    isEagerTopicalQuery(languageRouting.searchQuery);
+    isEagerTopicalQuery(question);
   if (eagerEligible) {
     const eager = await latency.phase("eagerRetrieval", () =>
       runSemanticRetrieval({
-        query: languageRouting.searchQuery,
+        query: question,
         sources,
         topK: effectiveTopK,
-        language: languageRouting.indexLanguage,
+        language: indexLanguage,
       })
     );
     initialChunks = eager.chunks;
@@ -561,11 +557,7 @@ export async function POST(req: Request) {
     initialChunks,
     {
       uiLanguage,
-      inputLanguageCode: languageRouting.inputLanguageCode,
-      inputLanguageName: languageRouting.inputLanguageName,
-      indexLanguage: languageRouting.indexLanguage,
-      indexLanguageName: languageRouting.indexLanguageName,
-      searchQuery: languageRouting.searchQuery,
+      promptLanguage,
     },
     eagerEligible ? "eager" : "fixed"
   );
@@ -594,8 +586,8 @@ export async function POST(req: Request) {
   const chatTools = withToolTiming(
     {
       ...createRagTools({
-        language: languageRouting.indexLanguage,
-        retrievalLanguageName: languageRouting.indexLanguageName,
+        language: indexLanguage,
+        retrievalLanguageName: getCorpusLanguageName(indexLanguage),
         sources,
         topK: effectiveTopK,
         initialChunks,
@@ -702,12 +694,13 @@ export async function POST(req: Request) {
         model: CHAT_MODEL,
         finishReason,
         toolNames: getToolNames(steps),
-        // Retrieval trace: how this turn retrieved (routing + flags + per-tool
-        // stats), so real conversations can be mined into the eval gold set.
+        // Retrieval trace: how this turn retrieved (locally detected input
+        // language + flags + per-tool stats), so real conversations can be mined
+        // into the eval gold set. There is no global translated searchQuery
+        // anymore; tool-local routing telemetry lands in Phase C.
         retrieval: {
-          inputLanguageCode: languageRouting.inputLanguageCode,
-          searchQuery: languageRouting.searchQuery,
-          indexLanguage: languageRouting.indexLanguage,
+          inputLanguageCode: promptLanguage.code,
+          indexLanguage,
           sources,
           topK: effectiveTopK,
           flags: retrievalFlagsSignature(),
