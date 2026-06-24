@@ -20,8 +20,28 @@ import {
   getRoutingFallbackModel,
   type RoutingModelRequest,
 } from "@/lib/rag/language-routing";
-import { createRetrievalQueryResolver } from "@/lib/rag/retrieval-query-resolver";
+import {
+  createRetrievalQueryResolver,
+  aggregateRoutingTelemetry,
+} from "@/lib/rag/retrieval-query-resolver";
+import type { QueryLanguageRouting } from "@/lib/rag/language-routing";
 import { buildUserMessage } from "@/lib/rag/system-prompt";
+
+// Build a QueryLanguageRouting for the aggregation tests.
+function routing(over: Partial<QueryLanguageRouting>): QueryLanguageRouting {
+  return {
+    originalQuery: "q",
+    searchQuery: "q",
+    inputLanguageCode: "und",
+    inputLanguageName: "the user's language",
+    indexLanguage: "eng",
+    indexLanguageName: "English",
+    translated: false,
+    routingMs: 0,
+    routingFallbackUsed: false,
+    ...over,
+  };
+}
 
 let failures = 0;
 function check(label: string, cond: boolean, detail = "") {
@@ -211,6 +231,40 @@ async function main() {
     await resolver.resolve("Cosa insegna la Chiesa sull'umiltà?", "eng");
     await resolver.resolve("Cosa insegna la Chiesa sull'umiltà?", "eng");
     check("repeated identical tool query -> one memoized translation", calls === 1, `calls=${calls}`);
+  }
+
+  // Aggregated routing telemetry: a tool that routes more than one field (the
+  // conference query + title) must report the WHOLE cost, not just the first call.
+  {
+    const both = aggregateRoutingTelemetry([
+      routing({ translated: true, routingMs: 30, routingModel: "openai/gpt-oss-120b", inputLanguageCode: "it" }),
+      routing({ translated: true, routingMs: 12, routingModel: "openai/gpt-oss-120b", inputLanguageCode: "it" }),
+    ]);
+    check("aggregate sums routingMs across both calls", both.routingMs === 42);
+    check("aggregate ORs translated + counts both model calls", both.translated === true && both.routingCalls === 2);
+    check("aggregate dedupes a single routing model", both.routingModel === "openai/gpt-oss-120b");
+  }
+  {
+    // One translated (model) + one identity (fast path): cost + call count reflect only the model call.
+    const mixed = aggregateRoutingTelemetry([
+      routing({ translated: true, routingMs: 25, routingModel: "openai/gpt-oss-120b", inputLanguageCode: "it" }),
+      routing({ translated: false, routingMs: 0 }),
+    ]);
+    check("aggregate counts only model-invoking resolutions", mixed.routingCalls === 1 && mixed.routingMs === 25 && mixed.translated === true);
+    check("aggregate carries the confident input language code", mixed.inputLanguageCode === "it");
+  }
+  {
+    // Both local fast path: no model, no fallback, no model recorded.
+    const none = aggregateRoutingTelemetry([routing({}), routing({})]);
+    check("aggregate of fast-path-only -> 0 calls, undefined model", none.routingCalls === 0 && none.routingMs === 0 && none.translated === false && none.routingModel === undefined);
+  }
+  {
+    // Distinct models (query primary, title fallback): record both + OR fallback flag.
+    const fb = aggregateRoutingTelemetry([
+      routing({ translated: true, routingMs: 20, routingModel: "openai/gpt-oss-120b" }),
+      routing({ translated: true, routingMs: 50, routingModel: "openai/gpt-5.4-mini", routingFallbackUsed: true }),
+    ]);
+    check("aggregate ORs fallback + records distinct models", fb.routingFallbackUsed === true && fb.routingModel === "openai/gpt-oss-120b, openai/gpt-5.4-mini" && fb.routingCalls === 2);
   }
 
   // Static wiring: each tool owns the right language policy.

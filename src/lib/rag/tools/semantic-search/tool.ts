@@ -2,7 +2,10 @@ import { tool } from "ai";
 import { z } from "zod";
 import { SUPER_SOURCES } from "@/lib/types";
 import type { ChatProgressData, Language, SourceType } from "@/lib/types";
-import type { RetrievalQueryResolver } from "@/lib/rag/retrieval-query-resolver";
+import {
+  aggregateRoutingTelemetry,
+  type RetrievalQueryResolver,
+} from "@/lib/rag/retrieval-query-resolver";
 import { toToolChunk } from "../shared/chunk-formatting";
 import { runSemanticRetrieval } from "../shared/semantic-retrieval";
 import type { RagToolContext } from "../shared/tool-context";
@@ -114,12 +117,8 @@ export function createSemanticSearchTool({
         sourceCount: chunks.length,
         cacheHit,
         elapsedMs: Date.now() - startedAt,
-        routingMs: routing.routingMs,
-        translated: routing.translated,
-        inputLanguageCode: routing.inputLanguageCode,
         retrievalLanguage: language,
-        routingModel: routing.routingModel,
-        routingFallbackUsed: routing.routingFallbackUsed,
+        ...aggregateRoutingTelemetry([routing]),
       });
 
       return {

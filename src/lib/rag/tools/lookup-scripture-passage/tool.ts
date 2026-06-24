@@ -9,7 +9,7 @@ import {
 import { parseScriptureSelection } from "@/lib/rag/scripture-reference";
 import type { ChatProgressData, Language, SourceChunk } from "@/lib/types";
 import { toToolChunk } from "../shared/chunk-formatting";
-import { expandRelatedContext } from "../shared/related-context";
+import { expandRelatedContext, filterRelatedToLanguage } from "../shared/related-context";
 import { graphRerank } from "../shared/graph-rerank";
 import { isGraphRerankEnabled } from "@/lib/rag/flags";
 import type { RagToolContext } from "../shared/tool-context";
@@ -86,7 +86,7 @@ export function createLookupScripturePassageTool({
       const key = toolResultCacheKey("lookup_scripture_passage", scriptureLanguage, {
         reference,
         topK,
-        v: 2,
+        v: 3,
       });
       const cached = await getToolResultFromCache<CachedPassage>(key);
 
@@ -112,10 +112,17 @@ export function createLookupScripturePassageTool({
           : chunks;
 
         passage = (strictChunks.length > 0 ? strictChunks : chunks).slice(0, topK);
-        // Attach the passage's cross-references + study-help context (graph).
-        relatedContext = await expandRelatedContext(passage, scriptureLanguage, {
-          cap: RELATED_CONTEXT_CAP,
-        });
+        // Attach the passage's cross-references + study-help context (graph),
+        // then enforce the single-language direct-passage contract: keep only
+        // related chunks in the passage's actual language (which is the preferred
+        // scriptureLanguage, or the fallback language when the passage was only
+        // available there). related_ids are English-only, so an Italian passage
+        // would otherwise pick up English cross-references.
+        const passageLanguage = passage[0]?.language ?? scriptureLanguage;
+        relatedContext = filterRelatedToLanguage(
+          await expandRelatedContext(passage, scriptureLanguage, { cap: RELATED_CONTEXT_CAP }),
+          passageLanguage
+        );
         void setToolResultInCache(key, { passage, related: relatedContext });
       }
 

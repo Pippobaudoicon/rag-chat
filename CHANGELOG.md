@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.12.18
+
+- **Phase C corrections.** Two issues found in live tool testing of the Phase C lazy-translation work, plus permanent eval coverage.
+  - **Aggregate `search_conference_talks` routing telemetry.** The tool can route two fields (free-text query + title) but recorded only the query's routing. New `aggregateRoutingTelemetry()` folds all resolutions into one event: `routingMs` summed, `translated` / `routingFallbackUsed` OR'd, distinct `routingModel`(s) comma-joined, and a new `routingCalls` count of model-invoking resolutions (0 = all local fast-path). `semantic_search` uses the same helper (single resolution). `RetrievalToolEvent` / `ChatProgressData` gain `routingCalls`.
+  - **Single-language direct-passage contract.** Italian direct passage lookup returned the Italian passage but appended **English** graph cross-references (the graph's `related_ids` are projected onto English chunks only). `lookup_scripture_passage` now filters related context to the passage's actual language (`filterRelatedToLanguage`), so a direct lookup is never mixed-language; the requested passage stays pinned first. The passage itself still prefers the requested `scriptureLanguage` and falls back to the other indexed language only when that language lacks it (related then follows the fallback language). Cache shape version bumped `v2 → v3`. The eval scripture mirror applies the same filter so it reflects tool behavior.
+  - **Permanent eval fixtures + first-result assertion.** Added `Giovanni 3` / `Giovanni 3:16` / `John 3` / `John 3:16` to the golden set with a new `expectFirstRefAnyOf` structural check (the requested book/passage must rank **first**) alongside `expectScriptureLanguage` (Giovanni → Italian, John → English). New `1st` column in the eval table. The eval scripture mirror now also replicates the tool's strict slug+chapter passage pin (the old skip-NOTE rationale — Italian `canonicalBook` — was outdated; the filter has always been slug-based), so the fixtures verify real tool behavior. Full eval: **98/98 structural checks pass**.
+  - `typecheck` + `test:routing` (9/9) + `test:eager` (30/30) + `test:language-policy` (50 checks, incl. telemetry aggregation) clean.
+
 ## 0.12.17
 
 - **Tool-specific language routing — Phase C (lazy per-tool translation + prompt-preferred scripture language).** Third step of `docs/TOOL_SPECIFIC_LANGUAGE_ROUTING_PLAN.md`. Translation now happens inside the English-corpus tools, only when a cross-language query is actually retrieved.

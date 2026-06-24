@@ -148,9 +148,13 @@ Notes:
   index language, source filters, topK, the ranking-flag signature, and per-tool
   stats (`RetrievalToolEvent`: sourceCount / cacheHit / elapsedMs, plus tool-local
   language routing — `routingMs` / `translated` / `inputLanguageCode` /
-  `retrievalLanguage` / `routingModel` / `routingFallbackUsed` — present for
-  `semantic_search` & `search_conference_talks`, absent for the non-translating
-  `lookup_scripture_passage`). There is no longer a single global translated
+  `retrievalLanguage` / `routingModel` / `routingFallbackUsed` / `routingCalls` —
+  present for `semantic_search` & `search_conference_talks`, absent for the
+  non-translating `lookup_scripture_passage`). `search_conference_talks` may route
+  two fields (query + title), so the telemetry is **aggregated** across both
+  resolutions: `routingMs` summed, `translated`/`routingFallbackUsed` OR'd,
+  `routingCalls` = number of model-invoking resolutions, `routingModel` = the
+  distinct model(s) used. There is no longer a single global translated
   search query; translation is per-tool. The retrieved chunks live in
   `sources_json`; the trace captures the *how* so real conversations can be mined
   into the eval gold set.
@@ -249,6 +253,7 @@ Notes:
 - In the **chat** route, retrieval-query translation is **per-tool and lazy** (not a global preamble step): `semantic_search` and `search_conference_talks` translate their query to the corpus language inside `execute()` via the request-scoped resolver (English input is identity, no LLM call); the model answers in the original prompt language. `lookup_scripture_passage` is matched by slug and prefers the prompt's scripture language without translating. `GET /api/search` still translates globally to the configured index language (its contract is migrated separately).
 - `RAG_INDEX_LANGUAGE` controls the single-language semantic retrieval target. It defaults to English (`eng`) for `lds-rag-v1` (English-main corpus; scriptures also carry Italian chunks). Set to `ita` only to target the legacy `lds-rag` index.
 - Retrieval still preserves each chunk's source-language metadata. Scriptures are bilingual (eng+ita); scripture verse/chapter retrieval **prefers the requested `scriptureLanguage`** (the prompt's indexed scripture language — `ita` for "Giovanni 3:16", English fallback when the prompt language is unknown/unindexed), queries it first, and falls back to the other indexed language only if empty. Other namespaces are English-only.
+- **Single-language direct-passage contract.** `lookup_scripture_passage` returns one language: the cross-reference graph's `related_ids` are projected onto English chunks only, so expanding a non-English passage would otherwise append English cross-references. After expansion the related context is filtered to the passage's own language (`filterRelatedToLanguage`) — so an Italian `Giovanni 3:16` returns Italian passage + (currently empty) Italian related context, never mixed English. The requested passage stays pinned first; the eval golden set has permanent `Giovanni 3` / `Giovanni 3:16` / `John 3` / `John 3:16` fixtures asserting first-result book/passage and scripture language (`expectFirstRefAnyOf` + `expectScriptureLanguage`).
 - Structured scripture retrieval (verse + chapter, including bare chapter refs like "Alma 32") filters Pinecone on **language-invariant** signals (`language` + `chapter`) and enforces the requested book via its **slug** (chunk id 3rd segment `scriptures:<lang>:<bookSlug>:…` / URL path), NOT the display book name. This is deliberate: `parseScriptureSelection().canonicalBook` is Italian (legacy table — "Giovanni", "Salmi", "2 Nefi") and does not match the English `book` metadata, so a `book: { $eq }` filter would silently return nothing and fall back to Italian or to unfiltered semantic results. (If the canonicalBook table is ever localized to English, the slug-based matching still holds.)
 - Enrichment metadata is consumed (present on enriched namespaces — scriptures + conference): the retriever maps `summary`, `topics`, `entities` (people/places/doctrines), and `references` onto each chunk. These are (a) sent to the model as per-source context via `toToolChunk` (context only — not citable sources), (b) shown as tags/reference chips on source cards, and (c) used for a small, capped topic/entity rerank boost when query terms overlap a chunk's topics/entities.
 - Special scripture handling for whole chapter/book requests:

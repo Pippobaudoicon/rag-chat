@@ -135,10 +135,13 @@ export interface RetrievalToolEvent {
   inputLanguageCode?: string;
   /** Corpus language the query was resolved to (e.g. "eng"). */
   retrievalLanguage?: string;
-  /** Routing model that produced the translation; absent on the fast path. */
+  /** Routing model(s) that produced the translation; absent on the fast path. */
   routingModel?: string;
   /** Whether the one-shot routing fallback model produced the translation. */
   routingFallbackUsed?: boolean;
+  /** Number of query resolutions that invoked a routing model (e.g. conference
+   *  routes both query and title); 0 when every resolution was local fast-path. */
+  routingCalls?: number;
 }
 
 /**
@@ -253,6 +256,7 @@ export interface ChatProgressData {
   retrievalLanguage?: string;
   routingModel?: string;
   routingFallbackUsed?: boolean;
+  routingCalls?: number;
 }
 
 // Type for UIMessage metadata that includes sources

@@ -604,6 +604,7 @@ export async function POST(req: Request) {
               retrievalLanguage: progress.retrievalLanguage,
               routingModel: progress.routingModel,
               routingFallbackUsed: progress.routingFallbackUsed,
+              routingCalls: progress.routingCalls,
             });
           }
           writeProgress?.(progress);

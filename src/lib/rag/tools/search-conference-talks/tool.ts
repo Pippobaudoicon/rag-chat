@@ -11,7 +11,11 @@ import {
   toolResultCacheKey,
 } from "@/lib/rag/cache";
 import type { ChatProgressData, Language, SourceChunk } from "@/lib/types";
-import type { RetrievalQueryResolver } from "@/lib/rag/retrieval-query-resolver";
+import {
+  aggregateRoutingTelemetry,
+  type RetrievalQueryResolver,
+} from "@/lib/rag/retrieval-query-resolver";
+import type { QueryLanguageRouting } from "@/lib/rag/language-routing";
 import { toToolChunk, uniqueById, uniqueStrings } from "../shared/chunk-formatting";
 import { normalizeForMatch } from "../shared/text-normalize";
 import type { RagToolContext } from "../shared/tool-context";
@@ -84,10 +88,17 @@ export function createSearchConferenceTalksTool({
       // Resolve the searchable free text (query + optional title) to the corpus
       // language before inference/matching; speaker and year are structured
       // constraints and pass through untranslated. English input is identity
-      // (no LLM call); a cross-language query translates once (memoized).
+      // (no LLM call); a cross-language query translates once (memoized). BOTH
+      // resolutions are recorded in telemetry (summed/OR'd) below.
+      const routings: QueryLanguageRouting[] = [];
       const queryRouting = await resolver.resolve(query, language);
+      routings.push(queryRouting);
       query = queryRouting.searchQuery;
-      if (title) title = (await resolver.resolve(title, language)).searchQuery;
+      if (title) {
+        const titleRouting = await resolver.resolve(title, language);
+        routings.push(titleRouting);
+        title = titleRouting.searchQuery;
+      }
 
       const inferredSpeaker = inferSpeakerFromQuery(query);
       const effectiveSpeaker = speaker ?? inferredSpeaker;
@@ -228,12 +239,8 @@ export function createSearchConferenceTalksTool({
         sourceCount: returned.length,
         cacheHit: !!cached,
         elapsedMs: Date.now() - startedAt,
-        routingMs: queryRouting.routingMs,
-        translated: queryRouting.translated,
-        inputLanguageCode: queryRouting.inputLanguageCode,
         retrievalLanguage: language,
-        routingModel: queryRouting.routingModel,
-        routingFallbackUsed: queryRouting.routingFallbackUsed,
+        ...aggregateRoutingTelemetry(routings),
       });
 
       return {
