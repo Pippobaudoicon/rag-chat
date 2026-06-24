@@ -60,7 +60,7 @@ Read this first before deep code exploration.
 3b. The conversation **ownership gate** (a single indexed lookup, 404 on a deleted/unowned id) resolves first, before any other preamble work. Once past it, the mutually independent reads run concurrently in a single `Promise.all` rather than serially: messages load, language routing, the memory brief, and user preferences. This collapses `preStreamMs` from the sum of those phases toward their max. Routing runs in the batch for the common case; for regenerate requests whose body omits the question text (resolved from history), the single routing call is deferred until the question is known.
 4. Server detects the user's prompt language and translates the retrieval query into the configured Pinecone index language (`RAG_INDEX_LANGUAGE`, English by default for `lds-rag-v1`). Detection runs **locally first** (`tinyld`): when the prompt is already in the index language the routing LLM call is skipped entirely (identity translation, `routing` phase ≈ 0). Only cross-language prompts — or too-short/ambiguous input that the local detector can't classify — fall through to the `generateText` translation call. The `QueryLanguageRouting` contract is identical on both paths.
 5. Server constructs an AI SDK `streamText` call with the RAG tool set and lets the model decide how to retrieve.
-5b. **Eager retrieval (P1, flag-gated, default ON):** on an answer-cache miss, for common topical questions the server runs the default `semantic_search` retrieval *during* the preamble (`eagerRetrieval` latency phase) and seeds the resulting chunks as the user message's `initialChunks`, so the model can answer on turn 1 instead of spending an empty tool-decision round-trip (`firstToolCallMs − preStreamMs`). It warms the **same** Upstash cacheKey the tool uses, so a redundant `semantic_search` call resolves as a cache hit. Skipped for: the fixed-chunks regenerate path, scripture references (`parseScriptureSelection` non-null → handled by `lookup_scripture_passage`), and empty source sets. Eager and lazy paths share `runSemanticRetrieval()` (`src/lib/rag/tools/shared/semantic-retrieval.ts`) so chunk ordering and citation indices are identical. Kill-switch: `RAG_EAGER_RETRIEVAL=false`.
+5b. **Eager retrieval (P1, flag-gated, default OFF — opt-in):** on an answer-cache miss, for high-confidence topical questions the server can run the default `semantic_search` retrieval *during* the preamble (`eagerRetrieval` latency phase) and seed the chunks as the user message's `initialChunks`, so the model answers on turn 1 instead of spending an empty tool-decision round-trip (`firstToolCallMs − preStreamMs`). The eager user message carries a **preloaded-context contract** (a labeled "Context (preloaded semantic search)" block + system-prompt rules counting preloaded chunks as tool-equivalent sources) so the model answers/cites directly without re-emitting `semantic_search`. It warms the **same** Upstash cacheKey, so a refinement tool call is a cache hit. Eligibility is a **conservative positive allowlist** (`isEagerTopicalQuery`, false-negatives preferred): skips the fixed-chunks regenerate path, empty source sets, scripture references (`parseScriptureSelection` → `lookup_scripture_passage`), chit-chat, response-edit / conversational follow-ups, specific conference-talk requests (→ `search_conference_talks`), and too-short prompts. Eager and lazy paths share `runSemanticRetrieval()` (`src/lib/rag/tools/shared/semantic-retrieval.ts`) so ordering and citation indices are identical. Enable with `RAG_EAGER_RETRIEVAL=true` only after trace validation.
 6. The model calls one or more retrieval tools per turn as it sees fit, using the translated index-language search query:
    - `semantic_search` for general topical queries (caches via Upstash Redis).
    - `lookup_scripture_passage` for scripture references (also cached via Upstash Redis).
@@ -256,14 +256,16 @@ Notes:
   when the question benefits from it. Retrieval caching lives in the tool layer
   for `semantic_search`, `lookup_scripture_passage`, and `search_conference_talks`.
   `stopWhen: stepCountIs(8)` in the chat route caps the number of model + tool
-  steps per turn. **Exception — P1 eager retrieval (flag-gated, default ON):** for
-  common topical questions on an answer-cache miss, the route runs the default
-  `semantic_search` retrieval during the preamble and seeds it as `initialChunks`
-  (see §4 step 5b) so the model answers without an opening tool round-trip. This is
-  NOT the old unconditional double-retrieval: eager warms the same tool cacheKey
-  via the shared `runSemanticRetrieval()` helper, so a later `semantic_search` is a
-  cache hit, and it is skipped for scripture refs / fixed chunks / empty sources.
-  Disable with `RAG_EAGER_RETRIEVAL=false`.
+  steps per turn. **Exception — P1 eager retrieval (flag-gated, default OFF):** for
+  high-confidence topical questions on an answer-cache miss, the route can run the
+  default `semantic_search` retrieval during the preamble and seed it as
+  `initialChunks` (see §4 step 5b) with a preloaded-context contract so the model
+  answers without an opening tool round-trip. This is NOT the old unconditional
+  double-retrieval: eager warms the same tool cacheKey via the shared
+  `runSemanticRetrieval()` helper, so a refinement `semantic_search` is a cache hit,
+  and a conservative allowlist (`isEagerTopicalQuery`) skips scripture refs / fixed
+  chunks / empty sources / chit-chat / follow-ups / specific-talk requests. Opt-in
+  with `RAG_EAGER_RETRIEVAL=true` after trace validation.
 - AI function tools available in the chat runtime:
   - `semantic_search` — general topical retrieval over the user's selected
     sources, with Upstash Redis caching. The model may override `sources`, but
@@ -482,13 +484,16 @@ Reference template: `.env.example`.
 - `RAG_MULTI_QUERY` (default **off**) — multi-query expansion (`query-expansion.ts`).
   Adds one small LLM call per search.
 - `RAG_MMR` (default **off**) — per-source / per-title diversity caps on the top-k.
-- `RAG_EAGER_RETRIEVAL` (default **on**) — P1 eager/speculative retrieval. Runs the
-  default `semantic_search` during the preamble on an answer-cache miss and seeds the
-  chunks as `initialChunks` so the model answers on turn 1 (kills the empty
-  tool-decision round-trip). Skips scripture refs / fixed chunks / empty sources;
-  warms the same tool cacheKey (a redundant tool call is then a cache hit).
+- `RAG_EAGER_RETRIEVAL` (default **off**, opt-in) — P1 eager/speculative retrieval.
+  Runs the default `semantic_search` during the preamble on an answer-cache miss and
+  seeds the chunks (with a preloaded-context contract) as `initialChunks` so the model
+  answers on turn 1 (kills the empty tool-decision round-trip). Conservative allowlist
+  (`isEagerTopicalQuery`, false-negatives preferred): skips scripture refs / fixed
+  chunks / empty sources / chit-chat / response-edit follow-ups / specific-talk
+  requests. Warms the same tool cacheKey (a refinement tool call is then a cache hit).
   Deliberately NOT part of `retrievalFlagsSignature()` — it changes *when* retrieval
-  runs, not the cached results. Kill-switch: set to `false`.
+  runs, not the cached results. Enable with `true` only after latency-trace + output/
+  citation parity validation.
 
 ## 12) Update policy for agents
 

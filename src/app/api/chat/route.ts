@@ -38,6 +38,7 @@ import {
 } from "@/lib/rag/language-routing";
 import { isEagerRetrievalEnabled, retrievalFlagsSignature } from "@/lib/rag/flags";
 import { parseScriptureSelection } from "@/lib/rag/scripture-reference";
+import { isEagerTopicalQuery } from "@/lib/rag/eager-eligibility";
 import { runSemanticRetrieval } from "@/lib/rag/tools/shared/semantic-retrieval";
 import { badRequestFromZod, chatRequestSchema } from "@/lib/api/validation";
 import {
@@ -516,13 +517,16 @@ export async function POST(req: Request) {
 
   // ── 5b. P1 eager retrieval ────────────────────────────────────────────────
   // Reaching here implies an answer-cache miss (a hit returns early above).
-  // For common topical questions, run the default semantic_search retrieval now
-  // — during the preamble — and seed the chunks as `initialChunks` so the model
-  // can answer on turn 1, eliminating the empty tool-decision round-trip.
-  // Skipped for: fixed-chunks regenerate (already seeded), scripture references
-  // (handled by lookup_scripture_passage, not semantic_search), and empty
-  // sources. Warms the SAME cacheKey the tool uses, so a redundant tool call is
-  // a cache hit. Kill-switch: RAG_EAGER_RETRIEVAL=false.
+  // For high-confidence topical questions, run the default semantic_search
+  // retrieval now — during the preamble — and seed the chunks as `initialChunks`
+  // so the model can answer on turn 1, eliminating the empty tool-decision
+  // round-trip. Eligibility is a conservative positive allowlist (false negatives
+  // preferred): skipped for fixed-chunks regenerate (already seeded), empty
+  // sources, scripture references (→ lookup_scripture_passage), and — via
+  // `isEagerTopicalQuery` — chit-chat, response-edit / conversational follow-ups,
+  // and specific conference-talk requests (→ search_conference_talks). Warms the
+  // SAME cacheKey the tool uses, so a redundant tool call is a cache hit.
+  // Default OFF; opt in with RAG_EAGER_RETRIEVAL=true after trace validation.
   const scriptureSelection = parseScriptureSelection(
     languageRouting.searchQuery,
     languageRouting.indexLanguage
@@ -531,7 +535,8 @@ export async function POST(req: Request) {
     isEagerRetrievalEnabled() &&
     !hasFixedChunks &&
     !scriptureSelection &&
-    sources.length > 0;
+    sources.length > 0 &&
+    isEagerTopicalQuery(question);
   if (eagerEligible) {
     const eager = await latency.phase("eagerRetrieval", () =>
       runSemanticRetrieval({
@@ -548,14 +553,19 @@ export async function POST(req: Request) {
   // In the default flow `initialChunks` is empty unless eager retrieval seeded
   // it above; otherwise the model is expected to call a retrieval tool. The
   // regenerate-with-fixed-chunks path injects pre-selected context up front.
-  const augmentedQuestion = buildUserMessage(question, initialChunks, {
-    uiLanguage,
-    inputLanguageCode: languageRouting.inputLanguageCode,
-    inputLanguageName: languageRouting.inputLanguageName,
-    indexLanguage: languageRouting.indexLanguage,
-    indexLanguageName: languageRouting.indexLanguageName,
-    searchQuery: languageRouting.searchQuery,
-  });
+  const augmentedQuestion = buildUserMessage(
+    question,
+    initialChunks,
+    {
+      uiLanguage,
+      inputLanguageCode: languageRouting.inputLanguageCode,
+      inputLanguageName: languageRouting.inputLanguageName,
+      indexLanguage: languageRouting.indexLanguage,
+      indexLanguageName: languageRouting.indexLanguageName,
+      searchQuery: languageRouting.searchQuery,
+    },
+    eagerEligible ? "eager" : "fixed"
+  );
 
   const chatMessages: ChatMessage[] = [...modelHistory, { role: "user", content: augmentedQuestion }];
 
