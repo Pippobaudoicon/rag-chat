@@ -1,4 +1,4 @@
-import { fetchRelatedChunks } from "@/lib/rag/retriever";
+import { fetchRelatedChunks, fetchLocalizedScriptureRefs } from "@/lib/rag/retriever";
 import type { Language, SourceChunk, SourceType } from "@/lib/types";
 
 export interface ExpandRelatedOptions {
@@ -44,10 +44,48 @@ export async function expandRelatedContext(
   }
 
   if (relatedIds.length === 0) return [];
-  const related = await fetchRelatedChunks(relatedIds, language);
-  return related.filter(
-    (chunk) => !sourceIds.has(chunk.id) && (!allowedSources || allowedSources.has(chunk.source))
+  // Cross-reference edges are stored as ENGLISH ids in the graph. Resolve them in
+  // the passage language by rewriting the id's language segment, so an Italian
+  // passage gets Italian cross-reference chunks (not English ones the
+  // single-language filter would then drop). English passages: no-op.
+  const localized = relatedIds.map((id) => localizeScriptureId(id, language));
+  const related = await fetchRelatedChunks(localized, language);
+
+  // Exact-id fetch misses a scripture ref when the target language chunked the
+  // same verses into a different range. Resolve those by canonical slug+chapter
+  // + verse overlap (no-op for English, where the exact ids all exist).
+  const found = new Set(related.map((chunk) => chunk.id));
+  const missedScripture = localized.filter(
+    (id) => id.startsWith("scriptures:") && !found.has(id)
   );
+  if (missedScripture.length > 0) {
+    related.push(...(await fetchLocalizedScriptureRefs(missedScripture, language)));
+  }
+
+  const emitted = new Set<string>();
+  return related
+    .filter((chunk) => {
+      if (sourceIds.has(chunk.id) || emitted.has(chunk.id)) return false;
+      emitted.add(chunk.id);
+      return !allowedSources || allowedSources.has(chunk.source);
+    })
+    // Slug+chapter resolution can return several chunks per missed ref, so re-cap
+    // (exact-id matches are first, so they're kept).
+    .slice(0, cap);
+}
+
+/**
+ * Rewrite a scripture chunk id's language segment (`scriptures:<lang>:<slug>:…`)
+ * to `language` — pure canonical-slug remap, no translation. Non-scripture ids
+ * (study helps, English-only in the graph) are returned unchanged. Refs whose
+ * exact verse-range id is absent in the target language are recovered by
+ * `fetchLocalizedScriptureRefs` (slug+chapter + verse overlap).
+ */
+export function localizeScriptureId(id: string, language: Language): string {
+  const parts = id.split(":");
+  if (parts[0] !== "scriptures" || parts.length < 3) return id;
+  parts[1] = language;
+  return parts.join(":");
 }
 
 /**

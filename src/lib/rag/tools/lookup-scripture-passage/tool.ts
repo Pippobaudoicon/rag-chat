@@ -86,7 +86,7 @@ export function createLookupScripturePassageTool({
       const key = toolResultCacheKey("lookup_scripture_passage", scriptureLanguage, {
         reference,
         topK,
-        v: 3,
+        v: 5,
       });
       const cached = await getToolResultFromCache<CachedPassage>(key);
 
@@ -112,15 +112,15 @@ export function createLookupScripturePassageTool({
           : chunks;
 
         passage = (strictChunks.length > 0 ? strictChunks : chunks).slice(0, topK);
-        // Attach the passage's cross-references + study-help context (graph),
-        // then enforce the single-language direct-passage contract: keep only
-        // related chunks in the passage's actual language (which is the preferred
-        // scriptureLanguage, or the fallback language when the passage was only
-        // available there). related_ids are English-only, so an Italian passage
-        // would otherwise pick up English cross-references.
+        // Attach the passage's cross-references + study-help context (graph) in
+        // the passage's ACTUAL language (preferred scriptureLanguage, or the
+        // fallback language when the passage was only available there). The graph
+        // stores English edges, so expandRelatedContext localizes scripture refs
+        // to this language; the filter then drops anything still cross-language
+        // (e.g. English-only study helps) — single-language direct-passage contract.
         const passageLanguage = passage[0]?.language ?? scriptureLanguage;
         relatedContext = filterRelatedToLanguage(
-          await expandRelatedContext(passage, scriptureLanguage, { cap: RELATED_CONTEXT_CAP }),
+          await expandRelatedContext(passage, passageLanguage, { cap: RELATED_CONTEXT_CAP }),
           passageLanguage
         );
         void setToolResultInCache(key, { passage, related: relatedContext });
