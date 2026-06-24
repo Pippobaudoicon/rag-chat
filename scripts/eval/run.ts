@@ -229,13 +229,14 @@ async function buildCandidates(
     }
   }
 
+  // Mirror lookup_scripture_passage: localize cross-refs to the passage language
+  // (in expandRelatedContext) and drop any still cross-language.
+  const passageLanguage = primary[0]?.language ?? language;
   const related =
     c.kind === "scripture"
-      ? // Mirror lookup_scripture_passage's single-language direct-passage
-        // contract: drop related cross-references not in the passage's language.
-        filterRelatedToLanguage(
-          await expandRelatedContext(primary, language, { cap: SCRIPTURE_RELATED_CAP }),
-          primary[0]?.language ?? language
+      ? filterRelatedToLanguage(
+          await expandRelatedContext(primary, passageLanguage, { cap: SCRIPTURE_RELATED_CAP }),
+          passageLanguage
         )
       : await expandRelatedContext(primary, language, {
           fromTopN: SEMANTIC_FROM_TOP_N,

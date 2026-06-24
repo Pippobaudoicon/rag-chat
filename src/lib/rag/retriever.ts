@@ -642,3 +642,65 @@ export async function fetchRelatedChunks(
 
   return groups.flat();
 }
+
+/**
+ * Resolve scripture cross-references whose exact localized id is absent because
+ * the target language chunked the same verses into different ranges (e.g. an
+ * English `scriptures:eng:jacob:4:1-5` has no `scriptures:ita:jacob:4:1-5`).
+ * Resolve by canonical slug + chapter: list that chapter's chunks in the target
+ * language by id prefix, then keep the ones whose verse range overlaps the
+ * requested range. No translation — pure id/metadata matching.
+ *
+ * Input ids are already in the target language (`scriptures:<language>:<slug>:<chapter>:<verses>:…`).
+ */
+export async function fetchLocalizedScriptureRefs(
+  ids: string[],
+  language: Language
+): Promise<SourceChunk[]> {
+  if (ids.length === 0) return [];
+  const ns = getPinecone().index(INDEX_NAME).namespace("scriptures");
+
+  // Group requested verse ranges by `<slug>:<chapter>` so each chapter is listed once.
+  const byChapter = new Map<string, Array<{ start: number; end: number }>>();
+  for (const id of ids) {
+    const p = id.split(":"); // scriptures:lang:slug:chapter:verseRange:v1
+    if (p[0] !== "scriptures" || p.length < 5) continue;
+    const bounds = parseVerseBounds(p[4]);
+    if (!bounds) continue;
+    const key = `${p[2]}:${p[3]}`;
+    (byChapter.get(key) ?? byChapter.set(key, []).get(key)!).push(bounds);
+  }
+
+  const groups = await Promise.all(
+    [...byChapter.entries()].map(async ([key, ranges]) => {
+      try {
+        const prefix = `scriptures:${language}:${key}:`;
+        const candidateIds: string[] = [];
+        let token: string | undefined;
+        do {
+          const page = await ns.listPaginated({ prefix, paginationToken: token });
+          for (const v of page.vectors ?? []) if (v.id) candidateIds.push(v.id);
+          token = page.pagination?.next;
+        } while (token && candidateIds.length < 60); // safety cap per chapter
+        if (candidateIds.length === 0) return [] as SourceChunk[];
+
+        const res = await ns.fetch({ ids: candidateIds });
+        const records =
+          (res as { records?: Record<string, { id: string; metadata?: Record<string, unknown> }> })
+            .records ?? {};
+        return Object.values(records)
+          .map((rec) =>
+            toChunk("scriptures", (rec.metadata?.language as Language) ?? language, {
+              id: rec.id,
+              score: RELATED_CHUNK_SCORE,
+              metadata: rec.metadata,
+            })
+          )
+          .filter((chunk) => ranges.some((r) => verseOverlaps(chunk.verse, r.start, r.end)));
+      } catch {
+        return [] as SourceChunk[];
+      }
+    })
+  );
+  return groups.flat();
+}

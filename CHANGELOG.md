@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.12.19
+
+- **Multilingual scripture cross-references.** A direct Italian passage lookup now includes its related **Italian** scripture chunks instead of none. The cross-reference graph stores edges as English ids, so `expandRelatedContext` localizes each scripture ref to the passage language by rewriting the id's language segment (`localizeScriptureId`: `scriptures:eng:<slug>:… → scriptures:ita:…` — pure canonical-slug remap, no LLM) and fetching by id. A ref whose exact verse-range chunk doesn't exist in the target language (the two languages chunked the same verses differently) is recovered by `fetchLocalizedScriptureRefs` — list that book+chapter in the target language by id prefix, keep chunks whose verse range overlaps (canonical slug+chapter resolution, still no LLM). `filterRelatedToLanguage` then drops anything still cross-language (English-only study helps). The requested passage stays pinned first; the related set is re-capped to `RELATED_CONTEXT_CAP` (exact-id matches first). English lookups unchanged (localize eng→eng is a no-op, all exact ids resolve), as is `semantic_search`. The scripture tool expands/filters on the passage's actual language (matters in the fallback case where the requested language lacked the passage); cache shape `v3 → v5`. Eval `Giovanni 3` / `Giovanni 3:16` now return Italian passage + Italian cross-refs (n 3→27 / 1→15), all-Italian and passage-first; `giovanni-3-16` floor raised to `minResults: 2`. Follow-up to PR #9; `/api/search` migration remains separate.
+
 ## 0.12.18
 
 - **Phase C corrections.** Two issues found in live tool testing of the Phase C lazy-translation work, plus permanent eval coverage.

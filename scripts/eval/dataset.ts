@@ -120,7 +120,9 @@ export const EVAL_CASES: EvalCase[] = [
     expectRefsAnyOf: ["Giovanni 3:16"],
     expectFirstRefAnyOf: ["Giovanni 3:16", "Giovanni 3"],
     expectScriptureLanguage: "ita",
-    minResults: 1,
+    // > 1 result proves the Italian cross-references are included (the passage
+    // alone is a single chunk), all in Italian (expectScriptureLanguage).
+    minResults: 2,
   },
   {
     id: "scripture-psalms-23",
