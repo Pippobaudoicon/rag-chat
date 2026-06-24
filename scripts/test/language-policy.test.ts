@@ -190,6 +190,45 @@ async function main() {
   );
   check("confident Italian prompt -> explicit `Answer in Italian (it)` hint", italianMsg.includes("Answer in Italian (it)"));
 
+  // ── Phase C: tool-specific lazy translation + scripture language ──────────
+  // Identity fast path through the resolver with the REAL router: an English
+  // semantic query resolves to itself with no model call (network-free), so
+  // English semantic retrieval is byte-identical to before.
+  {
+    const resolver = createRetrievalQueryResolver();
+    const r = await resolver.resolve("What does the Church teach about humility?", "eng");
+    check("English semantic query -> identity routing inside the resolver (no translation)", r.translated === false && r.routingMs === 0 && r.searchQuery === "What does the Church teach about humility?");
+  }
+  // A cross-language tool query translates once and is memoized across repeats —
+  // the contract semantic_search / search_conference_talks rely on.
+  {
+    let calls = 0;
+    const router = (async (q: string, opts: { indexLanguage: "eng" | "ita" }) => {
+      calls += 1;
+      return { originalQuery: q, searchQuery: "humility", inputLanguageCode: "it", inputLanguageName: "Italian", indexLanguage: opts.indexLanguage, indexLanguageName: "English", translated: true, routingMs: 7, routingModel: "openai/gpt-oss-120b", routingFallbackUsed: false };
+    }) as unknown as typeof routeQueryLanguage;
+    const resolver = createRetrievalQueryResolver({ router });
+    await resolver.resolve("Cosa insegna la Chiesa sull'umiltà?", "eng");
+    await resolver.resolve("Cosa insegna la Chiesa sull'umiltà?", "eng");
+    check("repeated identical tool query -> one memoized translation", calls === 1, `calls=${calls}`);
+  }
+
+  // Static wiring: each tool owns the right language policy.
+  const semanticSrc = readFileSync("src/lib/rag/tools/semantic-search/tool.ts", "utf8");
+  const conferenceSrc = readFileSync("src/lib/rag/tools/search-conference-talks/tool.ts", "utf8");
+  const scriptureSrc = readFileSync("src/lib/rag/tools/lookup-scripture-passage/tool.ts", "utf8");
+  check("semantic_search translates lazily via the resolver", semanticSrc.includes("resolver.resolve(query, language)") && semanticSrc.includes("query: retrievalQuery"));
+  check("search_conference_talks resolves query + title to corpus language", conferenceSrc.includes("resolver.resolve(query, language)") && conferenceSrc.includes("resolver.resolve(title, language)"));
+  check("lookup_scripture_passage performs NO translation", !scriptureSrc.includes("resolver") && !scriptureSrc.includes("routeQueryLanguage") && !scriptureSrc.includes("RetrievalQueryResolver"));
+  check("lookup_scripture_passage retrieves by preferred scriptureLanguage", scriptureSrc.includes('retrieve(reference, ["scriptures"], scriptureLanguage'));
+
+  // Static wiring: the route derives the preferred scripture language, creates
+  // the resolver, passes both to the tools, and no longer overwrites the
+  // retrieval cache with the final answer (single canonical key owned by tools).
+  check("route derives preferred scripture language from prompt language", routeSrc.includes("promptLanguage.scriptureLanguage ?? indexLanguage"));
+  check("route creates a request-scoped resolver and passes it to the tools", routeSrc.includes("createRetrievalQueryResolver()") && routeSrc.includes("resolver: retrievalResolver"));
+  check("route no longer overwrites the retrieval cache with the final answer", !routeSrc.includes("setInCache("));
+
   console.log(`\n${failures === 0 ? "All language-policy checks passed" : `${failures} check(s) failed`}`);
   if (failures > 0) process.exit(1);
 }

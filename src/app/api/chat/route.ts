@@ -19,7 +19,6 @@ import {
 } from "@/lib/rag/system-prompt";
 import { getUserPreferences } from "@/lib/db/user-settings";
 import {
-  cacheKey,
   conversationTitleCacheKey,
   deriveConversationTitle,
   getSessionAnswerFromCache,
@@ -27,14 +26,13 @@ import {
   invalidateConversationCaches,
   sessionAnswerCacheKey,
   setConversationTitleInCache,
-  setInCache,
   setSessionAnswerInCache,
 } from "@/lib/rag/cache";
 import { createRagTools } from "@/lib/rag/tools";
+import { createRetrievalQueryResolver } from "@/lib/rag/retrieval-query-resolver";
 import { createLatencyTrace, withToolTiming } from "@/lib/observability/latency";
 import {
   getIndexLanguage,
-  getCorpusLanguageName,
   detectPromptLanguage,
 } from "@/lib/rag/language-routing";
 import { isEagerRetrievalEnabled, retrievalFlagsSignature } from "@/lib/rag/flags";
@@ -356,18 +354,14 @@ export async function POST(req: Request) {
   // translation — that stays lazy inside the English-corpus tools.
   const indexLanguage = getIndexLanguage();
   const promptLanguage = detectPromptLanguage(question);
-
-  // Retrieval cache key. Keyed on the original question (no global translation):
-  // for the default flow the model passes the question to semantic_search, whose
-  // own cacheKey then matches this one so the final answer overwrite below lands
-  // on the same entry. The UI language is intentionally not part of search routing.
-  const key = cacheKey(
-    question,
-    indexLanguage,
-    sources,
-    effectiveTopK,
-    retrievalFlagsSignature()
-  );
+  // Preferred scripture language for lookup_scripture_passage: the prompt's
+  // indexed scripture language when known, else the corpus language as a
+  // deterministic fallback (the retriever falls back to the other indexed
+  // language only if the passage is absent).
+  const scriptureLanguage = promptLanguage.scriptureLanguage ?? indexLanguage;
+  // Request-scoped lazy translation resolver, shared by semantic_search and
+  // search_conference_talks so identical tool queries translate at most once.
+  const retrievalResolver = createRetrievalQueryResolver();
 
   const historySignature = JSON.stringify(
     storedMessages.map((message) => ({
@@ -587,7 +581,8 @@ export async function POST(req: Request) {
     {
       ...createRagTools({
         language: indexLanguage,
-        retrievalLanguageName: getCorpusLanguageName(indexLanguage),
+        scriptureLanguage,
+        resolver: retrievalResolver,
         sources,
         topK: effectiveTopK,
         initialChunks,
@@ -601,6 +596,14 @@ export async function POST(req: Request) {
               sourceCount: progress.sourceCount,
               cacheHit: progress.cacheHit,
               elapsedMs: progress.elapsedMs,
+              // Tool-local language routing (present for semantic_search /
+              // search_conference_talks; absent for lookup_scripture_passage).
+              routingMs: progress.routingMs,
+              translated: progress.translated,
+              inputLanguageCode: progress.inputLanguageCode,
+              retrievalLanguage: progress.retrievalLanguage,
+              routingModel: progress.routingModel,
+              routingFallbackUsed: progress.routingFallbackUsed,
             });
           }
           writeProgress?.(progress);
@@ -709,15 +712,12 @@ export async function POST(req: Request) {
         latency: latencyTrace,
       };
 
-      // Update cache with the final assistant answer + tool-collected chunks.
-      // The semantic_search tool warms the cache with chunks during retrieval;
-      // here we overwrite that entry to also include the streamed answer text.
-      // Skip caching for the regenerate-with-fixed-chunks path because the
-      // cache key was not derived from a real retrieval in that case.
-      if (!hasFixedChunks) {
-        await setInCache(key, { chunks: getResponseSources(), answer: text });
-      }
-
+      // The retrieval cache is owned entirely by the tools now: each translates
+      // its query internally and warms its OWN canonical key (the translated
+      // query). The route no longer overwrites a retrieval-cache entry with the
+      // final answer — that would key on the original question and diverge from
+      // the tool's translated key, leaving two entries. Repeat answers are served
+      // by the separate session answer cache below.
       if (answerCacheKey && !isRegenerateRequest && conversation && !hasFixedChunks) {
         await setSessionAnswerInCache(answerCacheKey, {
           text,

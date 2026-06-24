@@ -40,26 +40,34 @@ interface CachedPassage {
 }
 
 export interface LookupScripturePassageDeps {
-  language: Language;
+  /**
+   * Preferred scripture language (chosen from the prompt language, independent of
+   * the semantic corpus language). The retriever queries this language first and
+   * falls back to the other indexed scripture language only if the passage is
+   * absent. References are parsed via language-invariant slugs, so the reference
+   * itself is never translated.
+   */
+  scriptureLanguage: Language;
   context: RagToolContext;
   onProgress?: (progress: ChatProgressData) => void;
-  retrievalLanguageName?: string;
 }
 
 /**
  * `lookup_scripture_passage`: structured retrieval of a scripture passage by
  * reference. Applies strict book/chapter filtering on top of the semantic
  * search and falls back to the unfiltered list when the strict filter would
- * have returned nothing.
+ * have returned nothing. The reference is NOT translated — book names are
+ * resolved through language-invariant aliases/slugs — and chunks are returned in
+ * the preferred scripture language (falling back only if that language lacks the
+ * passage).
  */
 export function createLookupScripturePassageTool({
-  language,
+  scriptureLanguage,
   context,
   onProgress,
-  retrievalLanguageName = "the configured index language",
 }: LookupScripturePassageDeps) {
   return tool({
-    description: `Retrieve scripture passages (Book of Mormon, D&C, Pearl of Great Price) by reference or scripture-focused query. Results may include related cross-reference and study-help chunks; use them when they strengthen a religious-scholar answer, even if the user did not explicitly ask for cross-references. Tool input reference must be in ${retrievalLanguageName}.`,
+    description: `Retrieve scripture passages (Book of Mormon, D&C, Pearl of Great Price) by reference or scripture-focused query. Pass the reference in the user's own language (e.g. "Giovanni 3:16" or "John 3:16"); book names are matched language-invariantly, so no translation is needed. Results may include related cross-reference and study-help chunks; use them when they strengthen a religious-scholar answer, even if the user did not explicitly ask for cross-references.`,
     inputSchema,
     execute: async ({ reference, topK }) => {
       const startedAt = Date.now();
@@ -73,7 +81,9 @@ export function createLookupScripturePassageTool({
       // This keeps cache hits correct when RAG_GRAPH_RERANK is flipped. `v` is a
       // cache-shape version: bump it whenever the cached structure changes so old
       // (differently-shaped) entries are ignored rather than mis-parsed.
-      const key = toolResultCacheKey("lookup_scripture_passage", language, {
+      // Cache by original normalized reference + preferred scripture language, so
+      // an Italian and an English request for the same passage stay separate.
+      const key = toolResultCacheKey("lookup_scripture_passage", scriptureLanguage, {
         reference,
         topK,
         v: 2,
@@ -85,8 +95,8 @@ export function createLookupScripturePassageTool({
       if (cached) {
         ({ passage, related: relatedContext } = cached);
       } else {
-        const chunks = await retrieve(reference, ["scriptures"], language, topK);
-        const selection = parseScriptureSelection(reference, language);
+        const chunks = await retrieve(reference, ["scriptures"], scriptureLanguage, topK);
+        const selection = parseScriptureSelection(reference, scriptureLanguage);
 
         const strictChunks: SourceChunk[] = selection
           ? chunks.filter((chunk) => {
@@ -103,7 +113,7 @@ export function createLookupScripturePassageTool({
 
         passage = (strictChunks.length > 0 ? strictChunks : chunks).slice(0, topK);
         // Attach the passage's cross-references + study-help context (graph).
-        relatedContext = await expandRelatedContext(passage, language, {
+        relatedContext = await expandRelatedContext(passage, scriptureLanguage, {
           cap: RELATED_CONTEXT_CAP,
         });
         void setToolResultInCache(key, { passage, related: relatedContext });
@@ -128,7 +138,7 @@ export function createLookupScripturePassageTool({
 
       return {
         reference,
-        language,
+        language: scriptureLanguage,
         cacheHit: !!cached,
         total: finalChunks.length,
         chunks: indexedChunks.map(({ chunk, citationIndex }) =>

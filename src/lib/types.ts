@@ -125,6 +125,20 @@ export interface RetrievalToolEvent {
   sourceCount?: number;
   cacheHit?: boolean;
   elapsedMs?: number;
+  // Tool-local language routing (semantic_search / search_conference_talks).
+  // Absent for tools that never translate (e.g. lookup_scripture_passage).
+  /** Translation duration (ms); 0 when the local same-language fast path fired. */
+  routingMs?: number;
+  /** Whether the tool query was actually translated for retrieval. */
+  translated?: boolean;
+  /** Detected input language code for the tool query (BCP-47, or "und"). */
+  inputLanguageCode?: string;
+  /** Corpus language the query was resolved to (e.g. "eng"). */
+  retrievalLanguage?: string;
+  /** Routing model that produced the translation; absent on the fast path. */
+  routingModel?: string;
+  /** Whether the one-shot routing fallback model produced the translation. */
+  routingFallbackUsed?: boolean;
 }
 
 /**
@@ -231,6 +245,14 @@ export interface ChatProgressData {
   sourceCount?: number;
   cacheHit?: boolean;
   elapsedMs?: number;
+  // Tool-local language routing, forwarded on a tool's terminal "tools" event so
+  // the route can fold it into the persisted RetrievalToolEvent.
+  routingMs?: number;
+  translated?: boolean;
+  inputLanguageCode?: string;
+  retrievalLanguage?: string;
+  routingModel?: string;
+  routingFallbackUsed?: boolean;
 }
 
 // Type for UIMessage metadata that includes sources
