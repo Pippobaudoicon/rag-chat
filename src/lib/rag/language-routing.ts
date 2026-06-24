@@ -60,6 +60,25 @@ const GENERIC_LANGUAGE_NAME = "the user's language";
 // the generation model then naturally matches the original prompt.
 const PROMPT_LANGUAGE_MIN_CONFIDENCE = 0.9;
 
+// Dominance fallback for clear multi-word prompts that score below 0.9 — proper
+// nouns + numbers drag tinyld down ("can you help me understand better John 3?"
+// -> en@0.15) yet the prompt is unambiguously one language. Accept the top when
+// the prompt has enough words AND no rival language is significant. Calibrated
+// to STILL reject the two known holes: short greetings (≤ 3 words) and
+// mixed-language instructions ("Rispondi in italiano: <English>" -> en@0.73 but
+// 2nd it@0.27, a significant rival).
+const PROMPT_LANGUAGE_FALLBACK_MIN_WORDS = 4;
+const PROMPT_LANGUAGE_FALLBACK_MAX_SECONDARY = 0.15;
+// Word count + low secondary alone is not enough: a string of foreign-looking
+// proper names (BoM/place names) gets a weak, near-random top guess with no rival
+// (e.g. "Gideon Teancum Pahoran Moroni Lehi" -> la@0.039, "Liahona Cumorah Shazer
+// Nahom Bountiful Irreantum" -> la@0.048). Require a calibrated minimum top score.
+// Window: reject those weak classifications (≤ ~0.073 observed) while preserving
+// genuine prompts dragged down by proper nouns + numbers ("can you help me
+// understand better John 3?" -> en@0.145; "kannst du mir Johannes 3 besser
+// erklären?" -> de@0.100).
+const PROMPT_LANGUAGE_FALLBACK_MIN_CONFIDENCE = 0.08;
+
 // Same-language fast-path thresholds (calibrated against tinyld). A *pure*
 // index-language prompt classifies as that language with accuracy ~1.0 and a
 // single detected language. Any language mixing — an instruction like
@@ -118,8 +137,9 @@ export type PromptLanguage = {
  */
 export function detectPromptLanguage(query: string): PromptLanguage {
   const trimmed = query.trim();
-  const top = trimmed ? detectAll(trimmed)[0] : undefined;
-  if (!top || top.accuracy < PROMPT_LANGUAGE_MIN_CONFIDENCE) {
+  const detections = trimmed ? detectAll(trimmed) : [];
+  const top = detections[0];
+  if (!top || !isConfidentLanguage(trimmed, detections)) {
     return { code: "und", name: GENERIC_LANGUAGE_NAME };
   }
   const code = top.lang;
@@ -129,6 +149,27 @@ export function detectPromptLanguage(query: string): PromptLanguage {
     scriptureLanguage: ISO_TO_SCRIPTURE_LANGUAGE[code],
     confidence: top.accuracy,
   };
+}
+
+// Accept the top detection as the answer language when either it is highly
+// confident (≥ 0.9) OR a conservative dominance fallback holds: a multi-word
+// prompt whose top language has no significant rival. Keeps short greetings and
+// mixed-language instructions on `und` (the generation model then matches the
+// original prompt itself).
+function isConfidentLanguage(
+  query: string,
+  detections: Array<{ lang: string; accuracy: number }>
+): boolean {
+  const top = detections[0];
+  if (!top) return false;
+  if (top.accuracy >= PROMPT_LANGUAGE_MIN_CONFIDENCE) return true;
+  const second = detections[1];
+  const wordCount = query.split(/\s+/).filter(Boolean).length;
+  return (
+    top.accuracy >= PROMPT_LANGUAGE_FALLBACK_MIN_CONFIDENCE &&
+    wordCount >= PROMPT_LANGUAGE_FALLBACK_MIN_WORDS &&
+    (!second || second.accuracy < PROMPT_LANGUAGE_FALLBACK_MAX_SECONDARY)
+  );
 }
 
 /**
