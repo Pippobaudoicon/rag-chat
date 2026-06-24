@@ -2,6 +2,10 @@ import { tool } from "ai";
 import { z } from "zod";
 import { SUPER_SOURCES } from "@/lib/types";
 import type { ChatProgressData, Language, SourceType } from "@/lib/types";
+import {
+  aggregateRoutingTelemetry,
+  type RetrievalQueryResolver,
+} from "@/lib/rag/retrieval-query-resolver";
 import { toToolChunk } from "../shared/chunk-formatting";
 import { runSemanticRetrieval } from "../shared/semantic-retrieval";
 import type { RagToolContext } from "../shared/tool-context";
@@ -32,14 +36,17 @@ const inputSchema = z.object({
 });
 
 export interface SemanticSearchDeps {
+  /** Semantic corpus language to retrieve against (English by default). */
   language: Language;
+  /** Lazy translation resolver: the model's natural-language query is resolved
+   *  to `language` inside execute(), memoized per request. */
+  resolver: RetrievalQueryResolver;
   /** Sources selected in the chat UI for this turn. */
   defaultSources: SourceType[];
   /** topK selected in the chat UI for this turn. */
   defaultTopK: number;
   context: RagToolContext;
   onProgress?: (progress: ChatProgressData) => void;
-  retrievalLanguageName?: string;
 }
 
 /**
@@ -60,11 +67,11 @@ export interface SemanticSearchDeps {
  */
 export function createSemanticSearchTool({
   language,
+  resolver,
   defaultSources,
   defaultTopK,
   context,
   onProgress,
-  retrievalLanguageName = "the configured index language",
 }: SemanticSearchDeps) {
   // Ceiling for the model's `sources` override = exactly what the user enabled in
   // the UI. "Super" is explicit: it sends the full SUPER_SOURCES set, so that case
@@ -74,7 +81,7 @@ export function createSemanticSearchTool({
   const allowedSources = new Set<SourceType>(defaultSources);
 
   return tool({
-    description: `Run a general semantic search across the user's selected LDS sources. Tool input query must be in ${retrievalLanguageName}. Use this when the question is topical and does not target a specific scripture reference or a specific conference talk. Results may include bounded related context from the same selected sources; use it to refine the answer when relevant. Returns ranked chunks with citation indices.`,
+    description: `Run a general semantic search across the user's selected LDS sources. Pass the query in the user's own language — it is translated to the retrieval corpus language internally, so you do not need to pre-translate. Use this when the question is topical and does not target a specific scripture reference or a specific conference talk. Results may include bounded related context from the same selected sources; use it to refine the answer when relevant. Returns ranked chunks with citation indices.`,
     inputSchema,
     execute: async ({ query, topK, sources }) => {
       const startedAt = Date.now();
@@ -88,8 +95,16 @@ export function createSemanticSearchTool({
         toolName: "semantic_search",
       });
 
+      // Lazy translation to the corpus language. The local same-language fast
+      // path makes an English query identity (no LLM call); a cross-language
+      // query is translated once (memoized per request). The resolved English
+      // query drives the cache key, embeddings, Pinecone, rerank, and returned
+      // `query` metadata so retrieval is identical to the old pre-translated path.
+      const routing = await resolver.resolve(query, language);
+      const retrievalQuery = routing.searchQuery;
+
       const { chunks, cacheHit } = await runSemanticRetrieval({
-        query,
+        query: retrievalQuery,
         sources: effectiveSources,
         topK: effectiveTopK,
         language,
@@ -102,10 +117,12 @@ export function createSemanticSearchTool({
         sourceCount: chunks.length,
         cacheHit,
         elapsedMs: Date.now() - startedAt,
+        retrievalLanguage: language,
+        ...aggregateRoutingTelemetry([routing]),
       });
 
       return {
-        query,
+        query: retrievalQuery,
         language,
         sources: effectiveSources,
         cacheHit,

@@ -49,3 +49,17 @@ export async function expandRelatedContext(
     (chunk) => !sourceIds.has(chunk.id) && (!allowedSources || allowedSources.has(chunk.source))
   );
 }
+
+/**
+ * Keep only related chunks in `language`. The cross-reference graph's
+ * `related_ids` are projected onto ENGLISH chunks only, so expanding a
+ * non-English passage can surface English cross-references — which would break
+ * the single-language direct-passage contract (`lookup_scripture_passage`).
+ * Filtering to the passage's own language drops that cross-language leakage.
+ */
+export function filterRelatedToLanguage(
+  related: SourceChunk[],
+  language: Language
+): SourceChunk[] {
+  return related.filter((chunk) => chunk.language === language);
+}

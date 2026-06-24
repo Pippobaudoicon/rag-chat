@@ -93,11 +93,7 @@ for (const c of topicalCases) {
 // ── Prompt contract: eager context tells the model retrieval already ran ──────
 const routing = {
   uiLanguage: "eng" as const,
-  inputLanguageCode: "en",
-  inputLanguageName: "English",
-  indexLanguage: "eng" as const,
-  indexLanguageName: "English",
-  searchQuery: "what is faith",
+  promptLanguage: { code: "en", name: "English", scriptureLanguage: "eng" as const },
 };
 const chunk: SourceChunk = {
   id: "x1",

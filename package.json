@@ -1,6 +1,6 @@
 {
   "name": "rag-chat",
-  "version": "0.12.12",
+  "version": "0.12.18",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -12,7 +12,8 @@
     "docs:guard": "bash scripts/docs-guard.sh",
     "eval": "dotenv -o -e .env -e .env.local -- tsx scripts/eval/run.ts",
     "test:routing": "tsx scripts/test/language-routing.test.ts",
-    "test:eager": "tsx scripts/test/eager-eligibility.test.ts"
+    "test:eager": "tsx scripts/test/eager-eligibility.test.ts",
+    "test:language-policy": "tsx scripts/test/language-policy.test.ts"
   },
   "dependencies": {
     "@ai-sdk/react": "^3.0.143",

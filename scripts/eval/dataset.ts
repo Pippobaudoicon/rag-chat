@@ -28,6 +28,9 @@ export interface EvalCase {
   topK?: number;
   /** Passages that should appear, e.g. "Alma 32", "2 Nephi 2", "John 3:16". Partial. */
   expectRefsAnyOf?: string[];
+  /** The FIRST result must match one of these refs (book + optional verse) — the
+   *  requested direct passage should rank first, not buried under related context. */
+  expectFirstRefAnyOf?: string[];
   /** Source namespaces that should be present in the results. */
   expectSourcePresent?: SourceType[];
   /** Any result title should contain one of these strings. Partial, case-insensitive. */
@@ -80,7 +83,43 @@ export const EVAL_CASES: EvalCase[] = [
     query: "John 3",
     kind: "scripture",
     expectRefsAnyOf: ["John 3"],
+    expectFirstRefAnyOf: ["John 3"],
     expectScriptureLanguage: "eng",
+    minResults: 1,
+  },
+  // --- Direct-passage language preference + ranking (tool-specific language
+  // routing). The requested book/passage must rank FIRST and direct-passage
+  // chunks must be in the prompt's scripture language: Giovanni → Italian, John →
+  // English. The single-language related filter keeps cross-references in the
+  // same language (related_ids are English-only in the graph). ---
+  {
+    id: "scripture-john-3-16",
+    query: "John 3:16",
+    kind: "scripture",
+    language: "eng",
+    expectRefsAnyOf: ["John 3:16"],
+    expectFirstRefAnyOf: ["John 3:16", "John 3"],
+    expectScriptureLanguage: "eng",
+    minResults: 1,
+  },
+  {
+    id: "scripture-giovanni-3",
+    query: "Giovanni 3",
+    kind: "scripture",
+    language: "ita",
+    expectRefsAnyOf: ["Giovanni 3"],
+    expectFirstRefAnyOf: ["Giovanni 3"],
+    expectScriptureLanguage: "ita",
+    minResults: 1,
+  },
+  {
+    id: "scripture-giovanni-3-16",
+    query: "Giovanni 3:16",
+    kind: "scripture",
+    language: "ita",
+    expectRefsAnyOf: ["Giovanni 3:16"],
+    expectFirstRefAnyOf: ["Giovanni 3:16", "Giovanni 3"],
+    expectScriptureLanguage: "ita",
     minResults: 1,
   },
   {

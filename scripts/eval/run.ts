@@ -27,8 +27,12 @@
  */
 import { retrieve } from "@/lib/rag/retriever";
 import { routeQueryLanguage } from "@/lib/rag/language-routing";
-import { expandRelatedContext } from "@/lib/rag/tools/shared/related-context";
+import {
+  expandRelatedContext,
+  filterRelatedToLanguage,
+} from "@/lib/rag/tools/shared/related-context";
 import { graphRerank } from "@/lib/rag/tools/shared/graph-rerank";
+import { parseScriptureSelection } from "@/lib/rag/scripture-reference";
 import { normalizeBookForStrictMatch, normalizeForMatch } from "@/lib/rag/tools/shared/text-normalize";
 import {
   isGraphRerankEnabled,
@@ -125,6 +129,7 @@ function refMetrics(results: SourceChunk[], refs: string[]): RefMetrics {
 
 interface StructuralResult {
   languageOk: boolean | null; // null = not asserted
+  firstRefOk: boolean | null;
   sourcesPresentOk: boolean | null;
   titleOk: boolean | null;
   speakerOk: boolean | null;
@@ -145,6 +150,12 @@ function structuralChecks(c: EvalCase, results: SourceChunk[]): StructuralResult
     languageOk =
       scriptureChunks.length > 0 &&
       scriptureChunks.every((r) => r.language === c.expectScriptureLanguage);
+  }
+  let firstRefOk: boolean | null = null;
+  if (c.expectFirstRefAnyOf && c.expectFirstRefAnyOf.length > 0) {
+    const first = results[0];
+    firstRefOk =
+      !!first && c.expectFirstRefAnyOf.some((ref) => chunkMatchesRef(first, parseRef(ref)));
   }
   let sourcesPresentOk: boolean | null = null;
   if (c.expectSourcePresent && c.expectSourcePresent.length > 0) {
@@ -169,7 +180,7 @@ function structuralChecks(c: EvalCase, results: SourceChunk[]): StructuralResult
   if (c.minResults !== undefined) {
     minResultsOk = results.length >= c.minResults;
   }
-  return { languageOk, sourcesPresentOk, titleOk, speakerOk, contentOk, minResultsOk };
+  return { languageOk, firstRefOk, sourcesPresentOk, titleOk, speakerOk, contentOk, minResultsOk };
 }
 
 interface ResolvedQuery {
@@ -196,22 +207,36 @@ async function buildCandidates(
   const topK = c.topK ?? DEFAULT_TOPK;
   const sources = c.kind === "scripture" ? (["scriptures"] as const).slice() : c.sources ?? DEFAULT_SOURCES;
 
-  // NOTE: we intentionally do NOT replicate lookup_scripture_passage's strict
-  // book+chapter filter here. That filter currently compares against
-  // parseScriptureSelection().canonicalBook, which still returns ITALIAN book
-  // names (legacy index) and so never matches the English chunk labels — the
-  // tool silently falls back to unfiltered semantic results. Bare retrieve +
-  // expansion therefore mirrors the tool's *effective* behavior, and lets the
-  // `expectScriptureLanguage` / `expectRefsAnyOf` checks surface the real gaps
-  // (Italian leakage; specific chapters not ranking into the top-k).
-  //
   // `rerank` is forced here (not read from env) so the off/on arms are the only
   // variable; `diversity`/`multiQuery` follow their env flags and apply to both.
-  const primary = await retrieve(query, sources, language, topK, { rerank });
+  let primary = await retrieve(query, sources, language, topK, { rerank });
+
+  // Mirror lookup_scripture_passage's strict filter: pin the requested passage by
+  // its language-invariant book slug + chapter (chunk id 3rd segment), falling
+  // back to the unfiltered list only when nothing matches — exactly as the tool
+  // does — so the requested passage ranks first instead of behind semantic
+  // neighbors. (The strict filter has always been slug-based, not the Italian
+  // canonicalBook, so replicating it here is faithful.)
+  if (c.kind === "scripture") {
+    const selection = parseScriptureSelection(query, language);
+    if (selection) {
+      const strict = primary.filter(
+        (chunk) =>
+          chunk.id.split(":")[2] === selection.bookSlug &&
+          selection.chapters.includes(chunk.chapter ?? -1)
+      );
+      if (strict.length > 0) primary = strict.slice(0, topK);
+    }
+  }
 
   const related =
     c.kind === "scripture"
-      ? await expandRelatedContext(primary, language, { cap: SCRIPTURE_RELATED_CAP })
+      ? // Mirror lookup_scripture_passage's single-language direct-passage
+        // contract: drop related cross-references not in the passage's language.
+        filterRelatedToLanguage(
+          await expandRelatedContext(primary, language, { cap: SCRIPTURE_RELATED_CAP }),
+          primary[0]?.language ?? language
+        )
       : await expandRelatedContext(primary, language, {
           fromTopN: SEMANTIC_FROM_TOP_N,
           cap: SEMANTIC_RELATED_CAP,
@@ -301,6 +326,7 @@ async function main() {
         reranked: { firstRank: null, recall: NaN, reciprocalRank: NaN },
         structural: {
           languageOk: null,
+          firstRefOk: null,
           sourcesPresentOk: null,
           titleOk: null,
           speakerOk: null,
@@ -321,6 +347,7 @@ async function main() {
     "rank(off→on)".padEnd(14),
     "recall(off→on)".padEnd(16),
     "lang".padEnd(5),
+    "1st".padEnd(5),
     "src".padEnd(5),
     "ttl".padEnd(5),
     "spk".padEnd(5),
@@ -343,6 +370,7 @@ async function main() {
         rankCell,
         recallCell,
         structuralCell(r.structural.languageOk).padEnd(5),
+        structuralCell(r.structural.firstRefOk).padEnd(5),
         structuralCell(r.structural.sourcesPresentOk).padEnd(5),
         structuralCell(r.structural.titleOk).padEnd(5),
         structuralCell(r.structural.speakerOk).padEnd(5),
@@ -364,6 +392,7 @@ async function main() {
   const structuralAll = ok.flatMap((r) =>
     [
       r.structural.languageOk,
+      r.structural.firstRefOk,
       r.structural.sourcesPresentOk,
       r.structural.titleOk,
       r.structural.speakerOk,

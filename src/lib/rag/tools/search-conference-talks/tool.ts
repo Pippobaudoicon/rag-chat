@@ -11,6 +11,11 @@ import {
   toolResultCacheKey,
 } from "@/lib/rag/cache";
 import type { ChatProgressData, Language, SourceChunk } from "@/lib/types";
+import {
+  aggregateRoutingTelemetry,
+  type RetrievalQueryResolver,
+} from "@/lib/rag/retrieval-query-resolver";
+import type { QueryLanguageRouting } from "@/lib/rag/language-routing";
 import { toToolChunk, uniqueById, uniqueStrings } from "../shared/chunk-formatting";
 import { normalizeForMatch } from "../shared/text-normalize";
 import type { RagToolContext } from "../shared/tool-context";
@@ -39,10 +44,13 @@ const inputSchema = z.object({
 });
 
 export interface SearchConferenceTalksDeps {
+  /** Semantic corpus language to retrieve against (English by default). */
   language: Language;
+  /** Lazy translation resolver: the free-text query and optional title are
+   *  resolved to `language` inside execute() (speaker/year are preserved). */
+  resolver: RetrievalQueryResolver;
   context: RagToolContext;
   onProgress?: (progress: ChatProgressData) => void;
-  retrievalLanguageName?: string;
 }
 
 type Strategy = "strict" | "relaxed" | "title-not-found" | "semantic-only";
@@ -63,12 +71,12 @@ type MatchType = "exact-title" | "confirmed-title" | "not-found" | "semantic";
  */
 export function createSearchConferenceTalksTool({
   language,
+  resolver,
   context,
   onProgress,
-  retrievalLanguageName = "the configured index language",
 }: SearchConferenceTalksDeps) {
   return tool({
-    description: `Search General Conference talks by topic with optional speaker and year filters. Tool input query/title/speaker should be in ${retrievalLanguageName} when translating the user's prompt for retrieval.`,
+    description: `Search General Conference talks by topic with optional speaker and year filters. Pass the query and title in the user's own language — searchable text is translated to the retrieval corpus language internally, while speaker names and years are preserved. Returns ranked chunks with citation indices.`,
     inputSchema,
     execute: async ({ query, title, speaker, year, topK }) => {
       const startedAt = Date.now();
@@ -76,6 +84,21 @@ export function createSearchConferenceTalksTool({
         phase: "sources",
         toolName: "search_conference_talks",
       });
+
+      // Resolve the searchable free text (query + optional title) to the corpus
+      // language before inference/matching; speaker and year are structured
+      // constraints and pass through untranslated. English input is identity
+      // (no LLM call); a cross-language query translates once (memoized). BOTH
+      // resolutions are recorded in telemetry (summed/OR'd) below.
+      const routings: QueryLanguageRouting[] = [];
+      const queryRouting = await resolver.resolve(query, language);
+      routings.push(queryRouting);
+      query = queryRouting.searchQuery;
+      if (title) {
+        const titleRouting = await resolver.resolve(title, language);
+        routings.push(titleRouting);
+        title = titleRouting.searchQuery;
+      }
 
       const inferredSpeaker = inferSpeakerFromQuery(query);
       const effectiveSpeaker = speaker ?? inferredSpeaker;
@@ -216,6 +239,8 @@ export function createSearchConferenceTalksTool({
         sourceCount: returned.length,
         cacheHit: !!cached,
         elapsedMs: Date.now() - startedAt,
+        retrievalLanguage: language,
+        ...aggregateRoutingTelemetry(routings),
       });
 
       return {

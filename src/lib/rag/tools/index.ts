@@ -1,4 +1,5 @@
 import type { ChatProgressData, Language, SourceChunk, SourceType } from "@/lib/types";
+import type { RetrievalQueryResolver } from "@/lib/rag/retrieval-query-resolver";
 import { createCitationVerifierTool } from "./citation-verifier/tool";
 import { createLookupScripturePassageTool } from "./lookup-scripture-passage/tool";
 import { createSearchConferenceTalksTool } from "./search-conference-talks/tool";
@@ -12,9 +13,21 @@ import {
 export type { RagToolContext, ToolSourceListener } from "./shared/tool-context";
 
 export interface CreateRagToolsOptions {
+  /** Semantic corpus language (English by default) — the target for semantic /
+   *  conference retrieval after lazy translation. */
   language: Language;
-  /** Human-readable corpus/index language used for tool inputs this turn. */
-  retrievalLanguageName?: string;
+  /**
+   * Preferred scripture language for `lookup_scripture_passage`, chosen from the
+   * prompt language independently of the semantic `language` (scriptures are
+   * bilingual; the retriever falls back to the other indexed language if empty).
+   */
+  scriptureLanguage: Language;
+  /**
+   * Request-scoped lazy translation resolver. `semantic_search` and
+   * `search_conference_talks` use it to translate their query to `language`
+   * inside `execute()`; identical queries within the turn are memoized.
+   */
+  resolver: RetrievalQueryResolver;
   /** Sources selected in the chat UI for this turn. */
   sources: SourceType[];
   /** topK selected in the chat UI for this turn. */
@@ -48,21 +61,30 @@ export interface CreateRagToolsOptions {
  *     final answer.
  */
 export function createRagTools(options: CreateRagToolsOptions) {
-  const { language, sources, retrievalLanguageName, topK, initialChunks, onSources, onProgress } = options;
+  const {
+    language,
+    scriptureLanguage,
+    resolver,
+    sources,
+    topK,
+    initialChunks,
+    onSources,
+    onProgress,
+  } = options;
 
   const context = createRagToolContext({ initialChunks, onSources });
 
   return {
     semantic_search: createSemanticSearchTool({
       language,
+      resolver,
       defaultSources: sources,
       defaultTopK: topK,
       context,
       onProgress,
-      retrievalLanguageName,
     }),
-    lookup_scripture_passage: createLookupScripturePassageTool({ language, context, onProgress, retrievalLanguageName }),
-    search_conference_talks: createSearchConferenceTalksTool({ language, context, onProgress, retrievalLanguageName }),
+    lookup_scripture_passage: createLookupScripturePassageTool({ scriptureLanguage, context, onProgress }),
+    search_conference_talks: createSearchConferenceTalksTool({ language, resolver, context, onProgress }),
     citation_verifier: createCitationVerifierTool({ context }),
   };
 }

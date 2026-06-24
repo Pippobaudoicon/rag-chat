@@ -57,11 +57,11 @@ Read this first before deep code exploration.
 1. Client sends chat message to `POST /api/chat` with selected UI language/sources/topK.
 2. Server verifies auth and extracts the latest user question.
 3. Server loads Clerk Billing entitlements, checks Clerk plan access via `auth().has({ plan })`, and applies plan-aware chat rate limits plus a `topK` cap. These auth/ratelimit gates resolve first so a rejected request (401/429) never pays for the LLM/DB work below.
-3b. The conversation **ownership gate** (a single indexed lookup, 404 on a deleted/unowned id) resolves first, before any other preamble work. Once past it, the mutually independent reads run concurrently in a single `Promise.all` rather than serially: messages load, language routing, the memory brief, and user preferences. This collapses `preStreamMs` from the sum of those phases toward their max. Routing runs in the batch for the common case; for regenerate requests whose body omits the question text (resolved from history), the single routing call is deferred until the question is known.
-4. Server detects the user's prompt language and translates the retrieval query into the configured Pinecone index language (`RAG_INDEX_LANGUAGE`, English by default for `lds-rag-v1`). Detection runs **locally first** (`tinyld`): when the prompt is already in the index language the routing LLM call is skipped entirely (identity translation, `routing` phase ≈ 0). Only cross-language prompts — or too-short/ambiguous input that the local detector can't classify — fall through to the `generateText` translation call. The `QueryLanguageRouting` contract is identical on both paths.
+3b. The conversation **ownership gate** (a single indexed lookup, 404 on a deleted/unowned id) resolves first, before any other preamble work. Once past it, the mutually independent reads run concurrently in a single `Promise.all` rather than serially: messages load, the memory brief, and user preferences. This collapses `preStreamMs` from the sum of those phases toward their max. There is **no global language-routing LLM call** in the chat preamble (removed in the tool-specific language-routing refactor); the route detects prompt language locally instead (step 4), so a no-tool turn pays nothing for translation.
+4. Server detects the user's prompt language **locally** (`tinyld`, no network) via `detectPromptLanguage()` — an answer-language hint + indexed-scripture-language preference (`PromptLanguage`), NOT a retrieval translation. It asserts a concrete language **only when tinyld is confident** (`accuracy >= 0.9`); short greetings, low-confidence guesses, and mixed-language instructions ("Rispondi in italiano: <English>") stay `und`, so the route never injects a wrong "answer in X" instruction (the model then naturally matches the original prompt). Retrieval-query translation to the English corpus is **lazy**: it happens inside the English-corpus tools (`semantic_search` / `search_conference_talks`) only when a cross-language query is actually retrieved, through the shared `routeQueryLanguage()` (dedicated `RAG_ROUTING_MODEL`, one-shot fallback) memoized per request by `createRetrievalQueryResolver()` (the resolver is created in the route and passed into the tools). The local same-language fast path makes an English query identity (no LLM call), so English retrieval is unchanged. `lookup_scripture_passage` prefers the prompt's indexed scripture language (`scriptureLanguage`, falling back to the corpus language) and **never translates** — references are matched by language-invariant slugs. (See `docs/TOOL_SPECIFIC_LANGUAGE_ROUTING_PLAN.md`.)
 5. Server constructs an AI SDK `streamText` call with the RAG tool set and lets the model decide how to retrieve.
-5b. **Eager retrieval (P1, flag-gated, default OFF — opt-in):** on an answer-cache miss, for high-confidence topical questions the server can run the default `semantic_search` retrieval *during* the preamble (`eagerRetrieval` latency phase) and seed the chunks as the user message's `initialChunks`, so the model answers on turn 1 instead of spending an empty tool-decision round-trip (`firstToolCallMs − preStreamMs`). The eager user message carries a **preloaded-context contract** (a labeled "Context (preloaded semantic search)" block + system-prompt rules counting preloaded chunks as tool-equivalent sources) so the model answers/cites directly without re-emitting `semantic_search`. It warms the **same** Upstash cacheKey, so a refinement tool call is a cache hit. Eligibility is a **conservative positive allowlist** (`isEagerTopicalQuery`, false-negatives preferred): skips the fixed-chunks regenerate path, empty source sets, scripture references (`parseScriptureSelection` → `lookup_scripture_passage`), chit-chat, response-edit / conversational follow-ups, specific conference-talk requests (→ `search_conference_talks`), and too-short prompts. It is further **restricted to the English index** (`indexLanguage === "eng"`) and classifies the already-translated English `languageRouting.searchQuery`, so the allowlist needs only English heuristics (an Italian prompt reaches it pre-translated) — no multilingual regex lists. Eager and lazy paths share `runSemanticRetrieval()` (`src/lib/rag/tools/shared/semantic-retrieval.ts`) so ordering and citation indices are identical. Enable with `RAG_EAGER_RETRIEVAL=true` only after trace validation (go/no-go: topical p50 `serverFirstTextMs` must improve ≥ ~1s or ~20% with no output/citation regressions, else P1 is removed rather than expanded).
-6. The model calls one or more retrieval tools per turn as it sees fit, using the translated index-language search query:
+5b. **Eager retrieval (P1, flag-gated, default OFF — opt-in):** on an answer-cache miss, for high-confidence topical questions the server can run the default `semantic_search` retrieval *during* the preamble (`eagerRetrieval` latency phase) and seed the chunks as the user message's `initialChunks`, so the model answers on turn 1 instead of spending an empty tool-decision round-trip (`firstToolCallMs − preStreamMs`). The eager user message carries a **preloaded-context contract** (a labeled "Context (preloaded semantic search)" block + system-prompt rules counting preloaded chunks as tool-equivalent sources) so the model answers/cites directly without re-emitting `semantic_search`. It warms the **same** Upstash cacheKey, so a refinement tool call is a cache hit. Eligibility is a **conservative positive allowlist** (`isEagerTopicalQuery`, false-negatives preferred): skips the fixed-chunks regenerate path, empty source sets, scripture references (`parseScriptureSelection` → `lookup_scripture_passage`), chit-chat, response-edit / conversational follow-ups, specific conference-talk requests (→ `search_conference_talks`), and too-short prompts. It is further **restricted to the English index** (`indexLanguage === "eng"`) **and to confidently-English prompts** (`detectPromptLanguage().code === "en"`), classifying the original English question directly, so the allowlist needs only English heuristics — cross-language prompts are never translated in the preamble to make them eager-eligible (they take the normal tool-first path) and there are no multilingual regex lists. Eager and lazy paths share `runSemanticRetrieval()` (`src/lib/rag/tools/shared/semantic-retrieval.ts`) so ordering and citation indices are identical. Enable with `RAG_EAGER_RETRIEVAL=true` only after trace validation (go/no-go: topical p50 `serverFirstTextMs` must improve ≥ ~1s or ~20% with no output/citation regressions, else P1 is removed rather than expanded).
+6. The model calls one or more retrieval tools per turn as it sees fit, passing the query in the user's own language (each English-corpus tool translates lazily inside `execute()` as needed; scripture lookup is matched by slug and not translated):
    - `semantic_search` for general topical queries (caches via Upstash Redis).
    - `lookup_scripture_passage` for scripture references (also cached via Upstash Redis).
    - `search_conference_talks` for talks by title / speaker / year (also cached via Upstash Redis).
@@ -144,9 +144,18 @@ Notes:
 - Assistant messages may include `sources_json` used by UI source panel.
 - Assistant `details_json` stores response details and the `toolNames` list so
   tool-use badges remain visible after reloading a conversation. It also stores a
-  `retrieval` trace (`RetrievalTrace`): input language, translated search query,
+  `retrieval` trace (`RetrievalTrace`): locally detected input language,
   index language, source filters, topK, the ranking-flag signature, and per-tool
-  stats (sourceCount / cacheHit / elapsedMs). The retrieved chunks live in
+  stats (`RetrievalToolEvent`: sourceCount / cacheHit / elapsedMs, plus tool-local
+  language routing — `routingMs` / `translated` / `inputLanguageCode` /
+  `retrievalLanguage` / `routingModel` / `routingFallbackUsed` / `routingCalls` —
+  present for `semantic_search` & `search_conference_talks`, absent for the
+  non-translating `lookup_scripture_passage`). `search_conference_talks` may route
+  two fields (query + title), so the telemetry is **aggregated** across both
+  resolutions: `routingMs` summed, `translated`/`routingFallbackUsed` OR'd,
+  `routingCalls` = number of model-invoking resolutions, `routingModel` = the
+  distinct model(s) used. There is no longer a single global translated
+  search query; translation is per-tool. The retrieved chunks live in
   `sources_json`; the trace captures the *how* so real conversations can be mined
   into the eval gold set.
 - Assistant `details_json` also stores a versioned `latency` trace
@@ -241,9 +250,10 @@ Notes:
     these flags is not masked by a stale cache (graph rerank excluded — it runs
     after the cache read in the tools).
 - The language selector controls only UI labels. It does not affect search language or final answer language.
-- Each user prompt is language-detected, translated into the configured index language before Pinecone search, then answered in the original prompt language.
-- `RAG_INDEX_LANGUAGE` controls the single-language retrieval target. It defaults to English (`eng`) for `lds-rag-v1` (English-main corpus; scriptures also carry Italian chunks). Set to `ita` only to target the legacy `lds-rag` index.
-- Retrieval still preserves each chunk's source-language metadata. Scriptures are bilingual (eng+ita); scripture verse/chapter retrieval **prefers the answer language** (queries it first, falls back to the other indexed language only if empty), so an English question returns English scripture. Other namespaces are English-only.
+- In the **chat** route, retrieval-query translation is **per-tool and lazy** (not a global preamble step): `semantic_search` and `search_conference_talks` translate their query to the corpus language inside `execute()` via the request-scoped resolver (English input is identity, no LLM call); the model answers in the original prompt language. `lookup_scripture_passage` is matched by slug and prefers the prompt's scripture language without translating. `GET /api/search` still translates globally to the configured index language (its contract is migrated separately).
+- `RAG_INDEX_LANGUAGE` controls the single-language semantic retrieval target. It defaults to English (`eng`) for `lds-rag-v1` (English-main corpus; scriptures also carry Italian chunks). Set to `ita` only to target the legacy `lds-rag` index.
+- Retrieval still preserves each chunk's source-language metadata. Scriptures are bilingual (eng+ita); scripture verse/chapter retrieval **prefers the requested `scriptureLanguage`** (the prompt's indexed scripture language — `ita` for "Giovanni 3:16", English fallback when the prompt language is unknown/unindexed), queries it first, and falls back to the other indexed language only if empty. Other namespaces are English-only.
+- **Single-language direct-passage contract.** `lookup_scripture_passage` returns one language: the cross-reference graph's `related_ids` are projected onto English chunks only, so expanding a non-English passage would otherwise append English cross-references. After expansion the related context is filtered to the passage's own language (`filterRelatedToLanguage`) — so an Italian `Giovanni 3:16` returns Italian passage + (currently empty) Italian related context, never mixed English. The requested passage stays pinned first; the eval golden set has permanent `Giovanni 3` / `Giovanni 3:16` / `John 3` / `John 3:16` fixtures asserting first-result book/passage and scripture language (`expectFirstRefAnyOf` + `expectScriptureLanguage`).
 - Structured scripture retrieval (verse + chapter, including bare chapter refs like "Alma 32") filters Pinecone on **language-invariant** signals (`language` + `chapter`) and enforces the requested book via its **slug** (chunk id 3rd segment `scriptures:<lang>:<bookSlug>:…` / URL path), NOT the display book name. This is deliberate: `parseScriptureSelection().canonicalBook` is Italian (legacy table — "Giovanni", "Salmi", "2 Nefi") and does not match the English `book` metadata, so a `book: { $eq }` filter would silently return nothing and fall back to Italian or to unfiltered semantic results. (If the canonicalBook table is ever localized to English, the slug-based matching still holds.)
 - Enrichment metadata is consumed (present on enriched namespaces — scriptures + conference): the retriever maps `summary`, `topics`, `entities` (people/places/doctrines), and `references` onto each chunk. These are (a) sent to the model as per-source context via `toToolChunk` (context only — not citable sources), (b) shown as tags/reference chips on source cards, and (c) used for a small, capped topic/entity rerank boost when query terms overlap a chunk's topics/entities.
 - Special scripture handling for whole chapter/book requests:
@@ -263,8 +273,8 @@ Notes:
   answers without an opening tool round-trip. This is NOT the old unconditional
   double-retrieval: eager warms the same tool cacheKey via the shared
   `runSemanticRetrieval()` helper, so a refinement `semantic_search` is a cache hit,
-  and a conservative allowlist (`isEagerTopicalQuery`, on the English-translated
-  search query, English index only) skips scripture refs / fixed chunks / empty
+  and a conservative allowlist (`isEagerTopicalQuery`, on the original
+  confidently-English question, English index only) skips scripture refs / fixed chunks / empty
   sources / chit-chat / follow-ups / specific-talk requests. Opt-in with
   `RAG_EAGER_RETRIEVAL=true` after trace validation.
 - AI function tools available in the chat runtime:
@@ -359,6 +369,8 @@ Notes:
 - `PINECONE_INDEX` (optional; defaults to `lds-rag-v1`; set to `lds-rag` for the legacy index)
 - `RAG_INDEX_LANGUAGE` (optional; defaults to `eng` for `lds-rag-v1`; set to `ita` for the legacy index)
 - `CHAT_MODEL` (optional; defaults to `deepseek/deepseek-v4-flash`)
+- `RAG_ROUTING_MODEL` (optional; defaults to `openai/gpt-oss-120b`) — dedicated retrieval-query routing/translation model, independent from `CHAT_MODEL` (`reasoningEffort: low`, 600-token ceiling)
+- `RAG_ROUTING_FALLBACK_MODEL` (optional; defaults to `openai/gpt-5.4-mini`) — one-shot fallback used once if the primary routing model returns no structured output
 - `RAG_GRAPH_RERANK` (optional; defaults to `true`) — graph-aware rerank kill-switch
 - `RAG_RERANK` (optional; defaults to `false`) — Voyage cross-encoder rerank
 - `RAG_MULTI_QUERY` (optional; defaults to `false`) — multi-query expansion
@@ -476,7 +488,7 @@ Reference template: `.env.example`.
   merged candidate pool (`reranker.ts`). Adds an external API call (cost + latency);
   validate against `npm run eval` before enabling per-deployment. Applies uniformly
   to all languages — in production the query reaching the cross-encoder is already
-  translated into the index language by `route.ts` language routing, so there is no
+  translated into the index language by the tool's lazy language routing, so there is no
   per-input-language axis to gate on. Net-positive on the gold set (recall
   0.629 → 0.696). Caveat: the win is uneven per query — the reranker still demotes
   Alma 32 on faith queries (`italian-topic-faith` recall 1.0 → 0.0 even with the
@@ -489,8 +501,8 @@ Reference template: `.env.example`.
   Runs the default `semantic_search` during the preamble on an answer-cache miss and
   seeds the chunks (with a preloaded-context contract) as `initialChunks` so the model
   answers on turn 1 (kills the empty tool-decision round-trip). Conservative allowlist
-  (`isEagerTopicalQuery`, false-negatives preferred, classifying the English-translated
-  search query on the English index only): skips scripture refs / fixed chunks / empty
+  (`isEagerTopicalQuery`, false-negatives preferred, classifying the original
+  confidently-English question on the English index only): skips scripture refs / fixed chunks / empty
   sources / chit-chat / response-edit follow-ups / specific-talk requests. Warms the
   same tool cacheKey (a refinement tool call is then a cache hit). Deliberately NOT part
   of `retrievalFlagsSignature()` — it changes *when* retrieval runs, not the cached
@@ -498,6 +510,16 @@ Reference template: `.env.example`.
   validation (go/no-go: topical p50 `serverFirstTextMs` ≥ ~1s or ~20% better, else remove).
 
 ## 12) Update policy for agents
+
+### Active implementation plan
+
+- `docs/TOOL_SPECIFIC_LANGUAGE_ROUTING_PLAN.md` — Phases A–C **implemented** (local
+  prompt-language detection, dedicated `RAG_ROUTING_MODEL` + one-shot fallback
+  independent of `CHAT_MODEL`, global chat translation removed, lazy per-tool
+  translation, prompt-preferred scripture language). **Remaining:** Phase D
+  (eval + metrics rollout) and the `/api/search` follow-up — switch it to
+  `RAG_ROUTING_MODEL` and use prompt-language scripture preference for
+  scripture-only structured queries, without changing its response contract.
 
 When changing architecture, behavior, integrations, API contracts, or major UX flow:
 

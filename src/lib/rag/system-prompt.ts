@@ -1,4 +1,5 @@
-import type { SourceChunk, CorpusLanguage, UiLanguage } from "@/lib/types";
+import type { SourceChunk, UiLanguage } from "@/lib/types";
+import type { PromptLanguage } from "./language-routing";
 
 // The system prompt is composed from a constant CORE (identity, retrieval,
 // grounding, citation, and memory rules — non-negotiable in every mode) plus a
@@ -97,7 +98,7 @@ const CORE_RULES = `Retrieval rules (READ CAREFULLY):
 Answer rules:
 - Answer in the same language as the user's question.
 - The UI language is only an interface preference. It does not control retrieval language or final answer language.
-- The user message includes an "Original question" and a "Search query" translated into the current index language. Use the Search query for retrieval tool inputs, then answer the Original question in the user's original prompt language.
+- Pass retrieval tool queries in the user's own language. Each retrieval tool translates the query to its corpus language internally, so you do not need to pre-translate. Always answer in the user's original prompt language.
 - Retrieval may return Italian and English source chunks together. You may translate or summarize source evidence into the user's language, but never imply that a quoted official translation exists unless that exact source language chunk was retrieved.
 - Base claims only on the chunks returned by the tools you called this turn or supplied in the preloaded Context block. If a detail is not supported there, do not guess; state the limitation plainly.
 - Cite sources by title, author/book, and reference when available.
@@ -167,9 +168,13 @@ export function formatContext(chunks: SourceChunk[]): string {
 /**
  * Build the user message sent to the model.
  *
+ * Carries the locally detected answer-language hint and the UI-language warning,
+ * but NOT a globally translated search query — translation is lazy, inside the
+ * English-corpus retrieval tools (see docs/TOOL_SPECIFIC_LANGUAGE_ROUTING_PLAN.md).
+ *
  * - When `chunks` is empty (default tool-first flow), the message is just the
- *   user question prefixed by a language instruction. The model is expected
- *   to retrieve via tools.
+ *   user question prefixed by the language instruction. The model is expected
+ *   to retrieve via tools, passing the query in the user's own language.
  * - When `chunks` is non-empty, context is rendered ahead of the question.
  *   `contextSource` controls how the model is told to treat it:
  *   - `"eager"` (P1 speculative retrieval): the chunks are the result of the
@@ -182,22 +187,25 @@ export function formatContext(chunks: SourceChunk[]): string {
 export function buildUserMessage(
   query: string,
   chunks: SourceChunk[],
-  languageRouting: {
+  meta: {
     uiLanguage: UiLanguage;
-    inputLanguageCode: string;
-    inputLanguageName: string;
-    indexLanguage: CorpusLanguage;
-    indexLanguageName: string;
-    searchQuery: string;
+    promptLanguage: PromptLanguage;
   },
   contextSource: "fixed" | "eager" = "fixed"
 ): string {
+  const { uiLanguage, promptLanguage } = meta;
+  // When local detection is uncertain (`und`), don't assert a language — the
+  // model naturally matches the original prompt.
+  const answerLanguageLine =
+    promptLanguage.code !== "und"
+      ? `Answer in ${promptLanguage.name} (${promptLanguage.code}), matching the user's original prompt language.`
+      : "Answer in the same language as the user's original prompt.";
   const languageInstruction = [
-    `Answer in ${languageRouting.inputLanguageName} (${languageRouting.inputLanguageCode}), matching the user's original prompt language.`,
-    `The UI language is ${languageRouting.uiLanguage}; ignore it for retrieval and answer-language decisions.`,
-    `Use the ${languageRouting.indexLanguageName} search query for retrieval tool calls.`,
+    answerLanguageLine,
+    `The UI language is ${uiLanguage}; ignore it for retrieval and answer-language decisions.`,
+    "Pass retrieval tool queries in the user's own language; each tool translates to its corpus language itself.",
   ].join("\n");
-  const questionBlock = `Original question:\n${query}\n\nSearch query (${languageRouting.indexLanguageName}, ${languageRouting.indexLanguage}):\n${languageRouting.searchQuery}`;
+  const questionBlock = `Question:\n${query}`;
 
   if (chunks.length === 0) {
     return `${languageInstruction}\n\n${questionBlock}`;
