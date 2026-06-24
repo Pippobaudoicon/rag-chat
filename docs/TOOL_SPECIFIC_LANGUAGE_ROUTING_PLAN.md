@@ -67,6 +67,8 @@ There is also a scripture-language contract mismatch:
    it separately after the chat path is verified.
 7. Keep eager retrieval default-off. Do not let it reintroduce unconditional
    cross-language routing.
+8. The routing/translation model is an independent workload choice. Do not
+   couple it to `CHAT_MODEL`.
 
 ## 4. Target architecture
 
@@ -141,7 +143,63 @@ Implementation requirements:
 
 Do not pre-resolve this promise in the route.
 
-### 4.4 Tool policies
+### 4.4 Dedicated routing model
+
+Use a small, fast model selected for multilingual translation and reliable
+structured output:
+
+```env
+RAG_ROUTING_MODEL=openai/gpt-oss-120b
+RAG_ROUTING_FALLBACK_MODEL=openai/gpt-5.4-mini
+```
+
+`CHAT_MODEL` remains responsible for final answers and citation-verifier claim
+audits. `routeQueryLanguage()` must default to `RAG_ROUTING_MODEL`, not
+`CHAT_MODEL`.
+
+Selection evidence gathered through the linked Vercel AI Gateway on 2026-06-24.
+The final comparison used 10 multilingual fixtures (Italian, Spanish, French,
+German, Portuguese, conference metadata, mixed-language answer instructions,
+and proper names/years):
+
+| Model | Structured successes | Observed latency | Result |
+|---|---:|---:|---|
+| `openai/gpt-oss-120b` (`reasoningEffort: "low"`, 600-token ceiling) | 10/10 | 380–860 ms | Fastest reliable candidate; preserved languages, names, titles, and years |
+| `google/gemini-3.1-flash-lite` | 10/10 schemas, 9/10 policy-correct | 877–2,067 ms in expanded run | One mixed-language case returned an Italian search query instead of English |
+| `openai/gpt-5.4-mini` | 4/4 | 1,526–3,421 ms | Correct; suitable one-shot reliability fallback |
+| `openai/gpt-oss-20b` | 0/4 | 1,505–5,208 ms | Failed/no structured output, including with low reasoning effort |
+| `google/gemma-4-26b-a4b-it` | 0/4 | 750–1,822 ms | Failed the required output schema |
+| `deepseek/deepseek-v4-flash` | 0/4 in the bounded test | 1,530–4,588 ms | Failed/no structured output under the bounded routing budget |
+
+Current catalog pricing per token also supports the choice:
+
+- GPT-OSS 120B: $0.35/M input, $0.75/M output;
+- Gemini 3.1 Flash Lite: $0.25/M input, $1.50/M output;
+- GPT-5.4 Mini: $0.75/M input, $4.50/M output.
+
+Implications:
+
+- GPT-OSS 120B is the default candidate. Despite its parameter count, the
+  Gateway-hosted model was materially faster than the smaller candidates on
+  this short structured workload.
+- Configure GPT-OSS 120B with `reasoningEffort: "low"` and
+  `maxOutputTokens: 600`. Its reasoning tokens count against the output ceiling;
+  smaller ceilings caused otherwise-fast responses to end before producing the
+  structured object.
+- Gemini Flash Lite remains a useful future candidate, but not the fallback for
+  this contract until the mixed-language English-query regression is fixed.
+- Do not use Gemma for this path unless a future model/version passes the same
+  schema suite. Adding free-form JSON parsing or repair would erase the simplicity
+  and reliability benefit.
+- Do not use GPT-OSS 20B merely because it is smaller; it failed the structured
+  routing contract consistently.
+- Keep model IDs configurable because availability and performance can change.
+- A primary structured-output failure may retry once with the fallback model.
+  No retry loops.
+- If both fail, retain the existing fail-open behavior and record the failure.
+- Record the actual routing model used in telemetry.
+
+### 4.5 Tool policies
 
 #### `semantic_search`
 
@@ -183,7 +241,7 @@ routing.
 
 No language routing. Preserve its existing behavior in this change.
 
-### 4.5 Eager retrieval
+### 4.6 Eager retrieval
 
 `RAG_EAGER_RETRIEVAL` remains default-off.
 
@@ -198,7 +256,7 @@ For this refactor:
 
 This keeps the eager experiment from undoing the main no-global-routing win.
 
-### 4.6 `/api/search`
+### 4.7 `/api/search`
 
 Do not combine the chat migration with a full search-endpoint redesign.
 
@@ -230,7 +288,9 @@ Extend retrieval tool events/details with optional fields such as:
   routingMs: 2475,
   translated: true,
   inputLanguageCode: "it",
-  retrievalLanguage: "eng"
+  retrievalLanguage: "eng",
+  routingModel: "openai/gpt-oss-120b",
+  routingFallbackUsed: false
 }
 ```
 
@@ -251,7 +311,9 @@ Add a Grafana query/panel or documented query for:
 
 1. Extract local prompt-language detection.
 2. Add the request-scoped memoized retrieval-query resolver.
-3. Unit-test identity, translation, fallback, and memoization.
+3. Separate `RAG_ROUTING_MODEL` / `RAG_ROUTING_FALLBACK_MODEL` from
+   `CHAT_MODEL`.
+4. Unit-test identity, translation, one-shot fallback, and memoization.
 
 Verification: no route behavior change yet; existing routing tests pass.
 
@@ -295,6 +357,10 @@ Add a focused `npm run test:language-policy` suite covering:
   `semantic_search`;
 - Italian topical semantic query -> one English translation inside
   `semantic_search`;
+- routing uses `RAG_ROUTING_MODEL`, not `CHAT_MODEL`;
+- GPT-OSS routing uses low reasoning effort and sufficient output budget;
+- routing primary failure -> exactly one fallback call;
+- routing primary + fallback failure -> fail open without a retry loop;
 - repeated identical semantic tool input -> one memoized translation;
 - Italian `Giovanni 3:16` -> Italian scripture chunks first, no English
   translation call;
@@ -341,6 +407,11 @@ Latency:
 - semantic retrieval turns do not add more than one translation call per unique
   tool query;
 - scripture-reference turns do not pay for English translation.
+- translated-query routing p50 is materially below the current 3,165 ms baseline;
+- the routing model preserves all language-policy fixtures with 100% structured
+  output success before production enablement.
+- model selection is rerun against the fixture suite before changing the default;
+  model size alone is not an acceptance criterion.
 
 Reliability:
 
@@ -348,6 +419,8 @@ Reliability:
 - unsupported prompt languages fall back deterministically;
 - no new external service or dependency;
 - no multilingual regex lists.
+- routing-model changes are environment-configurable and do not require changing
+  the final-answer model.
 
 ## 9. Non-goals
 

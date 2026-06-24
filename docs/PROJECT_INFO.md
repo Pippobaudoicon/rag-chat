@@ -502,8 +502,9 @@ Reference template: `.env.example`.
 ### Active implementation plan
 
 - `docs/TOOL_SPECIFIC_LANGUAGE_ROUTING_PLAN.md` defines the next language-routing
-  refactor. It is a plan only; current runtime behavior remains the architecture
-  described above until implementation lands.
+  refactor, including a dedicated configurable small routing model independent
+  from `CHAT_MODEL`. It is a plan only; current runtime behavior remains the
+  architecture described above until implementation lands.
 
 When changing architecture, behavior, integrations, API contracts, or major UX flow:
 

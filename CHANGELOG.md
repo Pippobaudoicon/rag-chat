@@ -2,7 +2,7 @@
 
 ## 0.12.13
 
-- **Plan: tool-specific language routing.** Added `docs/TOOL_SPECIFIC_LANGUAGE_ROUTING_PLAN.md`, a data-backed implementation plan to remove the global chat translation LLM call, route semantic/conference queries lazily to English inside their tools, and make scripture lookup prefer the user's indexed scripture language. This is documentation only; runtime behavior is unchanged.
+- **Plan: tool-specific language routing.** Added `docs/TOOL_SPECIFIC_LANGUAGE_ROUTING_PLAN.md`, a data-backed implementation plan to remove the global chat translation LLM call, route semantic/conference queries lazily to English inside their tools, and make scripture lookup prefer the user's indexed scripture language. The plan separates translation from `CHAT_MODEL`: an AI Gateway benchmark selected `openai/gpt-oss-120b` with low reasoning effort as the configurable primary routing model (10/10 multilingual policy fixtures at 0.38–0.86s), with `openai/gpt-5.4-mini` as a one-shot fallback. GPT-OSS 20B and Gemma failed the structured-output contract; Gemini Flash Lite produced one mixed-language policy error. This is documentation only; runtime behavior is unchanged.
 
 ## 0.12.12
 
