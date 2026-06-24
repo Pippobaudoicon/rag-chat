@@ -1,6 +1,6 @@
 {
   "name": "rag-chat",
-  "version": "0.12.11",
+  "version": "0.12.12",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -11,7 +11,8 @@
     "db:migrate": "dotenv -o -e .env -e .env.local -- drizzle-kit migrate",
     "docs:guard": "bash scripts/docs-guard.sh",
     "eval": "dotenv -o -e .env -e .env.local -- tsx scripts/eval/run.ts",
-    "test:routing": "tsx scripts/test/language-routing.test.ts"
+    "test:routing": "tsx scripts/test/language-routing.test.ts",
+    "test:eager": "tsx scripts/test/eager-eligibility.test.ts"
   },
   "dependencies": {
     "@ai-sdk/react": "^3.0.143",

@@ -87,6 +87,7 @@ const CORE_RULES = `Retrieval rules (READ CAREFULLY):
   - Use lookup_scripture_passage when the user references a specific scripture passage (e.g. "2 Nefi 2", "Moroni 10:4-5", "Doctrine and Covenants 76").
   - Use search_conference_talks when the user references a specific conference talk by title, speaker, or year (e.g. "the talk by Uchtdorf about grace", "Behold the Man").
   - Use semantic_search for general topical or doctrinal questions (e.g. "What does the Church teach about humility?", "Explain the law of consecration").
+- EXCEPTION — preloaded context: if the user message already contains a "Context (preloaded semantic search)" block, that block IS the result of the default semantic_search for this turn — the retrieval has already run for you. Treat those numbered [Source N] chunks exactly as if you had called semantic_search yourself: you may answer directly and cite them without calling semantic_search again. Only call a retrieval tool when the preloaded sources are insufficient (refinement) or the question needs a specialized lookup (a specific scripture passage → lookup_scripture_passage, a specific conference talk → search_conference_talks). Do not re-run semantic_search just to confirm what the preloaded block already provides.
 - You may call multiple retrieval tools (and call the same tool more than once with different arguments) when the question genuinely benefits from it — for example, a question that asks to compare a scripture passage with a conference talk, or a topical question whose first retrieval did not return enough evidence.
 - Do not call tools redundantly. If a single retrieval already produced enough evidence to answer, do not chain more tool calls just to be thorough.
 - When retrieved chunks include related passages, study-help entries, cross-references, summaries, topics, entities, or reference metadata, consider them automatically as supporting context for a richer answer. The user does not need to ask for "useful cross-references" explicitly.
@@ -98,12 +99,12 @@ Answer rules:
 - The UI language is only an interface preference. It does not control retrieval language or final answer language.
 - The user message includes an "Original question" and a "Search query" translated into the current index language. Use the Search query for retrieval tool inputs, then answer the Original question in the user's original prompt language.
 - Retrieval may return Italian and English source chunks together. You may translate or summarize source evidence into the user's language, but never imply that a quoted official translation exists unless that exact source language chunk was retrieved.
-- Base claims only on the chunks returned by the tools you called this turn. If a detail is not supported there, do not guess; state the limitation plainly.
+- Base claims only on the chunks returned by the tools you called this turn or supplied in the preloaded Context block. If a detail is not supported there, do not guess; state the limitation plainly.
 - Cite sources by title, author/book, and reference when available.
 - When a URL is provided in a chunk, embed it naturally as a markdown link on the scripture reference or talk title inside the answer text, e.g. "[Giobbe 13:15](https://...url...)".
 - If no link is provided, do not invent one.
 - Use inline numeric citations like [1], [2], [3] that map to the citationIndex returned by the tools.
-- Only cite chunks that were returned by your tool calls this turn. Never fabricate citations, references, links, or metadata.
+- Only cite chunks that were returned by your tool calls this turn or supplied in the preloaded Context block. Never fabricate citations, references, links, or metadata.
 - Some chunks carry enrichment context — a one-line summary, topics, entities (people/places/doctrines), and a references list of scriptures the chunk cites. Use these to understand each source and to connect sources thematically (e.g. shared doctrines or people), but treat them as context only: cite a passage by its own citationIndex, and never present a chunk's references list as a separately retrieved source.
 - Related chunks returned by tools are real retrieved chunks. Use and cite them when they directly strengthen the answer, while keeping the main requested passage or topic central.
 - When a scripture chapter is requested (for example "2 Nefi 2"), summarize the chapter using the retrieved chapter context.
@@ -169,9 +170,14 @@ export function formatContext(chunks: SourceChunk[]): string {
  * - When `chunks` is empty (default tool-first flow), the message is just the
  *   user question prefixed by a language instruction. The model is expected
  *   to retrieve via tools.
- * - When `chunks` is non-empty (regenerate-with-fixed-chunks flow), context
- *   is rendered ahead of the question so the model can reuse pre-selected
- *   sources without retrieving again.
+ * - When `chunks` is non-empty, context is rendered ahead of the question.
+ *   `contextSource` controls how the model is told to treat it:
+ *   - `"eager"` (P1 speculative retrieval): the chunks are the result of the
+ *     default semantic_search already run for this turn. The block is labeled
+ *     and carries a contract so the model answers/cites directly instead of
+ *     re-emitting semantic_search (it stays free to refine via tools).
+ *   - `"fixed"` (regenerate-with-fixed-chunks): pre-selected sources to reuse
+ *     without retrieving again.
  */
 export function buildUserMessage(
   query: string,
@@ -183,7 +189,8 @@ export function buildUserMessage(
     indexLanguage: CorpusLanguage;
     indexLanguageName: string;
     searchQuery: string;
-  }
+  },
+  contextSource: "fixed" | "eager" = "fixed"
 ): string {
   const languageInstruction = [
     `Answer in ${languageRouting.inputLanguageName} (${languageRouting.inputLanguageCode}), matching the user's original prompt language.`,
@@ -197,5 +204,12 @@ export function buildUserMessage(
   }
 
   const context = formatContext(chunks);
+  if (contextSource === "eager") {
+    // Labeled + contracted so the model recognizes this as a completed default
+    // retrieval and does not re-emit semantic_search (the round-trip P1 removes).
+    const eagerContract =
+      "Context (preloaded semantic search) — this is the result of the default semantic_search for this turn; the retrieval has already run. Answer directly from these sources and cite them by [Source N] when they are sufficient; do NOT call semantic_search again. Call a retrieval tool only to refine (sources insufficient) or for a specialized lookup (specific scripture passage or conference talk).";
+    return `${languageInstruction}\n\n${eagerContract}\n${context}\n\n${questionBlock}`;
+  }
   return `${languageInstruction}\n\nContext:\n${context}\n\n${questionBlock}`;
 }
