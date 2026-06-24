@@ -1,5 +1,5 @@
 import { generateText, gateway, Output } from "ai";
-import { detect, detectAll } from "tinyld";
+import { detectAll } from "tinyld";
 import { z } from "zod";
 import type { CorpusLanguage, Language } from "@/lib/types";
 
@@ -50,6 +50,16 @@ const ISO_LANGUAGE_NAMES: Record<string, string> = {
 
 const GENERIC_LANGUAGE_NAME = "the user's language";
 
+// Minimum tinyld accuracy required before we assert an explicit answer language.
+// tinyld's accuracy is sharply bimodal on prompt-length text: confidently
+// single-language input scores ~1.0, while short greetings ("Hello" -> it@0.20,
+// "Grazie" -> pl@0.17, "Ciao, come stai?" -> it@0.09), wrong guesses, and
+// mixed-language instructions ("Rispondi in italiano: <English>" -> en@0.76) all
+// sit ≤ ~0.76. Gating at 0.9 keeps only the confident cluster and returns `und`
+// for the rest — so we never inject a WRONG explicit "answer in X" instruction;
+// the generation model then naturally matches the original prompt.
+const PROMPT_LANGUAGE_MIN_CONFIDENCE = 0.9;
+
 // Same-language fast-path thresholds (calibrated against tinyld). A *pure*
 // index-language prompt classifies as that language with accuracy ~1.0 and a
 // single detected language. Any language mixing — an instruction like
@@ -98,23 +108,26 @@ export type PromptLanguage = {
 };
 
 /**
- * Detect the prompt's language locally with `tinyld` (no network). `detect()`
- * returns "" for input too short/ambiguous to classify, which we surface as
- * `und` rather than guessing. Known indexed scripture languages map explicitly
+ * Detect the prompt's language locally with `tinyld` (no network). Only returns
+ * a concrete language when tinyld is confident (`accuracy >= 0.9`); short,
+ * ambiguous, or mixed-language input stays `und` rather than guessing (so we
+ * never assert the wrong answer language — the generation model then matches the
+ * original prompt naturally). Known indexed scripture languages map explicitly
  * (`en -> eng`, `it -> ita`); other languages get a generic name and no
  * scripture preference (English fallback handled at the scripture tool).
  */
 export function detectPromptLanguage(query: string): PromptLanguage {
   const trimmed = query.trim();
-  const code = trimmed ? detect(trimmed) : "";
-  if (!code) {
+  const top = trimmed ? detectAll(trimmed)[0] : undefined;
+  if (!top || top.accuracy < PROMPT_LANGUAGE_MIN_CONFIDENCE) {
     return { code: "und", name: GENERIC_LANGUAGE_NAME };
   }
+  const code = top.lang;
   return {
     code,
     name: ISO_LANGUAGE_NAMES[code] ?? GENERIC_LANGUAGE_NAME,
     scriptureLanguage: ISO_TO_SCRIPTURE_LANGUAGE[code],
-    confidence: detectAll(trimmed)[0]?.accuracy,
+    confidence: top.accuracy,
   };
 }
 

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.12.16
+
+- **Phase B correction: confidence-gate `detectPromptLanguage()`.** The local detector previously trusted `tinyld`'s top guess unconditionally, which produced **wrong** explicit answer-language instructions on short input — "Hello" → Italian (0.20), "Grazie" → Polish (0.17), "Ciao, come stai?" → Italian (0.09). It now asserts a concrete language only when `accuracy >= 0.9` and returns `und` otherwise (no name, no `scriptureLanguage`). `tinyld`'s accuracy is sharply bimodal on prompt-length text — confident single-language prompts score ~1.0 while greetings, wrong guesses, and **mixed-language instructions** ("Rispondi in italiano: <English>" → en@0.76) all sit ≤ ~0.76 — so 0.9 cleanly keeps only the confident cluster. `und` is safe: the generation model naturally matches the original prompt. Confident prompts (e.g. Italian `Giovanni 3:16` → `ita` scripture, English `What is faith?` → `en`) are unaffected; English `John 3:16` → `und` → English scripture fallback at the tool. New regression table in `test:language-policy` covers greetings, mixed-language instructions, and Italian/English scripture references.
+
 ## 0.12.15
 
 - **Tool-specific language routing — Phase B (remove global chat translation; tools unchanged).** Second step of `docs/TOOL_SPECIFIC_LANGUAGE_ROUTING_PLAN.md`. `POST /api/chat` no longer issues a per-turn routing/translation LLM call.

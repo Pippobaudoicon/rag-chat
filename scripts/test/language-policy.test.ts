@@ -51,16 +51,38 @@ async function main() {
   delete process.env.RAG_ROUTING_MODEL;
   delete process.env.RAG_ROUTING_FALLBACK_MODEL;
 
-  // ── Local answer-language hints (no model, no translation) ────────────────
-  const ciao = detectPromptLanguage("Ciao, come stai?");
-  check("`Ciao, come stai?` -> Italian answer hint", ciao.code === "it" && ciao.name === "Italian", JSON.stringify(ciao));
-  check("`Ciao, come stai?` -> Italian scripture language", ciao.scriptureLanguage === "ita");
-
-  const thanks = detectPromptLanguage("Thanks, that helps");
-  check("`Thanks, that helps` -> English hint", thanks.code === "en" && thanks.scriptureLanguage === "eng", JSON.stringify(thanks));
-
-  const ref = detectPromptLanguage("Alma 32:21");
-  check("bare scripture reference -> und (no guess)", ref.code === "und" && ref.scriptureLanguage === undefined, JSON.stringify(ref));
+  // ── Local answer-language detection (no model, no translation) ────────────
+  // tinyld only earns an explicit answer-language hint when confident (>= 0.9).
+  // Short greetings, wrong low-confidence guesses, and mixed-language
+  // instructions must stay `und` so we never assert the wrong language — the
+  // generation model then naturally matches the original prompt.
+  type DetectCase = { label: string; q: string; code: string; scripture?: "eng" | "ita" };
+  const detectionCases: DetectCase[] = [
+    // Low-confidence short greetings / wrong guesses -> und (the reported bug).
+    { label: "`Hello` -> und (was it@0.20)", q: "Hello", code: "und" },
+    { label: "`Grazie` -> und (was pl@0.17)", q: "Grazie", code: "und" },
+    { label: "`Come stai?` -> und (was it@0.13)", q: "Come stai?", code: "und" },
+    { label: "`Ciao, come stai?` -> und (it@0.09, too low to assert)", q: "Ciao, come stai?", code: "und" },
+    // Mixed-language instructions: dominantly English by tokens, but the user
+    // asked for another language -> und, so the model follows the instruction.
+    { label: "Italian instruction over English -> und", q: "Rispondi in italiano: What does it mean that faith is not to have a perfect knowledge of things?", code: "und" },
+    { label: "Spanish instruction over English -> und", q: "Responde en español: What does it mean that faith is a principle of action?", code: "und" },
+    // Confident, genuinely single-language prompts -> detected hint.
+    { label: "`What is faith?` -> en", q: "What is faith?", code: "en", scripture: "eng" },
+    { label: "Italian topical question -> it", q: "Che cosa insegna il Libro di Mormon riguardo al pentimento?", code: "it", scripture: "ita" },
+    // Scripture references, both languages.
+    { label: "Italian `Giovanni 3:16` -> it (Italian scripture)", q: "Giovanni 3:16", code: "it", scripture: "ita" },
+    { label: "English `John 3:16` -> und (English fallback at the tool)", q: "John 3:16", code: "und" },
+    { label: "bare reference `Alma 32:21` -> und", q: "Alma 32:21", code: "und" },
+  ];
+  for (const c of detectionCases) {
+    const got = detectPromptLanguage(c.q);
+    const codeOk = got.code === c.code;
+    const scriptureOk = got.scriptureLanguage === c.scripture;
+    // `und` must carry no concrete language name and no scripture preference.
+    const undShapeOk = c.code !== "und" || (got.name === "the user's language" && got.scriptureLanguage === undefined);
+    check(c.label, codeOk && scriptureOk && undShapeOk, JSON.stringify(got));
+  }
 
   // ── Identity: English prompt on English index skips the model entirely ────
   {
@@ -148,15 +170,25 @@ async function main() {
   check("chat route detects prompt language locally", routeSrc.includes("detectPromptLanguage("));
   check("chat route records no `routing` latency phase", !routeSrc.includes('phase("routing"'));
 
-  // The no-tool Italian greeting: local hint is Italian, the user message carries
-  // that answer-language hint and no globally translated "Search query" block.
+  // The no-tool greeting "Ciao, come stai?" is low-confidence (und): the user
+  // message must NOT assert a concrete language, it falls back to "match the
+  // original prompt", and it carries no globally translated "Search query" block.
   const greetingMsg = buildUserMessage(
     "Ciao, come stai?",
     [],
     { uiLanguage: "eng", promptLanguage: detectPromptLanguage("Ciao, come stai?") }
   );
-  check("`Ciao, come stai?` user message hints Italian answer", greetingMsg.includes("Answer in Italian (it)"));
-  check("`Ciao, come stai?` user message has no translated Search query block", !/Search query/i.test(greetingMsg));
+  check("`Ciao, come stai?` message does not assert a wrong language", !/Answer in Italian \(it\)/.test(greetingMsg));
+  check("`Ciao, come stai?` message falls back to original-prompt language", /Answer in the same language as the user's original prompt/.test(greetingMsg));
+  check("`Ciao, come stai?` message has no translated Search query block", !/Search query/i.test(greetingMsg));
+
+  // A confident single-language prompt still gets the explicit answer-language hint.
+  const italianMsg = buildUserMessage(
+    "Che cosa insegna il Libro di Mormon riguardo al pentimento?",
+    [],
+    { uiLanguage: "eng", promptLanguage: detectPromptLanguage("Che cosa insegna il Libro di Mormon riguardo al pentimento?") }
+  );
+  check("confident Italian prompt -> explicit `Answer in Italian (it)` hint", italianMsg.includes("Answer in Italian (it)"));
 
   console.log(`\n${failures === 0 ? "All language-policy checks passed" : `${failures} check(s) failed`}`);
   if (failures > 0) process.exit(1);
