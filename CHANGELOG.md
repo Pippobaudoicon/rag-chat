@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.12.13
+
+- **Plan: tool-specific language routing.** Added `docs/TOOL_SPECIFIC_LANGUAGE_ROUTING_PLAN.md`, a data-backed implementation plan to remove the global chat translation LLM call, route semantic/conference queries lazily to English inside their tools, and make scripture lookup prefer the user's indexed scripture language. This is documentation only; runtime behavior is unchanged.
+
 ## 0.12.12
 
 - **Eager/speculative retrieval (Phase 2 · P1, flag-gated, default OFF — opt-in).** For high-confidence topical questions, `POST /api/chat` can run the default `semantic_search` retrieval **during the preamble** (on an answer-cache miss) and seed the resulting chunks as the user message's `initialChunks`, so the model answers on **turn 1** instead of first spending an empty tool-decision model round-trip (the `firstToolCallMs − preStreamMs` gap the latency trace measures). New `eagerRetrieval` latency phase records the cost. Shipped **default-off**: enable with `RAG_EAGER_RETRIEVAL=true` only after latency traces and representative output/citation comparisons confirm a net win without quality drift.

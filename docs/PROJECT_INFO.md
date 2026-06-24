@@ -499,6 +499,12 @@ Reference template: `.env.example`.
 
 ## 12) Update policy for agents
 
+### Active implementation plan
+
+- `docs/TOOL_SPECIFIC_LANGUAGE_ROUTING_PLAN.md` defines the next language-routing
+  refactor. It is a plan only; current runtime behavior remains the architecture
+  described above until implementation lands.
+
 When changing architecture, behavior, integrations, API contracts, or major UX flow:
 
 1. Update this file in the same change.
