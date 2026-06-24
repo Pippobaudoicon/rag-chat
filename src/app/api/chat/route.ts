@@ -36,7 +36,9 @@ import {
   getIndexLanguage,
   routeQueryLanguage,
 } from "@/lib/rag/language-routing";
-import { retrievalFlagsSignature } from "@/lib/rag/flags";
+import { isEagerRetrievalEnabled, retrievalFlagsSignature } from "@/lib/rag/flags";
+import { parseScriptureSelection } from "@/lib/rag/scripture-reference";
+import { runSemanticRetrieval } from "@/lib/rag/tools/shared/semantic-retrieval";
 import { badRequestFromZod, chatRequestSchema } from "@/lib/api/validation";
 import {
   createMemoryTools,
@@ -184,9 +186,10 @@ export async function POST(req: Request) {
     Array.isArray(fixedChunks) && fixedChunks.length > 0;
   const validatedFixedChunks: SourceChunk[] = hasFixedChunks ? fixedChunks : [];
 
-  // Chunks injected into the user message. Empty in the default flow; the
-  // model populates the source list by calling tools during streaming.
-  const initialChunks: SourceChunk[] = hasFixedChunks ? validatedFixedChunks : [];
+  // Chunks injected into the user message. Empty in the default flow unless P1
+  // eager retrieval populates them below; otherwise the model populates the
+  // source list by calling tools during streaming.
+  let initialChunks: SourceChunk[] = hasFixedChunks ? validatedFixedChunks : [];
   const toolChunksUsed: SourceChunk[] = [];
   const retrievalToolEvents: RetrievalToolEvent[] = [];
   let writeProgress: ((progress: ChatProgressData) => void) | null = null;
@@ -511,10 +514,40 @@ export async function POST(req: Request) {
     }
   }
 
+  // ── 5b. P1 eager retrieval ────────────────────────────────────────────────
+  // Reaching here implies an answer-cache miss (a hit returns early above).
+  // For common topical questions, run the default semantic_search retrieval now
+  // — during the preamble — and seed the chunks as `initialChunks` so the model
+  // can answer on turn 1, eliminating the empty tool-decision round-trip.
+  // Skipped for: fixed-chunks regenerate (already seeded), scripture references
+  // (handled by lookup_scripture_passage, not semantic_search), and empty
+  // sources. Warms the SAME cacheKey the tool uses, so a redundant tool call is
+  // a cache hit. Kill-switch: RAG_EAGER_RETRIEVAL=false.
+  const scriptureSelection = parseScriptureSelection(
+    languageRouting.searchQuery,
+    languageRouting.indexLanguage
+  );
+  const eagerEligible =
+    isEagerRetrievalEnabled() &&
+    !hasFixedChunks &&
+    !scriptureSelection &&
+    sources.length > 0;
+  if (eagerEligible) {
+    const eager = await latency.phase("eagerRetrieval", () =>
+      runSemanticRetrieval({
+        query: languageRouting.searchQuery,
+        sources,
+        topK: effectiveTopK,
+        language: languageRouting.indexLanguage,
+      })
+    );
+    initialChunks = eager.chunks;
+  }
+
   // ── 6. Build (optionally) RAG-augmented message ───────────────────────────
-  // In the default flow `initialChunks` is empty and the model is expected to
-  // call a retrieval tool. Only the regenerate-with-fixed-chunks path injects
-  // pre-selected context up front.
+  // In the default flow `initialChunks` is empty unless eager retrieval seeded
+  // it above; otherwise the model is expected to call a retrieval tool. The
+  // regenerate-with-fixed-chunks path injects pre-selected context up front.
   const augmentedQuestion = buildUserMessage(question, initialChunks, {
     uiLanguage,
     inputLanguageCode: languageRouting.inputLanguageCode,

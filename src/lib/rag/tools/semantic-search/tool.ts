@@ -1,22 +1,12 @@
 import { tool } from "ai";
 import { z } from "zod";
-import { retrieve } from "@/lib/rag/retriever";
-import { cacheKey, getFromCache, setInCache } from "@/lib/rag/cache";
 import { SUPER_SOURCES } from "@/lib/types";
-import type { ChatProgressData, Language, SourceChunk, SourceType } from "@/lib/types";
+import type { ChatProgressData, Language, SourceType } from "@/lib/types";
 import { toToolChunk } from "../shared/chunk-formatting";
-import { expandRelatedContext } from "../shared/related-context";
-import { graphRerank } from "../shared/graph-rerank";
-import { isGraphRerankEnabled, retrievalFlagsSignature } from "@/lib/rag/flags";
+import { runSemanticRetrieval } from "../shared/semantic-retrieval";
 import type { RagToolContext } from "../shared/tool-context";
 
 const SOURCE_VALUES: SourceType[] = SUPER_SOURCES;
-
-// Topical search is already on-target, so graph expansion is deliberately
-// conservative: pull cross-references only from the strongest hits and cap the
-// total, adding scholar-grade depth without diluting or bloating the payload.
-const RELATED_FROM_TOP_N = 4;
-const RELATED_CONTEXT_CAP = 8;
 
 const inputSchema = z.object({
   query: z
@@ -98,46 +88,19 @@ export function createSemanticSearchTool({
         toolName: "semantic_search",
       });
 
-      const key = cacheKey(
+      const { chunks, cacheHit } = await runSemanticRetrieval({
         query,
+        sources: effectiveSources,
+        topK: effectiveTopK,
         language,
-        effectiveSources,
-        effectiveTopK,
-        retrievalFlagsSignature()
-      );
-      const cached = await getFromCache(key);
-      const effectiveSourceSet = new Set(effectiveSources);
-      let combined: SourceChunk[];
-      if (cached) {
-        combined = cached.chunks.filter((chunk) => effectiveSourceSet.has(chunk.source));
-      } else {
-        const primary = await retrieve(query, effectiveSources, language, effectiveTopK);
-        // Attach a bounded slice of each top hit's cross-references / study-help
-        // context (the graph projected into Pinecone metadata) for fuller answers.
-        const relatedContext = await expandRelatedContext(primary, language, {
-          fromTopN: RELATED_FROM_TOP_N,
-          cap: RELATED_CONTEXT_CAP,
-          sources: effectiveSources,
-        });
-        combined = [...primary, ...relatedContext];
-        // Best-effort warm cache write; the chat route will overwrite later
-        // with the assistant's final answer text.
-        void setInCache(key, { chunks: combined, answer: "" });
-      }
-
-      // Graph-aware rerank (flag-gated): a chunk cross-referenced by several
-      // others in the retrieved neighborhood is central to the topic, so promote
-      // it (capped). Falls back to plain vector + expansion order when disabled.
-      const chunks = isGraphRerankEnabled()
-        ? graphRerank(combined, [], { rerankSeeds: true })
-        : combined;
+      });
 
       const indexedChunks = context.registerChunks(chunks);
       onProgress?.({
         phase: "tools",
         toolName: "semantic_search",
         sourceCount: chunks.length,
-        cacheHit: !!cached,
+        cacheHit,
         elapsedMs: Date.now() - startedAt,
       });
 
@@ -145,7 +108,7 @@ export function createSemanticSearchTool({
         query,
         language,
         sources: effectiveSources,
-        cacheHit: !!cached,
+        cacheHit,
         total: chunks.length,
         chunks: indexedChunks.map(({ chunk, citationIndex }) =>
           toToolChunk(chunk, citationIndex)
