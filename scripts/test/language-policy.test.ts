@@ -90,6 +90,24 @@ async function main() {
     // Confident, genuinely single-language prompts -> detected hint.
     { label: "`What is faith?` -> en", q: "What is faith?", code: "en", scripture: "eng" },
     { label: "Italian topical question -> it", q: "Che cosa insegna il Libro di Mormon riguardo al pentimento?", code: "it", scripture: "ita" },
+    // Multi-word scripture questions tinyld scores < 0.9 (proper nouns + numbers
+    // drag it down) but are unambiguous -> dominance fallback. The reported bug:
+    // these returned `und`, letting prior-turn Italian history override English.
+    { label: "English scripture question (low tinyld score) -> en", q: "can you help me understand better John 3?", code: "en", scripture: "eng" },
+    { label: "English scripture question w/ verse -> en", q: "Can you explain what John 3:16 means?", code: "en", scripture: "eng" },
+    { label: "English `What does Alma 32 teach about faith?` -> en", q: "What does Alma 32 teach about faith?", code: "en", scripture: "eng" },
+    { label: "Italian scripture question -> it", q: "Puoi aiutarmi a capire meglio Giovanni 3?", code: "it", scripture: "ita" },
+    { label: "Italian `Cosa insegna Alma 32 sulla fede?` -> it", q: "Cosa insegna Alma 32 sulla fede?", code: "it", scripture: "ita" },
+    // German question dragged below 0.9 by a proper noun + number -> dominance
+    // fallback keeps it (de@0.100, above the calibrated floor).
+    { label: "German scripture question (de@0.100) -> de", q: "kannst du mir Johannes 3 besser erklären?", code: "de" },
+    // Negative: strings of foreign-looking proper names get a weak, near-random
+    // top guess with no rival. Word count + low secondary alone would pass them;
+    // the min-confidence floor (0.08) keeps them `und`.
+    { label: "proper names Latin@0.039 -> und", q: "Gideon Teancum Pahoran Moroni Lehi", code: "und" },
+    { label: "proper names Latin@0.048 -> und", q: "Liahona Cumorah Shazer Nahom Bountiful Irreantum", code: "und" },
+    { label: "proper names Latin@0.073 -> und (just under the floor)", q: "Sariah Ishmael Zoram Laban Nephi", code: "und" },
+    { label: "proper names Indonesian@0.061 -> und", q: "Onidah Antionah Zeezrom Antionum Melek", code: "und" },
     // Scripture references, both languages.
     { label: "Italian `Giovanni 3:16` -> it (Italian scripture)", q: "Giovanni 3:16", code: "it", scripture: "ita" },
     { label: "English `John 3:16` -> und (English fallback at the tool)", q: "John 3:16", code: "und" },
