@@ -8,17 +8,19 @@
 // `search_conference_talks`) — speculatively retrieving adds latency and injects
 // unrelated chunks that can shift output and citation ordering.
 //
-// This classifier is deliberately biased toward FALSE NEGATIVES: when in doubt
-// it returns `false`, so the turn simply falls back to the normal tool-first
-// flow (no harm, just no speedup). A false positive — eager retrieval on a
-// non-topical turn — is the costly case, so every gate below errs toward
-// skipping. Scripture references are gated separately in the route via
-// `parseScriptureSelection`; this function covers the remaining skip categories.
+// CLASSIFY THE TRANSLATED SEARCH QUERY, NOT THE RAW PROMPT. The route only runs
+// eager retrieval on the English index (`indexLanguage === "eng"`), where
+// language routing has already translated the user's prompt into English as
+// `languageRouting.searchQuery`. So this classifier always sees English and
+// needs only English heuristics — an Italian "Rendilo più breve" arrives here as
+// "Make it shorter", an Italian "Grazie" as "Thank you", etc. No multilingual
+// regex lists.
 //
-// Heuristics are lexical and English-centric (the primary beta surface); paired
-// with the universal short-message gate they catch the common non-topical
-// shapes. Precision is tuned later from production traces before the flag is
-// enabled by default.
+// Deliberately biased toward FALSE NEGATIVES: when in doubt it returns `false`,
+// so the turn falls back to the normal tool-first flow (no harm, just no
+// speedup). A false positive — eager retrieval on a non-topical turn — is the
+// costly case, so every gate below errs toward skipping. Scripture references
+// are gated separately in the route via `parseScriptureSelection`.
 
 // Genuine topical questions are rarely shorter than this. "What is faith?" (3)
 // and "Explain the Atonement" (3) still pass; one- and two-word turns are almost
@@ -43,11 +45,12 @@ const CONFERENCE_TALK_RX =
   /\b(conference talk|general conference|the talk|that talk|talk by|address by|devotional|fireside)\b/i;
 
 /**
- * True when `question` looks like a genuine topical/doctrinal query that
- * benefits from eager `semantic_search` retrieval. Pure and deterministic.
+ * True when `searchQuery` (the English-translated retrieval query) looks like a
+ * genuine topical/doctrinal question that benefits from eager `semantic_search`
+ * retrieval. Pure and deterministic.
  */
-export function isEagerTopicalQuery(question: string): boolean {
-  const q = question.trim();
+export function isEagerTopicalQuery(searchQuery: string): boolean {
+  const q = searchQuery.trim();
   if (!q) return false;
   if (CHITCHAT_RX.test(q)) return false;
   if (q.split(/\s+/).length < MIN_TOPICAL_WORDS) return false;

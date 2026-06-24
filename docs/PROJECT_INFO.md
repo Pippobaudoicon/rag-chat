@@ -60,7 +60,7 @@ Read this first before deep code exploration.
 3b. The conversation **ownership gate** (a single indexed lookup, 404 on a deleted/unowned id) resolves first, before any other preamble work. Once past it, the mutually independent reads run concurrently in a single `Promise.all` rather than serially: messages load, language routing, the memory brief, and user preferences. This collapses `preStreamMs` from the sum of those phases toward their max. Routing runs in the batch for the common case; for regenerate requests whose body omits the question text (resolved from history), the single routing call is deferred until the question is known.
 4. Server detects the user's prompt language and translates the retrieval query into the configured Pinecone index language (`RAG_INDEX_LANGUAGE`, English by default for `lds-rag-v1`). Detection runs **locally first** (`tinyld`): when the prompt is already in the index language the routing LLM call is skipped entirely (identity translation, `routing` phase ≈ 0). Only cross-language prompts — or too-short/ambiguous input that the local detector can't classify — fall through to the `generateText` translation call. The `QueryLanguageRouting` contract is identical on both paths.
 5. Server constructs an AI SDK `streamText` call with the RAG tool set and lets the model decide how to retrieve.
-5b. **Eager retrieval (P1, flag-gated, default OFF — opt-in):** on an answer-cache miss, for high-confidence topical questions the server can run the default `semantic_search` retrieval *during* the preamble (`eagerRetrieval` latency phase) and seed the chunks as the user message's `initialChunks`, so the model answers on turn 1 instead of spending an empty tool-decision round-trip (`firstToolCallMs − preStreamMs`). The eager user message carries a **preloaded-context contract** (a labeled "Context (preloaded semantic search)" block + system-prompt rules counting preloaded chunks as tool-equivalent sources) so the model answers/cites directly without re-emitting `semantic_search`. It warms the **same** Upstash cacheKey, so a refinement tool call is a cache hit. Eligibility is a **conservative positive allowlist** (`isEagerTopicalQuery`, false-negatives preferred): skips the fixed-chunks regenerate path, empty source sets, scripture references (`parseScriptureSelection` → `lookup_scripture_passage`), chit-chat, response-edit / conversational follow-ups, specific conference-talk requests (→ `search_conference_talks`), and too-short prompts. Eager and lazy paths share `runSemanticRetrieval()` (`src/lib/rag/tools/shared/semantic-retrieval.ts`) so ordering and citation indices are identical. Enable with `RAG_EAGER_RETRIEVAL=true` only after trace validation.
+5b. **Eager retrieval (P1, flag-gated, default OFF — opt-in):** on an answer-cache miss, for high-confidence topical questions the server can run the default `semantic_search` retrieval *during* the preamble (`eagerRetrieval` latency phase) and seed the chunks as the user message's `initialChunks`, so the model answers on turn 1 instead of spending an empty tool-decision round-trip (`firstToolCallMs − preStreamMs`). The eager user message carries a **preloaded-context contract** (a labeled "Context (preloaded semantic search)" block + system-prompt rules counting preloaded chunks as tool-equivalent sources) so the model answers/cites directly without re-emitting `semantic_search`. It warms the **same** Upstash cacheKey, so a refinement tool call is a cache hit. Eligibility is a **conservative positive allowlist** (`isEagerTopicalQuery`, false-negatives preferred): skips the fixed-chunks regenerate path, empty source sets, scripture references (`parseScriptureSelection` → `lookup_scripture_passage`), chit-chat, response-edit / conversational follow-ups, specific conference-talk requests (→ `search_conference_talks`), and too-short prompts. It is further **restricted to the English index** (`indexLanguage === "eng"`) and classifies the already-translated English `languageRouting.searchQuery`, so the allowlist needs only English heuristics (an Italian prompt reaches it pre-translated) — no multilingual regex lists. Eager and lazy paths share `runSemanticRetrieval()` (`src/lib/rag/tools/shared/semantic-retrieval.ts`) so ordering and citation indices are identical. Enable with `RAG_EAGER_RETRIEVAL=true` only after trace validation (go/no-go: topical p50 `serverFirstTextMs` must improve ≥ ~1s or ~20% with no output/citation regressions, else P1 is removed rather than expanded).
 6. The model calls one or more retrieval tools per turn as it sees fit, using the translated index-language search query:
    - `semantic_search` for general topical queries (caches via Upstash Redis).
    - `lookup_scripture_passage` for scripture references (also cached via Upstash Redis).
@@ -263,9 +263,10 @@ Notes:
   answers without an opening tool round-trip. This is NOT the old unconditional
   double-retrieval: eager warms the same tool cacheKey via the shared
   `runSemanticRetrieval()` helper, so a refinement `semantic_search` is a cache hit,
-  and a conservative allowlist (`isEagerTopicalQuery`) skips scripture refs / fixed
-  chunks / empty sources / chit-chat / follow-ups / specific-talk requests. Opt-in
-  with `RAG_EAGER_RETRIEVAL=true` after trace validation.
+  and a conservative allowlist (`isEagerTopicalQuery`, on the English-translated
+  search query, English index only) skips scripture refs / fixed chunks / empty
+  sources / chit-chat / follow-ups / specific-talk requests. Opt-in with
+  `RAG_EAGER_RETRIEVAL=true` after trace validation.
 - AI function tools available in the chat runtime:
   - `semantic_search` — general topical retrieval over the user's selected
     sources, with Upstash Redis caching. The model may override `sources`, but
@@ -488,12 +489,13 @@ Reference template: `.env.example`.
   Runs the default `semantic_search` during the preamble on an answer-cache miss and
   seeds the chunks (with a preloaded-context contract) as `initialChunks` so the model
   answers on turn 1 (kills the empty tool-decision round-trip). Conservative allowlist
-  (`isEagerTopicalQuery`, false-negatives preferred): skips scripture refs / fixed
-  chunks / empty sources / chit-chat / response-edit follow-ups / specific-talk
-  requests. Warms the same tool cacheKey (a refinement tool call is then a cache hit).
-  Deliberately NOT part of `retrievalFlagsSignature()` — it changes *when* retrieval
-  runs, not the cached results. Enable with `true` only after latency-trace + output/
-  citation parity validation.
+  (`isEagerTopicalQuery`, false-negatives preferred, classifying the English-translated
+  search query on the English index only): skips scripture refs / fixed chunks / empty
+  sources / chit-chat / response-edit follow-ups / specific-talk requests. Warms the
+  same tool cacheKey (a refinement tool call is then a cache hit). Deliberately NOT part
+  of `retrievalFlagsSignature()` — it changes *when* retrieval runs, not the cached
+  results. Enable with `true` only after latency-trace + output/citation parity
+  validation (go/no-go: topical p50 `serverFirstTextMs` ≥ ~1s or ~20% better, else remove).
 
 ## 12) Update policy for agents
 

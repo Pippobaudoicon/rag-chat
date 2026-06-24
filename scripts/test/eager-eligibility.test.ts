@@ -13,6 +13,12 @@
  *   - response-edit / conversational follow-ups   → `isEagerTopicalQuery` false
  *   - specific conference-talk requests           → `isEagerTopicalQuery` false
  *   - too-short prompts                           → `isEagerTopicalQuery` false
+ *
+ * The classifier sees the English-translated `languageRouting.searchQuery` (the
+ * route only runs eager on the English index), so the Italian-origin cases below
+ * are written as the English search query routing produces for an Italian prompt
+ * — that is exactly the string the classifier receives in production.
+ *
  * We assert each category here, plus that the eager user message carries the
  * preloaded-context contract (so the model does not re-emit semantic_search).
  */
@@ -41,7 +47,7 @@ for (const c of scriptureCases) {
   check(`scripture: ${c.label}`, got === c.isScripture, `expected ${c.isScripture}, got ${got}`);
 }
 
-// ── Topical allowlist (isEagerTopicalQuery) ───────────────────────────────────
+// ── Topical allowlist (isEagerTopicalQuery, on the English search query) ──────
 type TopicalCase = { label: string; query: string; eligible: boolean };
 const topicalCases: TopicalCase[] = [
   // Eligible — genuine topical / doctrinal questions.
@@ -67,6 +73,17 @@ const topicalCases: TopicalCase[] = [
   { label: "two words", query: "define charity", eligible: false },
   // Guard — 'talk about <topic>' is topical, NOT a talk reference.
   { label: "talk about phrasing stays eligible", query: "Can we talk about the plan of salvation?", eligible: true },
+
+  // Italian-origin turns — classified via the English `searchQuery` routing
+  // produces (the route only runs eager on the English index).
+  // "Cosa insegna il Vangelo riguardo all'umiltà?"
+  { label: "[it→en] topical question", query: "What does the gospel teach about humility?", eligible: true },
+  // "Grazie mille"
+  { label: "[it→en] acknowledgement", query: "Thank you very much", eligible: false },
+  // "Rendilo più breve"
+  { label: "[it→en] response-edit follow-up", query: "Make it shorter", eligible: false },
+  // "Riassumi il discorso di Uchtdorf sulla grazia"
+  { label: "[it→en] conference-talk request", query: "Summarize the talk by Uchtdorf about grace", eligible: false },
 ];
 for (const c of topicalCases) {
   const got = isEagerTopicalQuery(c.query);

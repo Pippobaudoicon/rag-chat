@@ -524,19 +524,22 @@ export async function POST(req: Request) {
   // preferred): skipped for fixed-chunks regenerate (already seeded), empty
   // sources, scripture references (→ lookup_scripture_passage), and — via
   // `isEagerTopicalQuery` — chit-chat, response-edit / conversational follow-ups,
-  // and specific conference-talk requests (→ search_conference_talks). Warms the
-  // SAME cacheKey the tool uses, so a redundant tool call is a cache hit.
-  // Default OFF; opt in with RAG_EAGER_RETRIEVAL=true after trace validation.
+  // and specific conference-talk requests (→ search_conference_talks). Restricted
+  // to the English index so the classifier sees the already-translated English
+  // `searchQuery` (no multilingual heuristics). Warms the SAME cacheKey the tool
+  // uses, so a redundant tool call is a cache hit. Default OFF; opt in with
+  // RAG_EAGER_RETRIEVAL=true after trace validation.
   const scriptureSelection = parseScriptureSelection(
     languageRouting.searchQuery,
     languageRouting.indexLanguage
   );
   const eagerEligible =
     isEagerRetrievalEnabled() &&
+    languageRouting.indexLanguage === "eng" &&
     !hasFixedChunks &&
     !scriptureSelection &&
     sources.length > 0 &&
-    isEagerTopicalQuery(question);
+    isEagerTopicalQuery(languageRouting.searchQuery);
   if (eagerEligible) {
     const eager = await latency.phase("eagerRetrieval", () =>
       runSemanticRetrieval({
