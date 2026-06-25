@@ -277,6 +277,46 @@ export const UI_TEXT = {
       rollupsUpdated: "Aggiornati {count} riepiloghi.",
       oneRollupUpdated: "Aggiornato 1 riepilogo.",
     },
+    onboarding: {
+      replayLabel: "Rivedi il tutorial",
+      skip: "Salta",
+      back: "Indietro",
+      next: "Avanti",
+      finish: "Fine",
+      closeAria: "Chiudi tutorial",
+      stepCounter: "Passo {current} di {total}",
+      saveError: "Impossibile salvare. Riprova.",
+      steps: {
+        composer: {
+          title: "Chiedi e cerca",
+          body: "Scrivi qui la tua domanda. L'assistente sceglie da solo se attingere a scritture, discorsi di conferenza o fonti semantiche più ampie. La risposta segue la lingua in cui scrivi.",
+        },
+        "source-toggles": {
+          title: "Selettore fonti",
+          body: "Attiva o disattiva la base di conoscenza delle diverse fonti di informazione nella risposta finale; meno fonti attive, più veloce e mirata sarà la risposta.",
+        },
+        "super-toggle": {
+          title: "Modalità Super",
+          body: "Attiva la ricerca in tutte le fonti disponibili insieme. Utile per domande ampie o trasversali; l'ambito è più esteso e la risposta può richiedere un po' più di tempo.",
+        },
+        "response-style": {
+          title: "Stile di risposta",
+          body: "Scegli quanto approfondite o semplici devono essere le risposte. La scelta vale per la conversazione corrente e puoi impostarne una come predefinita.",
+        },
+        sources: {
+          title: "Fonti, citazioni e tag",
+          body: "Le risposte citano le loro fonti con numeri di citazione. Apri una scheda fonte per leggere il riferimento, i tag dei metadati e il testo originale.",
+        },
+        memory: {
+          title: "Memoria e personalizzazione",
+          body: "L'assistente può ricordare le tue preferenze per personalizzare le risposte: non è prova dottrinale. Rivedi o aggiorna la memoria nella pagina Memoria e chiedi all'assistente di ricordare o dimenticare qualcosa.",
+        },
+        "new-chat": {
+          title: "Le tue conversazioni",
+          body: "Crea nuove chat, rinominale e riprendile dalla barra laterale. La lingua dell'interfaccia cambia solo le etichette, non la lingua delle fonti o delle risposte.",
+        },
+      },
+    },
   },
   eng: {
     app: {
@@ -529,6 +569,46 @@ export const UI_TEXT = {
       refreshEmpty: "Scanned {count} recent conversations; nothing to summarize yet.",
       rollupsUpdated: "Updated {count} rollups.",
       oneRollupUpdated: "Updated 1 rollup.",
+    },
+    onboarding: {
+      replayLabel: "Replay tutorial",
+      skip: "Skip",
+      back: "Back",
+      next: "Next",
+      finish: "Finish",
+      closeAria: "Close tutorial",
+      stepCounter: "Step {current} of {total}",
+      saveError: "Couldn't save. Please retry.",
+      steps: {
+        composer: {
+          title: "Ask and search",
+          body: "Type your question here. The assistant decides on its own whether to draw on scriptures, conference talks, or broader semantic sources. Answers follow the language you write in.",
+        },
+        "source-toggles": {
+          title: "Source toggle",
+          body: "Toggle the visibility of different sources of information from the final response, the less the toggles, the faster and more focused the response.",
+        },
+        "super-toggle": {
+          title: "Super mode",
+          body: "Searches every available source at once. Useful for broad or cross-cutting questions; the scope is wider, so an answer may take a little longer.",
+        },
+        "response-style": {
+          title: "Response styles",
+          body: "Choose how deep or simple answers should be. The choice applies to the current conversation, and you can set one as your default.",
+        },
+        sources: {
+          title: "Sources, citations, and tags",
+          body: "Answers cite their sources with citation numbers. Open a source card to read the reference, its metadata tags, and the original text.",
+        },
+        memory: {
+          title: "Memory and personalization",
+          body: "The assistant may remember your preferences to personalize answers — this is not doctrinal evidence. Review or refresh memory on the Memory page, and ask the assistant to remember or forget something.",
+        },
+        "new-chat": {
+          title: "Your conversations",
+          body: "Create new chats, rename them, and revisit them from the sidebar. The UI-language setting only changes interface labels, not the language of sources or answers.",
+        },
+      },
     },
   },
 } as const;

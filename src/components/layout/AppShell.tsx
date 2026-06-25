@@ -8,6 +8,7 @@ import { LanguageProvider } from "@/components/chat/language-context";
 import { LanguageToggle } from "@/components/chat/LanguageToggle";
 import { useLanguage } from "@/components/chat/language-context";
 import { uiText } from "@/components/chat/i18n";
+import { OnboardingTour } from "@/components/onboarding/OnboardingTour";
 
 const Sheet = lazy(() =>
   import("@/components/ui/sheet").then((m) => ({ default: m.Sheet }))
@@ -34,6 +35,7 @@ export function AppShell({ children }: AppShellProps) {
 
 function AppShellContent({ children }: AppShellProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [tourOwnsSidebar, setTourOwnsSidebar] = useState(false);
   const router = useRouter();
   const { language } = useLanguage();
   const text = uiText(language);
@@ -120,6 +122,20 @@ function AppShellContent({ children }: AppShellProps) {
     };
   }, [mobileOpen]);
 
+  // The onboarding tour opens/closes the mobile drawer so it can anchor steps
+  // to sidebar-only controls.
+  useEffect(() => {
+    const onSetSidebar = (event: Event) => {
+      const open = (event as CustomEvent<{ open?: boolean }>).detail?.open;
+      if (typeof open === "boolean") {
+        setTourOwnsSidebar(open);
+        setMobileOpen(open);
+      }
+    };
+    window.addEventListener("onboarding:set-sidebar", onSetSidebar);
+    return () => window.removeEventListener("onboarding:set-sidebar", onSetSidebar);
+  }, []);
+
   const handleNewChatFromLogo = () => {
     if (typeof window === "undefined") return;
     window.dispatchEvent(new CustomEvent("chat:new-conversation"));
@@ -180,7 +196,11 @@ function AppShellContent({ children }: AppShellProps) {
         {/* Mobile sidebar sheet */}
         <div className="md:hidden">
           <Suspense>
-            <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
+            <Sheet
+              open={mobileOpen}
+              modal={tourOwnsSidebar ? false : true}
+              onOpenChange={setMobileOpen}
+            >
               <SheetContent
                 side="left"
                 showCloseButton={false}
@@ -199,6 +219,8 @@ function AppShellContent({ children }: AppShellProps) {
 
         <div className="flex-1 min-h-0 overflow-hidden">{children}</div>
       </main>
+
+      <OnboardingTour />
     </div>
   );
 }

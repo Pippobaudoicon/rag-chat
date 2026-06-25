@@ -118,10 +118,11 @@ Read this first before deep code exploration.
 - `DELETE /api/conversations/[id]`
   - Delete conversation and cascading messages.
 - `GET /api/settings`
-  - Auth required. Returns the user's persistent preferences (currently
-    `defaultResponseStyle`).
+  - Auth required. Returns the user's persistent preferences
+    (`defaultResponseStyle`, `onboardingStatus`, `onboardingStep`).
 - `PUT /api/settings`
-  - Auth required. Updates the user's default response style.
+  - Auth required. Updates whichever preferences are present (default response
+    style and/or onboarding tour state); at least one field is required.
 
 ## 6) Data model summary
 
@@ -135,9 +136,11 @@ Read this first before deep code exploration.
   - UUID conversation FK, optional assistant message FK, owner, rating/comment,
     copied answer context, timestamp.
 - `rag_user_settings`
-  - Owner (`clerk_user_id`) primary key, `default_response_style`, timestamps.
-    Persistent per-user preferences, kept separate from the memory-profile
-    tables so background profiling can never clobber a settings change.
+  - Owner (`clerk_user_id`) primary key, `default_response_style`,
+    `onboarding_status` (`pending|completed|skipped`), `onboarding_step`
+    (resume point), timestamps. Persistent per-user preferences, kept separate
+    from the memory-profile tables so background profiling can never clobber a
+    settings change.
 
 Notes:
 
@@ -416,9 +419,14 @@ Reference template: `.env.example`.
   - `src/app/api/billing/subscription/route.ts`
   - `src/app/api/conversations/route.ts`
   - `src/app/api/conversations/[id]/route.ts`
-  - `src/app/api/settings/route.ts` (per-user default response style)
+  - `src/app/api/settings/route.ts` (per-user prefs: response style + onboarding state)
 - User settings:
   - `src/lib/db/user-settings.ts` (read/write `rag_user_settings`)
+- Onboarding tour (first-visit guided tutorial, issue #12):
+  - `src/lib/onboarding/steps.ts` (pure step/anchor/auto-start logic; tested by `test:onboarding`)
+  - `src/components/onboarding/OnboardingTour.tsx` (anchored callouts, replay, persistence, a11y)
+  - mounted in `src/components/layout/AppShell.tsx`; anchors are `data-tour` attributes in
+    `ChatInterface`/`SettingsPanel`/`SourcesPanel`/`ChatSidebar`; replay entry in `ChatSidebar`
 - RAG internals:
   - `src/lib/rag/system-prompt.ts`
   - `src/lib/rag/retriever.ts`

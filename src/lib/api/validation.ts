@@ -80,10 +80,21 @@ export const updateConversationSchema = z
     message: "At least one of title or responseStyle is required",
   });
 
-// PUT /api/settings — update the user's persistent default response style.
-export const userSettingsSchema = z.object({
-  defaultResponseStyle: responseStyleSchema,
-});
+// PUT /api/settings — update the user's persistent preferences. Every field is
+// optional; the route applies whichever are present. At least one is required.
+export const userSettingsSchema = z
+  .object({
+    defaultResponseStyle: responseStyleSchema.optional(),
+    onboardingStatus: z.enum(["pending", "completed", "skipped"]).optional(),
+    onboardingStep: z.number().int().min(0).max(50).optional(),
+  })
+  .refine(
+    (data) =>
+      data.defaultResponseStyle !== undefined ||
+      data.onboardingStatus !== undefined ||
+      data.onboardingStep !== undefined,
+    { message: "At least one settings field is required" }
+  );
 
 export const searchParamsSchema = z.object({
   q: z.string().trim().min(1),

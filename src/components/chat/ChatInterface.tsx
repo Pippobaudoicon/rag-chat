@@ -1270,6 +1270,7 @@ export function ChatInterface({
       <div className="pb-safe-compact border-t border-border/50 bg-linear-to-b from-background to-muted/20 backdrop-blur-sm px-4 py-4">
         <div className="max-w-3xl mx-auto">
           <PromptInput
+            data-tour="composer"
             onSubmit={handlePromptSubmit}
             className="rounded-[2rem] transition-all duration-200 **:data-[slot=input-group]:h-auto **:data-[slot=input-group]:rounded-[2rem] **:data-[slot=input-group]:border **:data-[slot=input-group]:border-border/70 **:data-[slot=input-group]:bg-background/95 **:data-[slot=input-group]:px-2.5 **:data-[slot=input-group]:shadow-[inset_0_1px_0_hsl(var(--background)),0_8px_20px_-14px_hsl(var(--foreground)/0.45)] focus-within:**:data-[slot=input-group]:border-primary/50 focus-within:**:data-[slot=input-group]:shadow-[inset_0_1px_0_hsl(var(--background)),0_12px_28px_-14px_hsl(var(--foreground)/0.55)]"
           >

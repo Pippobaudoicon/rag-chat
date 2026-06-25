@@ -2,6 +2,7 @@ import { auth } from "@clerk/nextjs/server";
 import {
   getUserPreferences,
   setDefaultResponseStyle,
+  setOnboardingState,
 } from "@/lib/db/user-settings";
 import { badRequestFromZod, userSettingsSchema } from "@/lib/api/validation";
 
@@ -18,7 +19,8 @@ export async function GET() {
   });
 }
 
-// PUT /api/settings — update the user's default response style.
+// PUT /api/settings — update whichever persistent preferences are present
+// (default response style and/or onboarding tour state).
 export async function PUT(req: Request) {
   const { userId } = await auth();
   if (!userId) return new Response("Unauthorized", { status: 401 });
@@ -26,6 +28,17 @@ export async function PUT(req: Request) {
   const parsed = userSettingsSchema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return badRequestFromZod(parsed.error);
 
-  await setDefaultResponseStyle(userId, parsed.data.defaultResponseStyle);
-  return Response.json({ defaultResponseStyle: parsed.data.defaultResponseStyle });
+  const { defaultResponseStyle, onboardingStatus, onboardingStep } = parsed.data;
+
+  if (defaultResponseStyle !== undefined) {
+    await setDefaultResponseStyle(userId, defaultResponseStyle);
+  }
+  if (onboardingStatus !== undefined || onboardingStep !== undefined) {
+    await setOnboardingState(userId, {
+      status: onboardingStatus,
+      step: onboardingStep,
+    });
+  }
+
+  return Response.json(await getUserPreferences(userId));
 }
