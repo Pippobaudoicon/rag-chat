@@ -96,6 +96,12 @@ export const userSettings = pgTable("rag_user_settings", {
   // The user's default response style; applied to new conversations and to any
   // conversation without an explicit override. Mirrors ResponseStyleId values.
   defaultResponseStyle: text("default_response_style").notNull().default("balanced"),
+  // First-visit onboarding tour state, persisted per user so it is consistent
+  // across devices. 'pending' | 'completed' | 'skipped'; once terminal it is
+  // never reset to 'pending', so a returning user is not re-interrupted.
+  onboardingStatus: text("onboarding_status").notNull().default("pending"),
+  // Resume point while the tour is still 'pending'.
+  onboardingStep: integer("onboarding_step").notNull().default(0),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at")
     .notNull()

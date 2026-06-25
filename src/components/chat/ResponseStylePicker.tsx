@@ -48,6 +48,7 @@ export function ResponseStylePicker({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
+        data-tour="response-style"
         disabled={disabled}
         aria-label={text.settings.responseStyleAria}
         className="group inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border/50 bg-transparent px-2 py-0.5 text-xs font-medium text-muted-foreground transition-colors hover:border-border hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-indigo-500/40 disabled:cursor-not-allowed disabled:opacity-50 data-[popup-open]:border-indigo-500/30 data-[popup-open]:text-foreground"

@@ -1,0 +1,2 @@
+ALTER TABLE "rag_user_settings" ADD COLUMN "onboarding_status" text DEFAULT 'pending' NOT NULL;--> statement-breakpoint
+ALTER TABLE "rag_user_settings" ADD COLUMN "onboarding_step" integer DEFAULT 0 NOT NULL;

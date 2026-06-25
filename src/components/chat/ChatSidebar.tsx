@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import Image from "next/image";
 import { useRouter, usePathname } from "next/navigation";
 import { useUser, UserButton } from "@clerk/nextjs";
-import { BrainIcon, CreditCardIcon, EllipsisVerticalIcon, PencilIcon, SearchIcon, Trash2Icon } from "lucide-react";
+import { BrainIcon, CircleHelpIcon, CreditCardIcon, EllipsisVerticalIcon, PencilIcon, SearchIcon, Trash2Icon } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -457,6 +457,19 @@ export function ChatSidebar({ onClose, showMobileClose = false }: ChatSidebarPro
   const activeId = currentPath?.match(/\/chat\/([^/]+)/)?.[1];
   const isSearchActive = currentPath === "/search" || currentPath?.startsWith("/search?");
   const conversationGroups = groupConversationsByAge(conversations, text.sidebar);
+  const replayTutorial = useCallback(() => {
+    onClose?.();
+
+    if (currentPath === "/chat" || currentPath?.startsWith("/chat/")) {
+      requestAnimationFrame(() =>
+        window.dispatchEvent(new CustomEvent("onboarding:replay"))
+      );
+      return;
+    }
+
+    sessionStorage.setItem("onboarding:replay-after-navigation", "1");
+    router.push("/chat");
+  }, [currentPath, onClose, router]);
 
   return (
     <div className="flex flex-col h-full w-full bg-sidebar border-r border-border/40">
@@ -503,43 +516,46 @@ export function ChatSidebar({ onClose, showMobileClose = false }: ChatSidebarPro
         )}
       </div>
 
-      {/* Primary navigation */}
-      <div className="flex items-center gap-2 px-3 py-3">
-        <button
-          onClick={handleNewChat}
-          disabled={isPending}
-          className={cn(
-            "flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-border/40 px-3 py-2 text-sm transition-colors hover:border-border/60 disabled:opacity-50",
-            currentPath === "/chat"
-              ? "bg-accent text-foreground"
-              : "text-muted-foreground hover:text-foreground hover:bg-accent"
-          )}
-        >
-          <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-          </svg>
-          {text.sidebar.newChat}
-          {/* <span className="ml-auto font-mono text-[10px] text-muted-foreground/50">⌘K</span> */}
-        </button>
-        <button
-          type="button"
-          onClick={handleSearch}
-          disabled={isPending}
-          aria-label={text.sidebar.search}
-          title={text.sidebar.search}
-          className={cn(
-            "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border/40 text-muted-foreground transition-colors hover:border-border/60 hover:bg-accent hover:text-foreground disabled:opacity-50",
-            isSearchActive
-              ? "border-cyan-400/30 bg-cyan-400/10 text-cyan-100"
-              : "text-muted-foreground"
-          )}
-        >
-          <SearchIcon className="h-4 w-4" />
-        </button>
-      </div>
+      {/* Conversation controls + history — highlighted together by the final
+          onboarding step so the tour explains the full sidebar workflow. */}
+      <div data-tour="new-chat" className="flex min-h-0 flex-1 flex-col">
+        {/* Primary navigation */}
+        <div className="flex items-center gap-2 px-3 py-3">
+          <button
+            onClick={handleNewChat}
+            disabled={isPending}
+            className={cn(
+              "flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-border/40 px-3 py-2 text-sm transition-colors hover:border-border/60 disabled:opacity-50",
+              currentPath === "/chat"
+                ? "bg-accent text-foreground"
+                : "text-muted-foreground hover:text-foreground hover:bg-accent"
+            )}
+          >
+            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+            {text.sidebar.newChat}
+            {/* <span className="ml-auto font-mono text-[10px] text-muted-foreground/50">⌘K</span> */}
+          </button>
+          <button
+            type="button"
+            onClick={handleSearch}
+            disabled={isPending}
+            aria-label={text.sidebar.search}
+            title={text.sidebar.search}
+            className={cn(
+              "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border/40 text-muted-foreground transition-colors hover:border-border/60 hover:bg-accent hover:text-foreground disabled:opacity-50",
+              isSearchActive
+                ? "border-cyan-400/30 bg-cyan-400/10 text-cyan-100"
+                : "text-muted-foreground"
+            )}
+          >
+            <SearchIcon className="h-4 w-4" />
+          </button>
+        </div>
 
-      {/* Conversation list */}
-      <div ref={listRef} className="flex-1 overflow-y-auto px-3 pb-3 space-y-0.5 min-h-0">
+        {/* Conversation list */}
+        <div ref={listRef} className="flex-1 overflow-y-auto px-3 pb-3 space-y-0.5 min-h-0">
         {loading ? (
           Array.from({ length: 4 }).map((_, i) => (
             <Skeleton key={i} className="h-8 w-full rounded-md mb-1" />
@@ -631,6 +647,7 @@ export function ChatSidebar({ onClose, showMobileClose = false }: ChatSidebarPro
             )}
           </>
         )}
+        </div>
       </div>
 
       {/* Footer — memory + account */}
@@ -638,22 +655,35 @@ export function ChatSidebar({ onClose, showMobileClose = false }: ChatSidebarPro
         <div className="flex min-w-0 items-center gap-2">
           <div className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-lg px-2 text-muted-foreground">
             <span className="shrink-0">
-              <UserButton />
+              <UserButton>
+                <UserButton.MenuItems>
+                  <UserButton.Action
+                    label={text.onboarding.replayLabel}
+                    labelIcon={<CircleHelpIcon className="h-4 w-4" />}
+                    onClick={replayTutorial}
+                  />
+                </UserButton.MenuItems>
+              </UserButton>
             </span>
             <span className="min-w-0 truncate text-xs">{accountLabel}</span>
           </div>
-          <button
-            type="button"
-            onClick={() => {
-              router.push("/memory");
-              onClose?.();
-            }}
-            aria-label={text.memory.button}
-            title={text.memory.button}
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          <span
+            data-tour="memory"
+            className="-m-1 flex shrink-0 rounded-xl border border-transparent p-1"
           >
-            <BrainIcon className="h-4 w-4" />
-          </button>
+            <button
+              type="button"
+              onClick={() => {
+                router.push("/memory");
+                onClose?.();
+              }}
+              aria-label={text.memory.button}
+              title={text.memory.button}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            >
+              <BrainIcon className="h-4 w-4" />
+            </button>
+          </span>
           <button
             type="button"
             onClick={() => {

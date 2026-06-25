@@ -66,7 +66,10 @@ export function SettingsPanel({
   return (
     <div className="flex flex-wrap items-center gap-3 border-b border-border/50 bg-background/50 py-2 px-3 pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] backdrop-blur-sm md:px-4">
       {/* Source toggles */}
-      <div className="flex items-center gap-1.5 flex-wrap">
+      <div
+        className="flex items-center gap-1.5 flex-wrap"
+        data-tour="source-toggles"
+      >
         {ALL_SOURCES.map((source) => {
           const active = sources.includes(source);
           const label = sourceLabel(source, language);
@@ -97,6 +100,7 @@ export function SettingsPanel({
         {/* Super toggle */}
         <Tooltip>
           <TooltipTrigger
+            data-tour="super-toggle"
             onClick={toggleSuper}
             disabled={disabled}
             className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-bold transition-all disabled:opacity-50 ${

@@ -144,6 +144,7 @@ export function SourcesPanel({
   return (
     <div className="mt-3 space-y-2">
       <button
+        data-tour="sources"
         onClick={() => setExpanded((v) => !v)}
         className="flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
       >
