@@ -29,7 +29,7 @@ export interface OnboardingStep {
 }
 
 /**
- * The tour, in order. ~6 steps as the issue's design note requests. `sources`
+ * The tour, in order steps as the issue's design note requests. `sources`
  * has no anchor on a first visit (no answer has rendered yet) so it falls back;
  * sidebar steps are resolved only after the mobile drawer is opened.
  */

@@ -1,8 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { BrainIcon, MessageSquareTextIcon, RefreshCwIcon, SparklesIcon } from "lucide-react";
+import { BrainIcon, LockIcon, MessageSquareTextIcon, RefreshCwIcon, SparklesIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useLanguage } from "@/components/chat/language-context";
 import { formatText, uiText } from "@/components/chat/i18n";
 
@@ -46,6 +47,7 @@ interface MemoryRefreshResult {
 
 type MemoryPageClientProps = {
   snapshot: MemorySnapshot;
+  isPro: boolean;
 };
 
 function formatDate(value: string | Date | null | undefined) {
@@ -110,7 +112,7 @@ function RefreshSummary({ result }: { result: MemoryRefreshResult }) {
   );
 }
 
-export function MemoryPageClient({ snapshot: initialSnapshot }: MemoryPageClientProps) {
+export function MemoryPageClient({ snapshot: initialSnapshot, isPro }: MemoryPageClientProps) {
   const { language } = useLanguage();
   const text = uiText(language).memory;
   const [snapshot, setSnapshot] = useState(initialSnapshot);
@@ -171,15 +173,37 @@ export function MemoryPageClient({ snapshot: initialSnapshot }: MemoryPageClient
               {text.description}
             </p>
           </div>
-          <button
-            type="button"
-            onClick={refreshMemory}
-            disabled={refreshing}
-            className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md border border-border/60 bg-background px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
-          >
-            <RefreshCwIcon className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
-            {text.refresh}
-          </button>
+          {isPro ? (
+            <button
+              type="button"
+              onClick={refreshMemory}
+              disabled={refreshing}
+              className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md border border-border/60 bg-background px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+            >
+              <RefreshCwIcon className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
+              {text.refresh}
+            </button>
+          ) : (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  // Locked for free tier: link to billing, not native-disabled, so
+                  // hover still surfaces the tooltip explaining why it's locked.
+                  <a
+                    href="/billing"
+                    aria-label={text.refreshLocked}
+                    className="inline-flex h-9 shrink-0 cursor-pointer items-center justify-center gap-2 rounded-md border border-border/60 bg-background px-3 text-sm font-medium text-muted-foreground opacity-70 transition-colors hover:bg-accent hover:text-foreground"
+                  >
+                    <LockIcon className="h-4 w-4" />
+                    {text.refresh}
+                  </a>
+                }
+              />
+              <TooltipContent side="bottom" className="text-xs">
+                {text.refreshLocked}
+              </TooltipContent>
+            </Tooltip>
+          )}
         </header>
 
         {error && (

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.12.22
+
+- **Manual memory refresh is now Pro-only.** `POST /api/memory` resolves Clerk billing entitlements and returns `403 { upgradeUrl: "/billing" }` for free users, stopping the "Aggiorna" spam at the source. Free-tier memory still updates automatically via the cron job — only the manual trigger is gated. On the Memory page the refresh button renders locked for free users: a `LockIcon`, reduced opacity, and a hover tooltip (`refreshLocked`, IT/EN) explaining it's a Pro feature; clicking routes to `/billing`. Groundwork for the future paid "edit/update memory manually" feature.
+
 ## 0.12.21
 
 - **First-visit onboarding tutorial (issue #12).** A lightweight, anchored guided tour introduces the main features (ask & search, Super mode, response styles, sources/citations/tags, memory & personalization, conversation controls) to new authenticated users. Built on the already-present `@base-ui/react/popover` (no tour library) and `@vercel/analytics` for events — no new dependencies.

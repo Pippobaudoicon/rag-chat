@@ -103,7 +103,9 @@ Read this first before deep code exploration.
   - Auth required.
   - Returns the current user's saved profile memory, weekly/monthly rollups, and recent-conversation memory.
 - `POST /api/memory`
-  - Auth required.
+  - Auth required. **Pro-only**: free users get `403` with `{ upgradeUrl: "/billing" }`.
+    Free-tier memory still refreshes automatically via the cron job; only the
+    manual (spam-prone) trigger is gated.
   - Refreshes recent-conversation memory and period rollups, then returns the updated memory snapshot.
 - `GET /api/conversations`
   - List user conversations (latest first).
