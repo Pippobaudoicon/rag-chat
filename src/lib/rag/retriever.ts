@@ -144,6 +144,49 @@ function mergeChunks(chunks: SourceChunk[]): SourceChunk[] {
   );
 }
 
+// Chunk ids are `<namespace>:<language>:<rest…>` (e.g.
+// `scriptures:eng:exodus:18:12-21:v1`, `conference:ita:2019:04:slug:c1:v1`).
+// The slug/chapter/verse (or year/session/slug) segments are language-invariant,
+// so dropping the language segment yields a key shared by the SAME logical unit
+// across languages — the join between an English verse and its Italian translation.
+function languageInvariantKey(id: string): string {
+  const parts = id.split(":");
+  if (parts.length < 3) return id;
+  return [parts[0], ...parts.slice(2)].join(":");
+}
+
+// Scriptures and talks are indexed in every corpus language, so the topical
+// fan-out over `retrievalLanguages` returns each passage twice — e.g. Exodus 18
+// in English AND Esodo 18 in Italian, as two chunks with distinct ids that
+// `mergeChunks` (id-exact) never collapses. That doubles the source count and
+// spends half the top-k budget on redundant translations of the same text.
+// Collapse each cross-language group to one chunk, keeping the answer-language
+// copy (so the reader sees their language) at the group's best score (so its
+// rank is preserved). Passages indexed in only one language, or chunked into
+// different verse ranges across languages, have no partner and pass through.
+export function collapseCrossLanguage(
+  chunks: SourceChunk[],
+  preferredLanguage: Language
+): SourceChunk[] {
+  const byKey = new Map<string, SourceChunk>();
+  const order: string[] = [];
+  for (const chunk of chunks) {
+    const key = languageInvariantKey(chunk.id);
+    const existing = byKey.get(key);
+    if (!existing) {
+      byKey.set(key, chunk);
+      order.push(key);
+      continue;
+    }
+    const bestScore = Math.max(existing.score, chunk.score);
+    const preferIncoming =
+      chunk.language === preferredLanguage && existing.language !== preferredLanguage;
+    const winner = preferIncoming ? chunk : existing;
+    byKey.set(key, winner.score === bestScore ? winner : { ...winner, score: bestScore });
+  }
+  return order.map((key) => byKey.get(key)!);
+}
+
 function sortRetrievedChunks(chunks: SourceChunk[], preferredLanguage: Language): SourceChunk[] {
   return chunks.sort((a, b) => {
     const scoreDelta = b.score - a.score;
@@ -473,7 +516,10 @@ export async function retrieve(
   );
 
   const merged = [...verseChunks, ...chapterChunks, ...results.flat()];
-  const deduped = mergeChunks(merged);
+  // First collapse id-exact repeats, then collapse the same passage across
+  // languages (bilingual index) so the top-k holds distinct content, not
+  // English+Italian copies of one verse. Prefer the answer language.
+  const deduped = collapseCrossLanguage(mergeChunks(merged), language);
 
   // Cross-encoder rerank (flag-gated): scores every candidate against the query
   // directly, calibrating relevance across namespaces/languages. Primary sort

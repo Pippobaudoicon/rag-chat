@@ -1,6 +1,6 @@
 {
   "name": "rag-chat",
-  "version": "0.12.22",
+  "version": "0.12.23",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -14,7 +14,8 @@
     "test:routing": "tsx scripts/test/language-routing.test.ts",
     "test:eager": "tsx scripts/test/eager-eligibility.test.ts",
     "test:language-policy": "tsx scripts/test/language-policy.test.ts",
-    "test:onboarding": "tsx scripts/test/onboarding-steps.test.ts"
+    "test:onboarding": "tsx scripts/test/onboarding-steps.test.ts",
+    "test:cross-language": "tsx scripts/test/cross-language-dedup.test.ts"
   },
   "dependencies": {
     "@ai-sdk/react": "^3.0.143",

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.12.23
+
+- **Collapse cross-language duplicate sources in topical retrieval.** The bilingual index holds every passage in each corpus language, and the topical fan-out (`retrieve`, `src/lib/rag/retriever.ts`) queries all `retrievalLanguages` and kept both copies — so a vague Italian prompt returned e.g. *Exodus 18* (eng) **and** *Esodo 18* (ita) as two separate cards. `mergeChunks` only dedupes by exact id, which never matches across languages, so every verse counted twice, doubling the source count and spending half the top-k budget on redundant translations. New `collapseCrossLanguage()` groups chunks by their language-invariant id (namespace + slug/chapter/verse, dropping the language segment) and keeps one per group — the answer-language copy, at the group's best score so its rank is preserved. Applied right after `mergeChunks`, before rerank/diversify/slice, so the returned top-k holds distinct content. Passages indexed in only one language, or chunked into different verse ranges across languages, have no partner and pass through unchanged. New `test:cross-language` regression (7 checks).
+
 ## 0.12.22
 
 - **Manual memory refresh is now Pro-only.** `POST /api/memory` resolves Clerk billing entitlements and returns `403 { upgradeUrl: "/billing" }` for free users, stopping the "Aggiorna" spam at the source. Free-tier memory still updates automatically via the cron job — only the manual trigger is gated. On the Memory page the refresh button renders locked for free users: a `LockIcon`, reduced opacity, and a hover tooltip (`refreshLocked`, IT/EN) explaining it's a Pro feature; clicking routes to `/billing`. Groundwork for the future paid "edit/update memory manually" feature.
