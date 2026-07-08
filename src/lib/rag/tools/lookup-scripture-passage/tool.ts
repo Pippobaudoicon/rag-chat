@@ -7,7 +7,7 @@ import {
   toolResultCacheKey,
 } from "@/lib/rag/cache";
 import { parseScriptureSelection } from "@/lib/rag/scripture-reference";
-import type { ChatProgressData, Language, SourceChunk } from "@/lib/types";
+import type { ChatProgressData, SourceChunk } from "@/lib/types";
 import { toToolChunk } from "../shared/chunk-formatting";
 import { expandRelatedContext, filterRelatedToLanguage } from "../shared/related-context";
 import { graphRerank } from "../shared/graph-rerank";
@@ -19,6 +19,9 @@ const inputSchema = z.object({
     .string()
     .min(1)
     .describe("Scripture reference or request, e.g. '2 Nefi 2' or 'Moroni 10:4-5'"),
+  language: z
+    .enum(["eng", "ita"])
+    .describe("Indexed scripture language matching the user's original question: eng or ita"),
   topK: z.number().int().min(1).max(30).optional().default(16),
 });
 
@@ -40,14 +43,6 @@ interface CachedPassage {
 }
 
 export interface LookupScripturePassageDeps {
-  /**
-   * Preferred scripture language (chosen from the prompt language, independent of
-   * the semantic corpus language). The retriever queries this language first and
-   * falls back to the other indexed scripture language only if the passage is
-   * absent. References are parsed via language-invariant slugs, so the reference
-   * itself is never translated.
-   */
-  scriptureLanguage: Language;
   context: RagToolContext;
   onProgress?: (progress: ChatProgressData) => void;
 }
@@ -58,19 +53,18 @@ export interface LookupScripturePassageDeps {
  * search and falls back to the unfiltered list when the strict filter would
  * have returned nothing. The reference is NOT translated — book names are
  * resolved through language-invariant aliases/slugs — and chunks are returned in
- * the preferred scripture language (falling back only if that language lacks the
- * passage).
+ * the selected scripture language. It never falls back to the other language.
  */
 export function createLookupScripturePassageTool({
-  scriptureLanguage,
   context,
   onProgress,
 }: LookupScripturePassageDeps) {
   return tool({
-    description: `Retrieve scripture passages (Book of Mormon, D&C, Pearl of Great Price) by reference or scripture-focused query. Pass the reference in the user's own language (e.g. "Giovanni 3:16" or "John 3:16"); book names are matched language-invariantly, so no translation is needed. Results may include related cross-reference and study-help chunks; use them when they strengthen a religious-scholar answer, even if the user did not explicitly ask for cross-references.`,
+    description: `Retrieve scripture passages (Book of Mormon, D&C, Pearl of Great Price) by reference or scripture-focused query. Pass the reference in the user's own language (e.g. "Giovanni 3:16" or "John 3:16") and select the matching indexed language ("ita" or "eng"). Book names are matched language-invariantly, so do not translate the reference. Results may include related cross-reference and study-help chunks.`,
     inputSchema,
-    execute: async ({ reference, topK }) => {
+    execute: async ({ reference, language, topK }) => {
       const startedAt = Date.now();
+      language = context.resolveScriptureLanguage(language);
       onProgress?.({
         phase: "sources",
         toolName: "lookup_scripture_passage",
@@ -83,7 +77,7 @@ export function createLookupScripturePassageTool({
       // (differently-shaped) entries are ignored rather than mis-parsed.
       // Cache by original normalized reference + preferred scripture language, so
       // an Italian and an English request for the same passage stay separate.
-      const key = toolResultCacheKey("lookup_scripture_passage", scriptureLanguage, {
+      const key = toolResultCacheKey("lookup_scripture_passage", language, {
         reference,
         topK,
         v: 5,
@@ -95,8 +89,10 @@ export function createLookupScripturePassageTool({
       if (cached) {
         ({ passage, related: relatedContext } = cached);
       } else {
-        const chunks = await retrieve(reference, ["scriptures"], scriptureLanguage, topK);
-        const selection = parseScriptureSelection(reference, scriptureLanguage);
+        const chunks = await retrieve(reference, ["scriptures"], language, topK, {
+          scriptureLanguage: language,
+        });
+        const selection = parseScriptureSelection(reference, language);
 
         const strictChunks: SourceChunk[] = selection
           ? chunks.filter((chunk) => {
@@ -113,12 +109,12 @@ export function createLookupScripturePassageTool({
 
         passage = (strictChunks.length > 0 ? strictChunks : chunks).slice(0, topK);
         // Attach the passage's cross-references + study-help context (graph) in
-        // the passage's ACTUAL language (preferred scriptureLanguage, or the
+        // the passage's ACTUAL language (the model-selected language, or the
         // fallback language when the passage was only available there). The graph
         // stores English edges, so expandRelatedContext localizes scripture refs
         // to this language; the filter then drops anything still cross-language
         // (e.g. English-only study helps) — single-language direct-passage contract.
-        const passageLanguage = passage[0]?.language ?? scriptureLanguage;
+        const passageLanguage = passage[0]?.language ?? language;
         relatedContext = filterRelatedToLanguage(
           await expandRelatedContext(passage, passageLanguage, { cap: RELATED_CONTEXT_CAP }),
           passageLanguage
@@ -138,16 +134,16 @@ export function createLookupScripturePassageTool({
       onProgress?.({
         phase: "tools",
         toolName: "lookup_scripture_passage",
-        sourceCount: finalChunks.length,
+        sourceCount: indexedChunks.length,
         cacheHit: !!cached,
         elapsedMs: Date.now() - startedAt,
       });
 
       return {
         reference,
-        language: scriptureLanguage,
+        language,
         cacheHit: !!cached,
-        total: finalChunks.length,
+        total: indexedChunks.length,
         chunks: indexedChunks.map(({ chunk, citationIndex }) =>
           toToolChunk(chunk, citationIndex)
         ),

@@ -10,7 +10,11 @@
  * These asserts pin: cross-language pairs collapse to one, the answer-language
  * copy wins at the pair's best score, and single-language chunks pass through.
  */
-import { collapseCrossLanguage } from "@/lib/rag/retriever";
+import {
+  collapseCrossLanguage,
+  filterScripturesByLanguage,
+} from "@/lib/rag/retriever";
+import { createRagToolContext } from "@/lib/rag/tools/shared/tool-context";
 import type { SourceChunk } from "@/lib/types";
 
 let failures = 0;
@@ -51,6 +55,47 @@ const itaTalk = chunk("conference:ita:2019:04:agency-and-choice:c1:v1", "ita", 0
 const talk = collapseCrossLanguage([enTalk, itaTalk], "ita");
 check("conference cross-language pair collapses", talk.length === 1 && talk[0]?.language === "ita");
 
-const total = 7;
+const conference = {
+  ...enTalk,
+  source: "conference" as const,
+};
+const italianOnly = filterScripturesByLanguage(
+  [enExodus, itaExodus, conference],
+  "ita"
+);
+check(
+  "Italian prompt removes every English scripture",
+  italianOnly.length === 2 &&
+    italianOnly.some((item) => item.id === itaExodus.id) &&
+    italianOnly.some((item) => item.source === "conference")
+);
+
+const englishOnly = filterScripturesByLanguage(
+  [enExodus, itaExodus, conference],
+  "eng"
+);
+check(
+  "English prompt removes every Italian scripture",
+  englishOnly.length === 2 &&
+    englishOnly.some((item) => item.id === enExodus.id) &&
+    englishOnly.some((item) => item.source === "conference")
+);
+
+const languageLock = createRagToolContext();
+check(
+  "first tool locks scripture language for the turn",
+  languageLock.resolveScriptureLanguage("ita") === "ita" &&
+    languageLock.resolveScriptureLanguage("eng") === "ita"
+);
+
+const initialLanguageLock = createRagToolContext({
+  initialChunks: [enExodus],
+});
+check(
+  "preloaded scriptures lock later tools to their language",
+  initialLanguageLock.resolveScriptureLanguage("ita") === "eng"
+);
+
+const total = 11;
 console.log(`\n${total - failures}/${total} passed`);
 if (failures > 0) process.exit(1);

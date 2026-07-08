@@ -83,14 +83,37 @@ export function isEagerRetrievalEnabled(): boolean {
 }
 
 /**
- * Compact signature of the retrieval ranking flags, for cache keys. Retrieval
- * caches must vary with these flags, otherwise toggling rerank / multi-query /
- * diversity would keep serving stale results until the cache TTL expires.
+ * Retrieval-query language routing/translation.
+ *
+ * Default: OFF. The main chat model emits retrieval queries in the corpus
+ * language as part of its existing tool call. Set `RAG_LANGUAGE_ROUTING=true`
+ * only to restore the legacy dedicated routing-model path.
+ */
+export function isLanguageRoutingEnabled(): boolean {
+  return envBool(process.env.RAG_LANGUAGE_ROUTING, false);
+}
+
+/**
+ * Nested LLM claim-support audit inside citation_verifier.
+ *
+ * Default: OFF. Deterministic citation-index validation remains active. Enable
+ * only when the extra model call's latency/cost is acceptable.
+ */
+export function isClaimSupportAuditEnabled(): boolean {
+  return envBool(process.env.RAG_CLAIM_SUPPORT_AUDIT, false);
+}
+
+/**
+ * Compact signature of retrieval flags used in cache keys. Retrieval caches
+ * must vary with these flags, otherwise toggling routing / rerank / multi-query
+ * / diversity would keep serving stale results until the cache TTL expires.
  * (Graph rerank is applied after the cache read in the tools, so it is not part
  * of the cached retrieval payload and is intentionally excluded here.)
  */
 export function retrievalFlagsSignature(): string {
-  return `rr${isRerankEnabled() ? 1 : 0}mq${isMultiQueryEnabled() ? 1 : 0}mmr${
-    isDiversityEnabled() ? 1 : 0
+  return `lr${isLanguageRoutingEnabled() ? 1 : 0}rr${
+    isRerankEnabled() ? 1 : 0
+  }mq${isMultiQueryEnabled() ? 1 : 0}mmr${isDiversityEnabled() ? 1 : 0}ca${
+    isClaimSupportAuditEnabled() ? 1 : 0
   }`;
 }

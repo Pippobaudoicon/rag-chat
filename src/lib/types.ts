@@ -156,7 +156,7 @@ export interface RetrievalTrace {
   indexLanguage?: string;
   sources: SourceType[];
   topK: number;
-  /** Retrieval ranking-flag signature, e.g. "rr1mq0mmr0" (see flags.ts). */
+  /** Retrieval-flag signature, e.g. "lr0rr1mq0mmr0ca0" (see flags.ts). */
   flags: string;
   tools: RetrievalToolEvent[];
 }

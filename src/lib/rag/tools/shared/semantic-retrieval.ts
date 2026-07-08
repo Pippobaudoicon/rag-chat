@@ -1,4 +1,4 @@
-import { retrieve } from "@/lib/rag/retriever";
+import { filterScripturesByLanguage, retrieve } from "@/lib/rag/retriever";
 import { cacheKey, getFromCache, setInCache } from "@/lib/rag/cache";
 import { isGraphRerankEnabled, retrievalFlagsSignature } from "@/lib/rag/flags";
 import type { Language, SourceChunk, SourceType } from "@/lib/types";
@@ -18,6 +18,8 @@ export interface RunSemanticRetrievalParams {
   /** Already-resolved per-turn topK. */
   topK: number;
   language: Language;
+  /** Indexed language required for every scripture chunk in the result. */
+  scriptureLanguage: Language;
 }
 
 export interface SemanticRetrievalResult {
@@ -44,24 +46,39 @@ export async function runSemanticRetrieval({
   sources,
   topK,
   language,
+  scriptureLanguage,
 }: RunSemanticRetrievalParams): Promise<SemanticRetrievalResult> {
-  const key = cacheKey(query, language, sources, topK, retrievalFlagsSignature());
+  const key = cacheKey(
+    query,
+    language,
+    sources,
+    topK,
+    `${retrievalFlagsSignature()}sl${scriptureLanguage}`
+  );
   const cached = await getFromCache(key);
   const sourceSet = new Set(sources);
 
   let combined: SourceChunk[];
   if (cached) {
-    combined = cached.chunks.filter((chunk) => sourceSet.has(chunk.source));
+    combined = filterScripturesByLanguage(
+      cached.chunks.filter((chunk) => sourceSet.has(chunk.source)),
+      scriptureLanguage
+    );
   } else {
-    const primary = await retrieve(query, sources, language, topK);
+    const primary = await retrieve(query, sources, language, topK, {
+      scriptureLanguage,
+    });
     // Attach a bounded slice of each top hit's cross-references / study-help
     // context (the graph projected into Pinecone metadata) for fuller answers.
-    const relatedContext = await expandRelatedContext(primary, language, {
+    const relatedContext = await expandRelatedContext(primary, scriptureLanguage, {
       fromTopN: RELATED_FROM_TOP_N,
       cap: RELATED_CONTEXT_CAP,
       sources,
     });
-    combined = [...primary, ...relatedContext];
+    combined = filterScripturesByLanguage(
+      [...primary, ...relatedContext],
+      scriptureLanguage
+    );
     // Best-effort warm cache write; the chat route will overwrite later
     // with the assistant's final answer text.
     void setInCache(key, { chunks: combined, answer: "" });

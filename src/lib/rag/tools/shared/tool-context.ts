@@ -1,4 +1,4 @@
-import type { SourceChunk } from "@/lib/types";
+import type { Language, SourceChunk } from "@/lib/types";
 import { uniqueById } from "./chunk-formatting";
 
 /** Listener invoked whenever a tool registers new chunks for the response. */
@@ -26,9 +26,11 @@ export interface RagToolContext {
   liveChunks(): SourceChunk[];
   /** Total number of registered chunks (== max valid citation index). */
   citationCount(): number;
+  /** Lock all scripture-producing tools to one language for this turn. */
+  resolveScriptureLanguage(requested: Language): Language;
   /**
-   * Register a batch of chunks for the current response. Returns each chunk
-   * paired with the citation index the model should use when citing it.
+   * Register a batch of chunks for the current response. Returns newly added
+   * chunks paired with the citation index the model should use when citing it.
    */
   registerChunks(chunks: SourceChunk[]): IndexedToolChunk[];
 }
@@ -36,6 +38,8 @@ export interface RagToolContext {
 export interface CreateRagToolContextOptions {
   /** Chunks already injected into the user message (legacy eager retrieval). */
   initialChunks?: SourceChunk[];
+  /** Maximum number of unique chunks exposed to the model in this turn. */
+  maxChunks?: number;
   /** Notified whenever new chunks are added by a tool call. */
   onSources?: ToolSourceListener;
 }
@@ -43,24 +47,34 @@ export interface CreateRagToolContextOptions {
 export function createRagToolContext(
   options: CreateRagToolContextOptions = {}
 ): RagToolContext {
-  let live = uniqueById(options.initialChunks ?? []);
+  const maxChunks = options.maxChunks ?? Number.POSITIVE_INFINITY;
+  let live = uniqueById(options.initialChunks ?? []).slice(0, maxChunks);
+  let scriptureLanguage = live.find(
+    (chunk) => chunk.source === "scriptures"
+  )?.language;
   const onSources = options.onSources;
 
   return {
     liveChunks: () => live,
     citationCount: () => live.length,
+    resolveScriptureLanguage(requested) {
+      scriptureLanguage ??= requested;
+      return scriptureLanguage;
+    },
     registerChunks(chunks) {
       const next = [...live];
-      const indexed = chunks.map((chunk) => {
+      const added: SourceChunk[] = [];
+      const indexed: IndexedToolChunk[] = [];
+      for (const chunk of chunks) {
         const existingIndex = next.findIndex((existing) => existing.id === chunk.id);
-        if (existingIndex >= 0) {
-          return { chunk, citationIndex: existingIndex + 1 };
-        }
+        if (existingIndex >= 0) continue;
+        if (next.length >= maxChunks) continue;
         next.push(chunk);
-        return { chunk, citationIndex: next.length };
-      });
+        added.push(chunk);
+        indexed.push({ chunk, citationIndex: next.length });
+      }
       live = next;
-      onSources?.(chunks);
+      if (added.length > 0) onSources?.(added);
       return indexed;
     },
   };

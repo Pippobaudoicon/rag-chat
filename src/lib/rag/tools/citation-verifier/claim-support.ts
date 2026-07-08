@@ -5,12 +5,18 @@
 // structured LLM pass and FAILS OPEN (returns null) so it can never block an
 // answer on its own error.
 
-import { generateText, gateway, Output } from "ai";
+import {
+  generateText,
+  gateway,
+  NoObjectGeneratedError,
+  NoOutputGeneratedError,
+  Output,
+} from "ai";
 import { z } from "zod";
 import type { SourceChunk } from "@/lib/types";
 import type { CitedClaim } from "./citation-markers";
 
-const DEFAULT_CHAT_MODEL = "deepseek/deepseek-v4-flash";
+const DEFAULT_AUDIT_MODEL = "openai/gpt-5.4-mini";
 const MAX_CLAIMS = 20;
 const MAX_SOURCE_CHARS = 700;
 
@@ -69,7 +75,7 @@ function sourcesForClaim(claim: CitedClaim, liveChunks: SourceChunk[]): string {
 export async function auditClaimSupport(
   claims: CitedClaim[],
   liveChunks: SourceChunk[],
-  model: string = process.env.CHAT_MODEL ?? DEFAULT_CHAT_MODEL
+  model: string = process.env.CITATION_AUDIT_MODEL ?? DEFAULT_AUDIT_MODEL
 ): Promise<ClaimAudit | null> {
   const limited = claims.slice(0, MAX_CLAIMS);
   if (limited.length === 0) return null;
@@ -117,7 +123,16 @@ export async function auditClaimSupport(
       complete: !truncated && seen.size === limited.length,
     };
   } catch (error) {
-    console.error("Claim-support audit failed; skipping support check", error);
+    if (
+      NoOutputGeneratedError.isInstance(error) ||
+      NoObjectGeneratedError.isInstance(error)
+    ) {
+      console.warn(
+        `Claim-support audit returned no valid structured output (${error.name}); skipping support check`
+      );
+    } else {
+      console.error("Claim-support audit failed; skipping support check", error);
+    }
     return null;
   }
 }

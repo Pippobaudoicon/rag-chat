@@ -1,5 +1,4 @@
 import type { SourceChunk, UiLanguage } from "@/lib/types";
-import type { PromptLanguage } from "./language-routing";
 
 // The system prompt is composed from a constant CORE (identity, retrieval,
 // grounding, citation, and memory rules — non-negotiable in every mode) plus a
@@ -89,16 +88,19 @@ const CORE_RULES = `Retrieval rules (READ CAREFULLY):
   - Use search_conference_talks when the user references a specific conference talk by title, speaker, or year (e.g. "the talk by Uchtdorf about grace", "Behold the Man").
   - Use semantic_search for general topical or doctrinal questions (e.g. "What does the Church teach about humility?", "Explain the law of consecration").
 - EXCEPTION — preloaded context: if the user message already contains a "Context (preloaded semantic search)" block, that block IS the result of the default semantic_search for this turn — the retrieval has already run for you. Treat those numbered [Source N] chunks exactly as if you had called semantic_search yourself: you may answer directly and cite them without calling semantic_search again. Only call a retrieval tool when the preloaded sources are insufficient (refinement) or the question needs a specialized lookup (a specific scripture passage → lookup_scripture_passage, a specific conference talk → search_conference_talks). Do not re-run semantic_search just to confirm what the preloaded block already provides.
-- You may call multiple retrieval tools (and call the same tool more than once with different arguments) when the question genuinely benefits from it — for example, a question that asks to compare a scripture passage with a conference talk, or a topical question whose first retrieval did not return enough evidence.
-- Do not call tools redundantly. If a single retrieval already produced enough evidence to answer, do not chain more tool calls just to be thorough.
+- Retrieval is limited to one tool-call round per turn. If the question genuinely needs multiple retrieval tools (for example, comparing a scripture passage with a conference talk), call them together in that round. Do not attempt sequential refinement searches.
+- Do not call tools redundantly. Use the first retrieval results to answer, and state any remaining limitation instead of searching repeatedly just to be thorough.
 - When retrieved chunks include related passages, study-help entries, cross-references, summaries, topics, entities, or reference metadata, consider them automatically as supporting context for a richer answer. The user does not need to ask for "useful cross-references" explicitly.
 - Trivial chit-chat or pure conversational follow-ups that do not require new sources may skip retrieval entirely.
-- After retrieval, you may call citation_verifier before sending the final answer: it validates inline numeric citations AND checks that each cited claim is supported by the source it cites.
+- After retrieval, you may call citation_verifier before sending the final answer. It always validates numeric citation indices; deployments may optionally enable an additional claim-support audit.
 
 Answer rules:
 - Answer in the same language as the user's question.
 - The UI language is only an interface preference. It does not control retrieval language or final answer language.
-- Pass retrieval tool queries in the user's own language. Each retrieval tool translates the query to its corpus language internally, so you do not need to pre-translate. Always answer in the user's original prompt language.
+- Infer the answer language directly from the user's original message; do not rely on a separate language label.
+- For semantic_search and search_conference_talks, translate searchable query/title arguments yourself into the corpus language stated in the tool description. Preserve names, titles, speakers, years, and scripture references. This translation is only for retrieval; always answer in the user's original language.
+- Every semantic_search call must set scriptureLanguage from the original prompt: "ita" for Italian, "eng" for English, and "eng" as the fallback for languages without indexed scriptures. Every scripture chunk returned to the user must match that value.
+- For lookup_scripture_passage, keep the reference in the user's language and set its language argument to the matching indexed scripture language.
 - Retrieval may return Italian and English source chunks together. You may translate or summarize source evidence into the user's language, but never imply that a quoted official translation exists unless that exact source language chunk was retrieved.
 - Base claims only on the chunks returned by the tools you called this turn or supplied in the preloaded Context block. If a detail is not supported there, do not guess; state the limitation plainly.
 - Cite sources by title, author/book, and reference when available.
@@ -112,7 +114,7 @@ Answer rules:
 - When multiple chapters or a whole scripture book are requested, synthesize across the retrieved chapters and mention the chapter coverage used. Treat the response as incomplete until all requested chapters covered by the retrieved context are addressed or any gaps are explicitly noted.
 - For search_conference_talks, distinguish confirmed title matches from not-found results: if matchType is not-found, do not assert that the exact requested talk was retrieved.
 - If citation_verifier reports invalid or malformed indices, fix all citation markers before sending the final answer.
-- If citation_verifier flags unsupported claims (a cited source does not actually back the claim), either correct the claim to match what the source says, cite a source that does support it, or remove the claim. Treat partially-supported claims by qualifying them or citing better support. Do not send an answer that still contains unsupported claims.
+- If citation_verifier reports claim-support findings, correct unsupported claims and qualify or strengthen partially-supported claims before sending.
 - Do not invent information beyond what is in the retrieved chunks.
 - Follow the response-style block above for voice, structure, and reading level. The style controls how you say things; it never relaxes grounding, citation, or honesty.
 - Before finalizing, verify that each substantive claim is supported by retrieved chunks, citations map correctly to citationIndex values, and the answer remains in the user's language.
@@ -168,13 +170,12 @@ export function formatContext(chunks: SourceChunk[]): string {
 /**
  * Build the user message sent to the model.
  *
- * Carries the locally detected answer-language hint and the UI-language warning,
- * but NOT a globally translated search query — translation is lazy, inside the
- * English-corpus retrieval tools (see docs/TOOL_SPECIFIC_LANGUAGE_ROUTING_PLAN.md).
+ * Carries a generic original-language instruction and the UI-language warning,
+ * but no detected language label or globally translated search query.
  *
  * - When `chunks` is empty (default tool-first flow), the message is just the
  *   user question prefixed by the language instruction. The model is expected
- *   to retrieve via tools, passing the query in the user's own language.
+ *   to translate semantic/conference tool arguments to their corpus language.
  * - When `chunks` is non-empty, context is rendered ahead of the question.
  *   `contextSource` controls how the model is told to treat it:
  *   - `"eager"` (P1 speculative retrieval): the chunks are the result of the
@@ -189,21 +190,14 @@ export function buildUserMessage(
   chunks: SourceChunk[],
   meta: {
     uiLanguage: UiLanguage;
-    promptLanguage: PromptLanguage;
   },
   contextSource: "fixed" | "eager" = "fixed"
 ): string {
-  const { uiLanguage, promptLanguage } = meta;
-  // When local detection is uncertain (`und`), don't assert a language — the
-  // model naturally matches the original prompt.
-  const answerLanguageLine =
-    promptLanguage.code !== "und"
-      ? `Answer in ${promptLanguage.name} (${promptLanguage.code}), matching the user's original prompt language.`
-      : "Answer in the same language as the user's original prompt.";
+  const { uiLanguage } = meta;
   const languageInstruction = [
-    answerLanguageLine,
+    "Infer the answer language directly from the user's original prompt and answer in that same language.",
     `The UI language is ${uiLanguage}; ignore it for retrieval and answer-language decisions.`,
-    "Pass retrieval tool queries in the user's own language; each tool translates to its corpus language itself.",
+    "Translate semantic/conference searchable arguments to the corpus language stated in each tool description; this must not change the answer language.",
   ].join("\n");
   const questionBlock = `Question:\n${query}`;
 

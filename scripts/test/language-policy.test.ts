@@ -70,6 +70,7 @@ async function main() {
   process.env.CHAT_MODEL = "sentinel/chat-model";
   delete process.env.RAG_ROUTING_MODEL;
   delete process.env.RAG_ROUTING_FALLBACK_MODEL;
+  process.env.RAG_LANGUAGE_ROUTING = "true";
 
   // ── Local answer-language detection (no model, no translation) ────────────
   // tinyld only earns an explicit answer-language hint when confident (>= 0.9).
@@ -127,6 +128,18 @@ async function main() {
     const { call, requests } = makeCall(() => "throw");
     const r = await routeQueryLanguage("What is faith?", { indexLanguage: "eng", call });
     check("English-on-English -> identity, zero translation calls", requests.length === 0 && r.translated === false && r.searchQuery === "What is faith?" && r.routingMs === 0);
+  }
+
+  // ── Kill switch: bypass routing models and preserve the original query ────
+  {
+    process.env.RAG_LANGUAGE_ROUTING = "false";
+    const original = "Che cosa insegna il Libro di Mormon riguardo al pentimento?";
+    const { call, requests } = makeCall(() => "throw");
+    const r = await routeQueryLanguage(original, { indexLanguage: "eng", call });
+    check("routing disabled -> zero model calls", requests.length === 0);
+    check("routing disabled -> original query preserved", r.searchQuery === original && r.translated === false);
+    check("routing disabled -> zero routing latency", r.routingMs === 0 && r.routingModel === undefined);
+    process.env.RAG_LANGUAGE_ROUTING = "true";
   }
 
   // ── Translation: Italian prompt -> English query via the routing model ─────
@@ -205,7 +218,7 @@ async function main() {
   // contract (the route handler can't be imported here — it pulls Clerk/DB).
   const routeSrc = readFileSync("src/app/api/chat/route.ts", "utf8");
   check("chat route no longer calls routeQueryLanguage (no global routing)", !routeSrc.includes("routeQueryLanguage"));
-  check("chat route detects prompt language locally", routeSrc.includes("detectPromptLanguage("));
+  check("chat route does not use TinyLD for answer language", !routeSrc.includes("detectPromptLanguage("));
   check("chat route records no `routing` latency phase", !routeSrc.includes('phase("routing"'));
 
   // The no-tool greeting "Ciao, come stai?" is low-confidence (und): the user
@@ -214,19 +227,18 @@ async function main() {
   const greetingMsg = buildUserMessage(
     "Ciao, come stai?",
     [],
-    { uiLanguage: "eng", promptLanguage: detectPromptLanguage("Ciao, come stai?") }
+    { uiLanguage: "eng" }
   );
-  check("`Ciao, come stai?` message does not assert a wrong language", !/Answer in Italian \(it\)/.test(greetingMsg));
-  check("`Ciao, come stai?` message falls back to original-prompt language", /Answer in the same language as the user's original prompt/.test(greetingMsg));
+  check("`Ciao, come stai?` message does not assert a detected language", !/Answer in Italian \(it\)/.test(greetingMsg));
+  check("message delegates answer-language inference to the main model", /Infer the answer language directly/.test(greetingMsg));
   check("`Ciao, come stai?` message has no translated Search query block", !/Search query/i.test(greetingMsg));
 
-  // A confident single-language prompt still gets the explicit answer-language hint.
-  const italianMsg = buildUserMessage(
-    "Che cosa insegna il Libro di Mormon riguardo al pentimento?",
+  const misdetectedMsg = buildUserMessage(
+    "Chi erano i consiglieri di Mosè?",
     [],
-    { uiLanguage: "eng", promptLanguage: detectPromptLanguage("Che cosa insegna il Libro di Mormon riguardo al pentimento?") }
+    { uiLanguage: "eng" }
   );
-  check("confident Italian prompt -> explicit `Answer in Italian (it)` hint", italianMsg.includes("Answer in Italian (it)"));
+  check("misdetected Italian prompt carries no French answer hint", !/French|\\(fr\\)/i.test(misdetectedMsg));
 
   // ── Phase C: tool-specific lazy translation + scripture language ──────────
   // Identity fast path through the resolver with the REAL router: an English
@@ -289,15 +301,13 @@ async function main() {
   const semanticSrc = readFileSync("src/lib/rag/tools/semantic-search/tool.ts", "utf8");
   const conferenceSrc = readFileSync("src/lib/rag/tools/search-conference-talks/tool.ts", "utf8");
   const scriptureSrc = readFileSync("src/lib/rag/tools/lookup-scripture-passage/tool.ts", "utf8");
-  check("semantic_search translates lazily via the resolver", semanticSrc.includes("resolver.resolve(query, language)") && semanticSrc.includes("query: retrievalQuery"));
-  check("search_conference_talks resolves query + title to corpus language", conferenceSrc.includes("resolver.resolve(query, language)") && conferenceSrc.includes("resolver.resolve(title, language)"));
+  check("semantic_search asks the main model for corpus-language query", semanticSrc.includes("translate it yourself"));
+  check("search_conference_talks asks the main model for corpus-language query + title", conferenceSrc.includes("translate them yourself"));
   check("lookup_scripture_passage performs NO translation", !scriptureSrc.includes("resolver") && !scriptureSrc.includes("routeQueryLanguage") && !scriptureSrc.includes("RetrievalQueryResolver"));
-  check("lookup_scripture_passage retrieves by preferred scriptureLanguage", scriptureSrc.includes('retrieve(reference, ["scriptures"], scriptureLanguage'));
+  check("lookup_scripture_passage requires main-model language selection", scriptureSrc.includes('.enum(["eng", "ita"])') && scriptureSrc.includes('retrieve(reference, ["scriptures"], language'));
 
-  // Static wiring: the route derives the preferred scripture language, creates
-  // the resolver, passes both to the tools, and no longer overwrites the
-  // retrieval cache with the final answer (single canonical key owned by tools).
-  check("route derives preferred scripture language from prompt language", routeSrc.includes("promptLanguage.scriptureLanguage ?? indexLanguage"));
+  // Static wiring: the route no longer derives answer/scripture language with
+  // TinyLD, while the optional legacy resolver remains available behind its flag.
   check("route creates a request-scoped resolver and passes it to the tools", routeSrc.includes("createRetrievalQueryResolver()") && routeSrc.includes("resolver: retrievalResolver"));
   check("route no longer overwrites the retrieval cache with the final answer", !routeSrc.includes("setInCache("));
 

@@ -57,16 +57,18 @@ Read this first before deep code exploration.
 1. Client sends chat message to `POST /api/chat` with selected UI language/sources/topK.
 2. Server verifies auth and extracts the latest user question.
 3. Server loads Clerk Billing entitlements, checks Clerk plan access via `auth().has({ plan })`, and applies plan-aware chat rate limits plus a `topK` cap. These auth/ratelimit gates resolve first so a rejected request (401/429) never pays for the LLM/DB work below.
-3b. The conversation **ownership gate** (a single indexed lookup, 404 on a deleted/unowned id) resolves first, before any other preamble work. Once past it, the mutually independent reads run concurrently in a single `Promise.all` rather than serially: messages load, the memory brief, and user preferences. This collapses `preStreamMs` from the sum of those phases toward their max. There is **no global language-routing LLM call** in the chat preamble (removed in the tool-specific language-routing refactor); the route detects prompt language locally instead (step 4), so a no-tool turn pays nothing for translation.
-4. Server detects the user's prompt language **locally** (`tinyld`, no network) via `detectPromptLanguage()` — an answer-language hint + indexed-scripture-language preference (`PromptLanguage`), NOT a retrieval translation. It asserts a concrete language when tinyld is confident (`accuracy >= 0.9`) **or** a conservative dominance fallback holds — a multi-word prompt (≥ 4 words) whose top language has no significant rival (2nd candidate `< 0.15`); this catches genuine prompts tinyld under-scores because of proper nouns + numbers ("can you help me understand better John 3?" → en@0.15) while still keeping short greetings and mixed-language instructions ("Rispondi in italiano: <English>" → en@0.73 but 2nd it@0.27) on `und`, so the route never injects a wrong "answer in X" instruction (the model then naturally matches the original prompt). Answer-language detection is independent of retrieval-query translation. Retrieval-query translation to the English corpus is **lazy**: it happens inside the English-corpus tools (`semantic_search` / `search_conference_talks`) only when a cross-language query is actually retrieved, through the shared `routeQueryLanguage()` (dedicated `RAG_ROUTING_MODEL`, one-shot fallback) memoized per request by `createRetrievalQueryResolver()` (the resolver is created in the route and passed into the tools). The local same-language fast path makes an English query identity (no LLM call), so English retrieval is unchanged. `lookup_scripture_passage` prefers the prompt's indexed scripture language (`scriptureLanguage`, falling back to the corpus language) and **never translates** — references are matched by language-invariant slugs. (See `docs/TOOL_SPECIFIC_LANGUAGE_ROUTING_PLAN.md`.)
+3b. The conversation **ownership gate** (a single indexed lookup, 404 on a deleted/unowned id) resolves first, before any other preamble work. Once past it, the mutually independent reads run concurrently in a single `Promise.all`: messages, the memory brief, and user preferences. There is no answer-language or translation model call in the preamble.
+4. The main chat model infers the answer language directly from the original user message. TinyLD does not supply an answer-language hint or scripture-language preference. During the same tool-decision step, the model translates `semantic_search` and `search_conference_talks` query/title arguments into the corpus language stated in each tool description, while preserving names and references. Both `semantic_search` and `lookup_scripture_passage` require the model to select the prompt's indexed scripture language (`"ita"` or `"eng"`; English fallback for unsupported languages). `RagToolContext` locks the first selection across the whole turn, and semantic retrieval filters primary, related, and cached chunks, so scripture source cards can never mix languages. `RAG_LANGUAGE_ROUTING` defaults to `false`; setting it to `true` restores the legacy per-tool dedicated routing model.
 5. Server constructs an AI SDK `streamText` call with the RAG tool set and lets the model decide how to retrieve.
-5b. **Eager retrieval (P1, flag-gated, default OFF — opt-in):** on an answer-cache miss, for high-confidence topical questions the server can run the default `semantic_search` retrieval *during* the preamble (`eagerRetrieval` latency phase) and seed the chunks as the user message's `initialChunks`, so the model answers on turn 1 instead of spending an empty tool-decision round-trip (`firstToolCallMs − preStreamMs`). The eager user message carries a **preloaded-context contract** (a labeled "Context (preloaded semantic search)" block + system-prompt rules counting preloaded chunks as tool-equivalent sources) so the model answers/cites directly without re-emitting `semantic_search`. It warms the **same** Upstash cacheKey, so a refinement tool call is a cache hit. Eligibility is a **conservative positive allowlist** (`isEagerTopicalQuery`, false-negatives preferred): skips the fixed-chunks regenerate path, empty source sets, scripture references (`parseScriptureSelection` → `lookup_scripture_passage`), chit-chat, response-edit / conversational follow-ups, specific conference-talk requests (→ `search_conference_talks`), and too-short prompts. It is further **restricted to the English index** (`indexLanguage === "eng"`) **and to confidently-English prompts** (`detectPromptLanguage().code === "en"`), classifying the original English question directly, so the allowlist needs only English heuristics — cross-language prompts are never translated in the preamble to make them eager-eligible (they take the normal tool-first path) and there are no multilingual regex lists. Eager and lazy paths share `runSemanticRetrieval()` (`src/lib/rag/tools/shared/semantic-retrieval.ts`) so ordering and citation indices are identical. Enable with `RAG_EAGER_RETRIEVAL=true` only after trace validation (go/no-go: topical p50 `serverFirstTextMs` must improve ≥ ~1s or ~20% with no output/citation regressions, else P1 is removed rather than expanded).
-6. The model calls one or more retrieval tools per turn as it sees fit, passing the query in the user's own language (each English-corpus tool translates lazily inside `execute()` as needed; scripture lookup is matched by slug and not translated):
+5b. **Eager retrieval (P1, flag-gated, default OFF — opt-in):** on an answer-cache miss, for a high-confidence same-language topical question the server can run the default `semantic_search` retrieval during the preamble and seed the chunks into the user message. Its TinyLD check is only an eager-retrieval safety gate; it never controls answer or scripture language.
+6. The model calls retrieval tools and supplies corpus-ready arguments in the same step:
    - `semantic_search` for general topical queries (caches via Upstash Redis).
    - `lookup_scripture_passage` for scripture references (also cached via Upstash Redis).
    - `search_conference_talks` for talks by title / speaker / year (also cached via Upstash Redis).
-   Multiple tools (and repeated calls to the same tool with different
-   arguments) are allowed when the question benefits from it.
+   A turn permits one retrieval round with at most two retrieval executions;
+   genuinely multi-source questions may call two tools together in that round.
+   Afterward only optional citation verification remains available before the
+   final answer.
 7. Tool results register chunks in a shared per-turn `RagToolContext` so all
    citation indices remain stable across multiple tool calls.
 8. The model generates the final answer in the original language of the user's prompt and may call `citation_verifier`
@@ -149,8 +151,8 @@ Notes:
 - Assistant messages may include `sources_json` used by UI source panel.
 - Assistant `details_json` stores response details and the `toolNames` list so
   tool-use badges remain visible after reloading a conversation. It also stores a
-  `retrieval` trace (`RetrievalTrace`): locally detected input language,
-  index language, source filters, topK, the ranking-flag signature, and per-tool
+  `retrieval` trace (`RetrievalTrace`): index language, source filters, topK,
+  the retrieval-flag signature, and per-tool
   stats (`RetrievalToolEvent`: sourceCount / cacheHit / elapsedMs, plus tool-local
   language routing — `routingMs` / `translated` / `inputLanguageCode` /
   `retrievalLanguage` / `routingModel` / `routingFallbackUsed` / `routingCalls` —
@@ -252,12 +254,12 @@ Notes:
     before the 100-candidate cap) and demotes any unreranked tail below all
     reranked chunks (cosine and Voyage relevance are different scales).
   - Retrieval/answer **cache keys include `retrievalFlagsSignature()`** so toggling
-    these flags is not masked by a stale cache (graph rerank excluded — it runs
-    after the cache read in the tools).
+    language routing or ranking flags is not masked by a stale cache (graph rerank
+    excluded — it runs after the cache read in the tools).
 - The language selector controls only UI labels. It does not affect search language or final answer language.
-- In the **chat** route, retrieval-query translation is **per-tool and lazy** (not a global preamble step): `semantic_search` and `search_conference_talks` translate their query to the corpus language inside `execute()` via the request-scoped resolver (English input is identity, no LLM call); the model answers in the original prompt language. `lookup_scripture_passage` is matched by slug and prefers the prompt's scripture language without translating. `GET /api/search` still translates globally to the configured index language (its contract is migrated separately).
+- In chat, the main model emits corpus-language semantic/conference queries as part of its existing tool call and infers answer language directly from the original prompt. The optional legacy resolver remains behind `RAG_LANGUAGE_ROUTING=true`. `GET /api/search` still uses `routeQueryLanguage()`; with routing disabled it sends the original query unchanged.
 - `RAG_INDEX_LANGUAGE` controls the single-language semantic retrieval target. It defaults to English (`eng`) for `lds-rag-v1` (English-main corpus; scriptures also carry Italian chunks). Set to `ita` only to target the legacy `lds-rag` index.
-- Retrieval still preserves each chunk's source-language metadata. Scriptures are bilingual (eng+ita); scripture verse/chapter retrieval **prefers the requested `scriptureLanguage`** (the prompt's indexed scripture language — `ita` for "Giovanni 3:16", English fallback when the prompt language is unknown/unindexed), queries it first, and falls back to the other indexed language only if empty. Other namespaces are English-only.
+- Retrieval preserves source-language metadata. Scriptures are bilingual; the main model selects `"ita"` or `"eng"` for every scripture-producing tool. A per-turn lock forces all tools to the same selection, semantic fan-out queries only that scripture language, and post-expansion filtering removes any opposite-language scripture chunk. Production callers disable cross-language scripture fallback: an empty result is returned instead of showing scriptures in the wrong language. Other namespaces remain in their indexed corpus languages.
 - **Cross-language de-duplication (topical fan-out).** The general `retrieve` path fans each query across every indexed language for recall, so bilingual content (scriptures, translated talks) came back twice — e.g. *Exodus 18* (eng) **and** *Esodo 18* (ita) — since `mergeChunks` only dedupes by exact id (which differs by language segment). After `mergeChunks`, `collapseCrossLanguage()` groups chunks by their **language-invariant id** (namespace + slug/chapter/verse, dropping the language segment) and keeps one per group: the answer-language copy at the group's best score (rank preserved). This runs before rerank/diversify/slice so the top-k holds distinct passages, not translation pairs. Passages present in only one language, or chunked into different verse ranges across languages, have no partner and pass through. (Verse/chapter-selection paths already pick a single language via `retrievePreferredLanguage`, so they are unaffected.) Regression: `npm run test:cross-language`.
 - **Single-language direct-passage contract.** `lookup_scripture_passage` returns one language. The cross-reference graph's `related_ids` are stored as English ids, so `expandRelatedContext` **localizes** scripture cross-refs to the passage language: it rewrites the id's language segment (`scriptures:eng:<slug>:… → scriptures:ita:…`, `localizeScriptureId` — pure slug remap, no LLM) and fetches by id; any ref whose exact verse-range chunk doesn't exist in the target language (the languages chunked the same verses differently) is recovered by `fetchLocalizedScriptureRefs` — list that book+chapter in the target language by id prefix, keep chunks whose verse range overlaps (canonical slug+chapter resolution, still no LLM). `filterRelatedToLanguage` then drops anything still cross-language (e.g. English-only study helps). So an Italian `Giovanni 3:16` returns the Italian passage **plus its Italian cross-reference chunks**, never mixed English. Result is re-capped to `RELATED_CONTEXT_CAP` (exact-id matches first). The requested passage stays pinned first; the eval golden set has permanent `Giovanni 3` / `Giovanni 3:16` / `John 3` / `John 3:16` fixtures asserting first-result book/passage and scripture language (`expectFirstRefAnyOf` + `expectScriptureLanguage`).
 - Structured scripture retrieval (verse + chapter, including bare chapter refs like "Alma 32") filters Pinecone on **language-invariant** signals (`language` + `chapter`) and enforces the requested book via its **slug** (chunk id 3rd segment `scriptures:<lang>:<bookSlug>:…` / URL path), NOT the display book name. This is deliberate: `parseScriptureSelection().canonicalBook` is Italian (legacy table — "Giovanni", "Salmi", "2 Nefi") and does not match the English `book` metadata, so a `book: { $eq }` filter would silently return nothing and fall back to Italian or to unfiltered semantic results. (If the canonicalBook table is ever localized to English, the slug-based matching still holds.)
@@ -268,11 +270,13 @@ Notes:
   - sorts by verse start,
   - boosts chapter coverage in returned chunks.
 - Retrieval is **tool-driven** end-to-end: the model decides which retrieval
-  tools to invoke via the AI SDK tools API and may chain multiple tools per turn
-  when the question benefits from it. Retrieval caching lives in the tool layer
+  tools to invoke via the AI SDK tools API. To prevent runaway context growth,
+  a turn allows one retrieval round with at most two retrieval executions;
+  `prepareStep` then disables retrieval tools, leaving optional citation
+  verification followed by the final answer. Retrieval caching lives in the tool layer
   for `semantic_search`, `lookup_scripture_passage`, and `search_conference_talks`.
-  `stopWhen: stepCountIs(8)` in the chat route caps the number of model + tool
-  steps per turn. **Exception — P1 eager retrieval (flag-gated, default OFF):** for
+  `stopWhen: stepCountIs(4)` is the emergency cap for model + tool steps per
+  turn. **Exception — P1 eager retrieval (flag-gated, default OFF):** for
   high-confidence topical questions on an answer-cache miss, the route can run the
   default `semantic_search` retrieval during the preamble and seed it as
   `initialChunks` (see §4 step 5b) with a preloaded-context contract so the model
@@ -308,14 +312,14 @@ Notes:
     the COMPLETE talk in reading order via prefix listing (`fetchConferenceTalkChunks`),
     so the model sees the whole talk rather than whichever chunks semantic search
     surfaced (`matchType` exact/confirmed, `completedTalk: true`).
-  - `citation_verifier` — two checks on the draft answer: (1) structural —
-    inline numeric citations map to chunks accumulated during the turn, malformed
-    markers flagged; (2) claim support — a bounded, fail-open LLM pass that checks
-    each cited sentence is actually backed by the source it cites (`supported` /
-    `partial` / `unsupported`), catching a well-formed citation pointing at a real
-    chunk that does not support the claim. `isValid` is false when indices are
-    invalid/malformed OR any claim is unsupported; the system prompt instructs the
-    model to fix unsupported/partial claims before sending.
+  - `citation_verifier` — always performs deterministic structural validation:
+    inline numeric citations must map to chunks accumulated during the turn and
+    malformed markers are flagged. The nested claim-support LLM audit is default
+    OFF (`RAG_CLAIM_SUPPORT_AUDIT=false`) to avoid latency/cost and structured-
+    output failures. When enabled, it uses `CITATION_AUDIT_MODEL` (default
+    `openai/gpt-5.4-mini`) and remains fail-open. With the audit disabled, a
+    structurally valid result reports only that markers are valid; it does not
+    instruct the main model to perform another retrieval.
   - `read_personal_memory` — reads the user's full saved personalization memory
     on demand when the compact memory brief is insufficient for the current turn.
   - `update_personal_memory` — stores durable personalization memory only when
@@ -377,6 +381,9 @@ Notes:
 - `CHAT_MODEL` (optional; defaults to `deepseek/deepseek-v4-flash`)
 - `RAG_ROUTING_MODEL` (optional; defaults to `openai/gpt-oss-120b`) — dedicated retrieval-query routing/translation model, independent from `CHAT_MODEL` (`reasoningEffort: low`, 600-token ceiling)
 - `RAG_ROUTING_FALLBACK_MODEL` (optional; defaults to `openai/gpt-5.4-mini`) — one-shot fallback used once if the primary routing model returns no structured output
+- `RAG_LANGUAGE_ROUTING` (optional; defaults to `false`) — set to `true` only to restore the legacy dedicated routing-model path
+- `RAG_CLAIM_SUPPORT_AUDIT` (optional; defaults to `false`) — enables the nested LLM claim-support pass inside `citation_verifier`; structural citation validation always remains active
+- `CITATION_AUDIT_MODEL` (optional; defaults to `openai/gpt-5.4-mini`) — structured-output model used only when claim-support auditing is enabled
 - `RAG_GRAPH_RERANK` (optional; defaults to `true`) — graph-aware rerank kill-switch
 - `RAG_RERANK` (optional; defaults to `false`) — Voyage cross-encoder rerank
 - `RAG_MULTI_QUERY` (optional; defaults to `false`) — multi-query expansion
@@ -384,7 +391,7 @@ Notes:
 - `CHAT_MEMORY_ENABLED` (optional; set to `false` to disable chat personalization memory)
 - `CHAT_MEMORY_BRIEF_CHARS` (optional; defaults to 700; caps the compact memory brief injected into each chat request)
 - `CHAT_MEMORY_CONTEXT_CHARS` (optional; defaults to 3500; caps full memory context available through the memory read tool)
-- `CHAT_MAX_RESPONSE_SOURCES` (optional; defaults to 120)
+- `CHAT_MAX_RESPONSE_SOURCES` (optional; defaults to 50) — per-turn cap on unique chunks exposed to the model and persisted/returned with the response
 - `CHAT_RATE_LIMIT_MAX_REQUESTS` (optional; defaults to 30)
 - `CHAT_RATE_LIMIT_WINDOW` (optional; defaults to `1h`)
 - `CLERK_BILLING_PRO_PLAN_ID` / `NEXT_PUBLIC_CLERK_BILLING_PRO_PLAN_ID` (optional explicit Clerk Pro plan ID)
@@ -524,13 +531,10 @@ Reference template: `.env.example`.
 
 ### Active implementation plan
 
-- `docs/TOOL_SPECIFIC_LANGUAGE_ROUTING_PLAN.md` — Phases A–C **implemented** (local
-  prompt-language detection, dedicated `RAG_ROUTING_MODEL` + one-shot fallback
-  independent of `CHAT_MODEL`, global chat translation removed, lazy per-tool
-  translation, prompt-preferred scripture language). **Remaining:** Phase D
-  (eval + metrics rollout) and the `/api/search` follow-up — switch it to
-  `RAG_ROUTING_MODEL` and use prompt-language scripture preference for
-  scripture-only structured queries, without changing its response contract.
+- `docs/TOOL_SPECIFIC_LANGUAGE_ROUTING_PLAN.md` records the earlier dedicated
+  routing design. The active chat path now performs answer-language inference and
+  retrieval-query translation in `CHAT_MODEL`'s existing tool-decision step;
+  `RAG_LANGUAGE_ROUTING=true` retains the previous router only as a rollback path.
 
 When changing architecture, behavior, integrations, API contracts, or major UX flow:
 

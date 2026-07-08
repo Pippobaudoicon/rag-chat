@@ -46,8 +46,7 @@ const inputSchema = z.object({
 export interface SearchConferenceTalksDeps {
   /** Semantic corpus language to retrieve against (English by default). */
   language: Language;
-  /** Lazy translation resolver: the free-text query and optional title are
-   *  resolved to `language` inside execute() (speaker/year are preserved). */
+  /** Query resolver: passthrough by default, legacy translation when enabled. */
   resolver: RetrievalQueryResolver;
   context: RagToolContext;
   onProgress?: (progress: ChatProgressData) => void;
@@ -75,8 +74,9 @@ export function createSearchConferenceTalksTool({
   context,
   onProgress,
 }: SearchConferenceTalksDeps) {
+  const corpusLanguage = language === "eng" ? "English" : "Italian";
   return tool({
-    description: `Search General Conference talks by topic with optional speaker and year filters. Pass the query and title in the user's own language — searchable text is translated to the retrieval corpus language internally, while speaker names and years are preserved. Returns ranked chunks with citation indices.`,
+    description: `Search General Conference talks by topic with optional speaker and year filters. Pass query and title in ${corpusLanguage}; translate them yourself from the user's language while preserving speaker names and years. Returns ranked chunks with citation indices.`,
     inputSchema,
     execute: async ({ query, title, speaker, year, topK }) => {
       const startedAt = Date.now();
@@ -85,11 +85,9 @@ export function createSearchConferenceTalksTool({
         toolName: "search_conference_talks",
       });
 
-      // Resolve the searchable free text (query + optional title) to the corpus
-      // language before inference/matching; speaker and year are structured
-      // constraints and pass through untranslated. English input is identity
-      // (no LLM call); a cross-language query translates once (memoized). BOTH
-      // resolutions are recorded in telemetry (summed/OR'd) below.
+      // Resolve searchable text before inference/matching. This is a zero-call
+      // passthrough by default because the main model already emitted corpus-
+      // language arguments; the optional legacy router translates here.
       const routings: QueryLanguageRouting[] = [];
       const queryRouting = await resolver.resolve(query, language);
       routings.push(queryRouting);
@@ -236,7 +234,7 @@ export function createSearchConferenceTalksTool({
       onProgress?.({
         phase: "tools",
         toolName: "search_conference_talks",
-        sourceCount: returned.length,
+        sourceCount: indexedChunks.length,
         cacheHit: !!cached,
         elapsedMs: Date.now() - startedAt,
         retrievalLanguage: language,
@@ -254,7 +252,7 @@ export function createSearchConferenceTalksTool({
         requestedTitle,
         matchType,
         strictMatches: strict.length,
-        total: returned.length,
+        total: indexedChunks.length,
         completedTalk,
         note: buildNote({
           requestedTitle,

@@ -4,6 +4,7 @@ import { createCitationVerifierTool } from "./citation-verifier/tool";
 import { createLookupScripturePassageTool } from "./lookup-scripture-passage/tool";
 import { createSearchConferenceTalksTool } from "./search-conference-talks/tool";
 import { createSemanticSearchTool } from "./semantic-search/tool";
+import { withToolCallBudget } from "./shared/tool-call-budget";
 import {
   createRagToolContext,
   type RagToolContext,
@@ -13,19 +14,13 @@ import {
 export type { RagToolContext, ToolSourceListener } from "./shared/tool-context";
 
 export interface CreateRagToolsOptions {
-  /** Semantic corpus language (English by default) — the target for semantic /
-   *  conference retrieval after lazy translation. */
+  /** Semantic corpus language (English by default) expected in semantic /
+   * conference tool arguments. */
   language: Language;
   /**
-   * Preferred scripture language for `lookup_scripture_passage`, chosen from the
-   * prompt language independently of the semantic `language` (scriptures are
-   * bilingual; the retriever falls back to the other indexed language if empty).
-   */
-  scriptureLanguage: Language;
-  /**
-   * Request-scoped lazy translation resolver. `semantic_search` and
-   * `search_conference_talks` use it to translate their query to `language`
-   * inside `execute()`; identical queries within the turn are memoized.
+   * Request-scoped query resolver. It is a passthrough by default because the
+   * main model emits corpus-language arguments; the legacy router can be enabled
+   * for rollback, with identical queries memoized within the turn.
    */
   resolver: RetrievalQueryResolver;
   /** Sources selected in the chat UI for this turn. */
@@ -37,6 +32,10 @@ export interface CreateRagToolsOptions {
    * Pass an empty array when the route relies on tools for all retrieval.
    */
   initialChunks?: SourceChunk[];
+  /** Maximum number of unique chunks exposed to the model in this turn. */
+  maxChunks?: number;
+  /** Maximum retrieval executions allowed across the turn. */
+  maxRetrievalCalls?: number;
   /** Notified whenever a tool registers new chunks for the response. */
   onSources?: ToolSourceListener;
   /** Notified as tools start and finish so the UI can show live progress. */
@@ -63,18 +62,19 @@ export interface CreateRagToolsOptions {
 export function createRagTools(options: CreateRagToolsOptions) {
   const {
     language,
-    scriptureLanguage,
     resolver,
     sources,
     topK,
     initialChunks,
+    maxChunks,
+    maxRetrievalCalls,
     onSources,
     onProgress,
   } = options;
 
-  const context = createRagToolContext({ initialChunks, onSources });
+  const context = createRagToolContext({ initialChunks, maxChunks, onSources });
 
-  return {
+  const tools = {
     semantic_search: createSemanticSearchTool({
       language,
       resolver,
@@ -83,8 +83,14 @@ export function createRagTools(options: CreateRagToolsOptions) {
       context,
       onProgress,
     }),
-    lookup_scripture_passage: createLookupScripturePassageTool({ scriptureLanguage, context, onProgress }),
+    lookup_scripture_passage: createLookupScripturePassageTool({ context, onProgress }),
     search_conference_talks: createSearchConferenceTalksTool({ language, resolver, context, onProgress }),
     citation_verifier: createCitationVerifierTool({ context }),
   };
+
+  return withToolCallBudget(
+    tools,
+    ["semantic_search", "lookup_scripture_passage", "search_conference_talks"],
+    maxRetrievalCalls
+  );
 }

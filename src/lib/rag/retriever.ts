@@ -187,6 +187,16 @@ export function collapseCrossLanguage(
   return order.map((key) => byKey.get(key)!);
 }
 
+/** Keep non-scripture chunks plus scriptures in the requested indexed language. */
+export function filterScripturesByLanguage(
+  chunks: SourceChunk[],
+  language: Language
+): SourceChunk[] {
+  return chunks.filter(
+    (chunk) => chunk.source !== "scriptures" || chunk.language === language
+  );
+}
+
 function sortRetrievedChunks(chunks: SourceChunk[], preferredLanguage: Language): SourceChunk[] {
   return chunks.sort((a, b) => {
     const scoreDelta = b.score - a.score;
@@ -445,6 +455,8 @@ export interface RetrieveOptions {
   diversity?: boolean;
   /** Override RAG_MULTI_QUERY for this call. Defaults to the env flag. */
   multiQuery?: boolean;
+  /** Restrict scripture chunks to this indexed prompt language. */
+  scriptureLanguage?: Language;
 }
 
 export async function retrieve(
@@ -460,16 +472,20 @@ export async function retrieve(
   const useRerank = options.rerank ?? isRerankEnabled();
   const useDiversity = options.diversity ?? isDiversityEnabled();
   const useMultiQuery = options.multiQuery ?? isMultiQueryEnabled();
+  const scriptureLanguage = options.scriptureLanguage ?? language;
 
   const retrievalLanguages = orderRetrievalLanguages(language);
-  const scriptureSelection = parseScriptureSelection(query, language);
+  const scriptureRetrievalLanguages = options.scriptureLanguage
+    ? [scriptureLanguage]
+    : orderRetrievalLanguages(scriptureLanguage);
+  const scriptureSelection = parseScriptureSelection(query, scriptureLanguage);
   // Scriptures are bilingual (eng+ita) in the index. Prefer the answer language:
   // use it if it has the passage, and only fall back to another language if empty.
   const verseChunks = sources.includes("scriptures")
-    ? await retrievePreferredLanguage(retrieveSpecificVerseChunks, query, retrievalLanguages)
+    ? await retrievePreferredLanguage(retrieveSpecificVerseChunks, query, scriptureRetrievalLanguages)
     : [];
   const chapterChunks = sources.includes("scriptures")
-    ? await retrievePreferredLanguage(retrieveWholeChapterChunks, query, retrievalLanguages)
+    ? await retrievePreferredLanguage(retrieveWholeChapterChunks, query, scriptureRetrievalLanguages)
     : [];
 
   if (scriptureSelection && verseChunks.length > 0) {
@@ -495,7 +511,7 @@ export async function retrieve(
   const results = await Promise.all(
     vectors.flatMap((vector) =>
       sources.flatMap((source) =>
-        retrievalLanguages.map((retrievalLanguage) =>
+        (source === "scriptures" ? [scriptureLanguage] : retrievalLanguages).map((retrievalLanguage) =>
           index
             .namespace(source)
             .query({

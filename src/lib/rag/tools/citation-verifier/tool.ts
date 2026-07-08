@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { RagToolContext } from "../shared/tool-context";
 import { extractCitationMarkers, extractCitedClaims } from "./citation-markers";
 import { auditClaimSupport, type ClaimAssessment } from "./claim-support";
+import { isClaimSupportAuditEnabled } from "@/lib/rag/flags";
 
 const inputSchema = z.object({
   answerText: z
@@ -16,21 +17,23 @@ export interface CitationVerifierDeps {
 }
 
 /**
- * `citation_verifier`: two checks on a draft answer.
+ * `citation_verifier`: one always-on check and one optional check.
  *   1. Structural (deterministic): every `[N]` / `[Source N]` marker points at a
  *      chunk that exists in this turn's source list; malformed markers flagged.
- *   2. Claim support (LLM, fail-open): each cited sentence is actually backed by
- *      the source(s) it cites — catching a well-formed citation that points at a
- *      real chunk which does not support the claim.
+ *   2. Optional claim support (LLM, fail-open): each cited sentence is backed by
+ *      its sources. Disabled by default to avoid a nested model call.
  *
  * The tool is read-only — it does not register chunks or mutate state. It
  * relies on `context.citationCount()` for the live upper bound which grows as
  * other tools register new chunks during the same turn.
  */
 export function createCitationVerifierTool({ context }: CitationVerifierDeps) {
+  const claimAuditEnabled = isClaimSupportAuditEnabled();
   return tool({
     description:
-      "Validate inline numeric citations like [1], [2] against the current source list AND check that each cited claim is supported by the source it cites. Call before sending the final answer.",
+      claimAuditEnabled
+        ? "Validate inline numeric citations against the current source list and audit whether cited claims are supported."
+        : "Validate inline numeric citations like [1], [2] against the current source list.",
     inputSchema,
     execute: async ({ answerText }) => {
       const { uniqueIndices: cited, malformedMarkers } = extractCitationMarkers(answerText);
@@ -49,7 +52,9 @@ export function createCitationVerifierTool({ context }: CitationVerifierDeps) {
         claim.indices.every((n) => n <= maxIndex)
       );
       const audit =
-        valid.length > 0 && maxIndex > 0 ? await auditClaimSupport(claims, context.liveChunks()) : null;
+        claimAuditEnabled && valid.length > 0 && maxIndex > 0
+          ? await auditClaimSupport(claims, context.liveChunks())
+          : null;
       const assessments = audit?.assessments ?? null;
 
       const unsupported = (assessments ?? []).filter((a) => a.support === "unsupported");
@@ -90,6 +95,7 @@ export function createCitationVerifierTool({ context }: CitationVerifierDeps) {
           partial,
           auditComplete: audit?.complete ?? false,
           auditUnavailable: audit === null,
+          claimAuditEnabled,
         }),
       };
     },
@@ -106,10 +112,14 @@ function buildNote(args: {
   partial: ClaimAssessment[];
   auditComplete: boolean;
   auditUnavailable: boolean;
+  claimAuditEnabled: boolean;
 }): string {
-  const { hasInvalid, hasMalformed, invalid, malformedMarkers, maxIndex, unsupported, partial, auditComplete, auditUnavailable } = args;
+  const { hasInvalid, hasMalformed, invalid, malformedMarkers, maxIndex, unsupported, partial, auditComplete, auditUnavailable, claimAuditEnabled } = args;
 
   if (!hasInvalid && !hasMalformed && unsupported.length === 0 && partial.length === 0) {
+    if (!claimAuditEnabled) {
+      return "Citation markers are valid and in range.";
+    }
     // Only claim "supported" when the audit actually ran and covered every claim.
     if (auditComplete) {
       return "All citation markers are valid, in range, and supported by their cited sources.";

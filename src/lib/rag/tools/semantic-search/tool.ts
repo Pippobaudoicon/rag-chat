@@ -17,6 +17,11 @@ const inputSchema = z.object({
     .string()
     .min(1)
     .describe("Free-text query for general topical retrieval across selected sources"),
+  scriptureLanguage: z
+    .enum(["eng", "ita"])
+    .describe(
+      "Indexed scripture language matching the user's original prompt: ita for Italian, eng for English or unsupported languages"
+    ),
   topK: z
     .number()
     .int()
@@ -38,8 +43,7 @@ const inputSchema = z.object({
 export interface SemanticSearchDeps {
   /** Semantic corpus language to retrieve against (English by default). */
   language: Language;
-  /** Lazy translation resolver: the model's natural-language query is resolved
-   *  to `language` inside execute(), memoized per request. */
+  /** Query resolver: passthrough by default, legacy translation when enabled. */
   resolver: RetrievalQueryResolver;
   /** Sources selected in the chat UI for this turn. */
   defaultSources: SourceType[];
@@ -79,12 +83,15 @@ export function createSemanticSearchTool({
   // toggles — ALL_SOURCES.length — was mis-read as Super and silently unlocked the
   // hidden namespaces the user never picked.)
   const allowedSources = new Set<SourceType>(defaultSources);
+  const corpusLanguage = language === "eng" ? "English" : "Italian";
 
   return tool({
-    description: `Run a general semantic search across the user's selected LDS sources. Pass the query in the user's own language — it is translated to the retrieval corpus language internally, so you do not need to pre-translate. Use this when the question is topical and does not target a specific scripture reference or a specific conference talk. Results may include bounded related context from the same selected sources; use it to refine the answer when relevant. Returns ranked chunks with citation indices.`,
+    description: `Run a general semantic search across the user's selected LDS sources. Pass the query in ${corpusLanguage}; translate it yourself from the user's language while preserving names and scripture references. Use this when the question is topical and does not target a specific scripture reference or conference talk. Returns ranked chunks with citation indices.`,
     inputSchema,
-    execute: async ({ query, topK, sources }) => {
+    execute: async ({ query, scriptureLanguage, topK, sources }) => {
       const startedAt = Date.now();
+      const effectiveScriptureLanguage =
+        context.resolveScriptureLanguage(scriptureLanguage);
       const effectiveTopK = topK ?? defaultTopK;
       const requestedSources = sources && sources.length > 0 ? sources : defaultSources;
       const filteredSources = requestedSources.filter((source) => allowedSources.has(source));
@@ -108,13 +115,14 @@ export function createSemanticSearchTool({
         sources: effectiveSources,
         topK: effectiveTopK,
         language,
+        scriptureLanguage: effectiveScriptureLanguage,
       });
 
       const indexedChunks = context.registerChunks(chunks);
       onProgress?.({
         phase: "tools",
         toolName: "semantic_search",
-        sourceCount: chunks.length,
+        sourceCount: indexedChunks.length,
         cacheHit,
         elapsedMs: Date.now() - startedAt,
         retrievalLanguage: language,
@@ -126,7 +134,7 @@ export function createSemanticSearchTool({
         language,
         sources: effectiveSources,
         cacheHit,
-        total: chunks.length,
+        total: indexedChunks.length,
         chunks: indexedChunks.map(({ chunk, citationIndex }) =>
           toToolChunk(chunk, citationIndex)
         ),

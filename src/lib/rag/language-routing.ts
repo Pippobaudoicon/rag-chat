@@ -2,6 +2,7 @@ import { generateText, gateway, Output } from "ai";
 import { detectAll } from "tinyld";
 import { z } from "zod";
 import type { CorpusLanguage, Language } from "@/lib/types";
+import { isLanguageRoutingEnabled } from "@/lib/rag/flags";
 
 // Routing/translation is an independent workload from the final-answer model
 // (`CHAT_MODEL`): a small, fast, reliable structured-output translator. Selected
@@ -276,6 +277,21 @@ export async function routeQueryLanguage(
   const indexLanguage = options.indexLanguage ?? getIndexLanguage();
   const indexLanguageName = getCorpusLanguageName(indexLanguage);
   const trimmedQuery = query.trim();
+
+  if (!isLanguageRoutingEnabled()) {
+    const promptLanguage = detectPromptLanguage(trimmedQuery);
+    return {
+      originalQuery: trimmedQuery,
+      searchQuery: trimmedQuery,
+      inputLanguageCode: promptLanguage.code,
+      inputLanguageName: promptLanguage.name,
+      indexLanguage,
+      indexLanguageName,
+      translated: false,
+      routingMs: 0,
+      routingFallbackUsed: false,
+    };
+  }
 
   // Local same-language fast-path. When the prompt is confidently, dominantly
   // in the index language, translation is identity and the routing LLM call is

@@ -33,11 +33,12 @@ import { createRetrievalQueryResolver } from "@/lib/rag/retrieval-query-resolver
 import { createLatencyTrace, withToolTiming } from "@/lib/observability/latency";
 import {
   getIndexLanguage,
-  detectPromptLanguage,
+  detectIndexLanguageMatch,
 } from "@/lib/rag/language-routing";
 import { isEagerRetrievalEnabled, retrievalFlagsSignature } from "@/lib/rag/flags";
 import { parseScriptureSelection } from "@/lib/rag/scripture-reference";
 import { isEagerTopicalQuery } from "@/lib/rag/eager-eligibility";
+import { prepareChatToolStep } from "@/lib/rag/tool-loop-policy";
 import { runSemanticRetrieval } from "@/lib/rag/tools/shared/semantic-retrieval";
 import { badRequestFromZod, chatRequestSchema } from "@/lib/api/validation";
 import {
@@ -61,7 +62,8 @@ export const runtime = "nodejs";
 export const maxDuration = 180;
 
 const DEFAULT_MAX_OUTPUT_TOKENS = 6000;
-const DEFAULT_MAX_RESPONSE_SOURCES = 120;
+const DEFAULT_MAX_RESPONSE_SOURCES = 50;
+const MAX_RETRIEVAL_CALLS = 2;
 
 const getPositiveInt = (value: string | undefined, fallback: number): number => {
   const parsed = Number(value);
@@ -184,7 +186,9 @@ export async function POST(req: Request) {
   // sources.
   const hasFixedChunks =
     Array.isArray(fixedChunks) && fixedChunks.length > 0;
-  const validatedFixedChunks: SourceChunk[] = hasFixedChunks ? fixedChunks : [];
+  const validatedFixedChunks: SourceChunk[] = hasFixedChunks
+    ? fixedChunks.slice(0, MAX_RESPONSE_SOURCES)
+    : [];
 
   // Chunks injected into the user message. Empty in the default flow unless P1
   // eager retrieval populates them below; otherwise the model populates the
@@ -349,18 +353,9 @@ export async function POST(req: Request) {
     return new Response("Bad Request: empty question", { status: 400 });
   }
 
-  // Local, network-free answer-language context (no routing LLM call). This is
-  // an answer-language hint + scripture-language preference, NOT a retrieval
-  // translation — that stays lazy inside the English-corpus tools.
   const indexLanguage = getIndexLanguage();
-  const promptLanguage = detectPromptLanguage(question);
-  // Preferred scripture language for lookup_scripture_passage: the prompt's
-  // indexed scripture language when known, else the corpus language as a
-  // deterministic fallback (the retriever falls back to the other indexed
-  // language only if the passage is absent).
-  const scriptureLanguage = promptLanguage.scriptureLanguage ?? indexLanguage;
-  // Request-scoped lazy translation resolver, shared by semantic_search and
-  // search_conference_talks so identical tool queries translate at most once.
+  // Request-scoped resolver. With the default main-model routing path it is a
+  // zero-call passthrough; enabling the legacy router restores translation here.
   const retrievalResolver = createRetrievalQueryResolver();
 
   const historySignature = JSON.stringify(
@@ -374,7 +369,6 @@ export async function POST(req: Request) {
     ? sessionAnswerCacheKey(userId, conversation.id, question, {
         language: [
           `ui:${uiLanguage}`,
-          `answer:${promptLanguage.code}`,
           `index:${indexLanguage}`,
           `flags:${retrievalFlagsSignature()}`,
         ].join("|"),
@@ -517,15 +511,16 @@ export async function POST(req: Request) {
   // RAG_EAGER_RETRIEVAL=true after trace validation.
   // Eager runs on the ORIGINAL prompt and only when it is confidently English
   // (§4.6): we never translate a cross-language prompt in the preamble just to
-  // make it eager-eligible — those take the normal tool-first path and translate
-  // lazily inside semantic_search. With an English prompt the original query is
-  // already English, so the existing English-only eligibility heuristics hold.
-  const promptIsEnglish = promptLanguage.code === "en";
+  // make it eager-eligible — those take the normal tool-first path, where the
+  // main model emits a corpus-language query. With an English prompt the original
+  // query is already English, so the existing eligibility heuristics hold.
+  const promptMatchesIndex =
+    detectIndexLanguageMatch(question, indexLanguage) !== null;
   const scriptureSelection = parseScriptureSelection(question, indexLanguage);
   const eagerEligible =
     isEagerRetrievalEnabled() &&
     indexLanguage === "eng" &&
-    promptIsEnglish &&
+    promptMatchesIndex &&
     !hasFixedChunks &&
     !scriptureSelection &&
     sources.length > 0 &&
@@ -537,6 +532,7 @@ export async function POST(req: Request) {
         sources,
         topK: effectiveTopK,
         language: indexLanguage,
+        scriptureLanguage: indexLanguage,
       })
     );
     initialChunks = eager.chunks;
@@ -551,7 +547,6 @@ export async function POST(req: Request) {
     initialChunks,
     {
       uiLanguage,
-      promptLanguage,
     },
     eagerEligible ? "eager" : "fixed"
   );
@@ -581,11 +576,12 @@ export async function POST(req: Request) {
     {
       ...createRagTools({
         language: indexLanguage,
-        scriptureLanguage,
         resolver: retrievalResolver,
         sources,
         topK: effectiveTopK,
         initialChunks,
+        maxChunks: MAX_RESPONSE_SOURCES,
+        maxRetrievalCalls: MAX_RETRIEVAL_CALLS,
         onSources: addToolChunks,
         onProgress: (progress) => {
           // A tool's terminal "tools" event carries its result stats — capture
@@ -632,8 +628,22 @@ export async function POST(req: Request) {
     system: systemPrompt,
     messages: chatMessages,
     maxOutputTokens: MAX_OUTPUT_TOKENS,
-    stopWhen: stepCountIs(8),
+    stopWhen: stepCountIs(4),
     tools: chatTools,
+    prepareStep: ({ steps }) => {
+      const policy = prepareChatToolStep(steps, hasFixedChunks);
+      if (!policy) return undefined;
+
+      const stepInstruction =
+        policy.toolChoice === "none"
+          ? "Tool use is complete. Produce the final user-facing answer now using the retrieved or preloaded sources. Do not emit tool-call syntax, XML, DSML, or another tool request."
+          : "Retrieval is complete. Do not request more sources. Either produce the final user-facing answer now or call citation_verifier once, then finalize.";
+
+      return {
+        ...policy,
+        system: `${systemPrompt}\n\n${stepInstruction}`,
+      };
+    },
     experimental_transform: smoothStream({
       delayInMs: 20,
       chunking: "word",
@@ -698,12 +708,11 @@ export async function POST(req: Request) {
         model: CHAT_MODEL,
         finishReason,
         toolNames: getToolNames(steps),
-        // Retrieval trace: how this turn retrieved (locally detected input
-        // language + flags + per-tool stats), so real conversations can be mined
-        // into the eval gold set. There is no global translated searchQuery
-        // anymore; tool-local routing telemetry lands in Phase C.
+        // Retrieval trace: how this turn retrieved (flags + per-tool stats), so
+        // real conversations can be mined into the eval gold set. When the
+        // optional legacy router is enabled, its language telemetry is recorded
+        // on the relevant tool event.
         retrieval: {
-          inputLanguageCode: promptLanguage.code,
           indexLanguage,
           sources,
           topK: effectiveTopK,

@@ -101,7 +101,10 @@ export async function GET(req: Request) {
     languageRouting.searchQuery,
     sources,
     languageRouting.indexLanguage,
-    effectiveTopK
+    effectiveTopK,
+    {
+      scriptureLanguage: uiLanguage === "ita" ? "ita" : "eng",
+    }
   );
 
   return Response.json({
