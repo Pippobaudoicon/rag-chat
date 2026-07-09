@@ -28,13 +28,10 @@ Read this first before deep code exploration.
 ## 3) User-facing capabilities
 
 - Multi-turn chat with persisted conversation history.
-- Source filters (individual toggles):
-  - Scriptures
-  - Conference
-  - Handbook
-  - Study Helps (Bible Dictionary, Guide to the Scriptures, JST; Topical Guide is graph-only, not retrievable)
-  - Topics
-  - plus a "Super" toggle exposing all Pinecone namespaces
+- Search-scope toggle (chat composer, replaces the old per-source toggles):
+  - `Standard` — sends `ALL_SOURCES` (scriptures, conference, handbook, study_helps, topics); the model may narrow *within* this scope.
+  - `Super` — sends `SUPER_SOURCES` (every Pinecone namespace). Persisted to `localStorage` under `chat:search-scope`.
+  - The `/search` console keeps the full per-source `SettingsPanel` for debugging.
 - Language selector: UI-only language preference. Current selectable UI languages are Italian, English, French, Spanish, Portuguese, and German; non-translated UI copy falls back to English.
 - Inline numeric citations linked to source cards.
 - Sources panel with scripture coverage behavior for chapter/book requests.
@@ -288,11 +285,11 @@ Notes:
   sources / chit-chat / follow-ups / specific-talk requests. Opt-in with
   `RAG_EAGER_RETRIEVAL=true` after trace validation.
 - AI function tools available in the chat runtime:
-  - `semantic_search` — general topical retrieval over the user's selected
-    sources, with Upstash Redis caching. The model may override `sources`, but
-    only WITHIN what the user enabled in the UI: the allow-list is exactly the
-    selected sources ("Super" is explicit — it sends the full namespace set).
-    Selecting all visible toggles no longer implicitly unlocks hidden namespaces.
+  - `semantic_search` — general topical retrieval over the sources implied by
+    the chat search scope, with Upstash Redis caching. The model may override
+    `sources`, but only WITHIN what the UI sent: the allow-list is exactly the
+    derived scope (`Standard` → `ALL_SOURCES`, `Super` → the full namespace set).
+    The model cannot reach namespaces outside the active scope.
   - `lookup_scripture_passage` — scripture-by-reference retrieval with strict
     book/chapter (slug-based) filtering. Then expands the passage with its
     cross-reference graph (`related_ids`): cited passages + Bible Dictionary /
@@ -360,10 +357,11 @@ Notes:
   (`rag_user_settings`, via `getUserPreferences`) → `DEFAULT_RESPONSE_STYLE`
   (`balanced`). The client sends `responseStyle` only for an explicit
   per-conversation override; the chat route persists that override and calls
-  `buildSystemPrompt(effectiveStyle)`. The settings bar (`SettingsPanel`) exposes
-  a compact `ResponseStylePicker` dropdown with the 4 styles plus a "set as
+  `buildSystemPrompt(effectiveStyle)`. The chat composer toolbar exposes a
+  compact `ResponseStylePicker` dropdown with the 4 styles plus a "set as
   default" action (`PUT /api/settings`); changing the style mid-conversation
-  persists via `PATCH /api/conversations/[id]`.
+  persists via `PATCH /api/conversations/[id]`. (The `/search` console still
+  renders `ResponseStylePicker` inside `SettingsPanel`.)
 
 ## 8) Environment variables
 
@@ -414,7 +412,7 @@ Reference template: `.env.example`.
   - `src/components/layout/AppShell.tsx`
 - Chat UI and controls:
   - `src/components/chat/ChatInterface.tsx`
-  - `src/components/chat/SettingsPanel.tsx`
+  - `src/components/chat/SettingsPanel.tsx` (source/style filter bar — now only the `/search` console)
   - `src/components/chat/SourcesPanel.tsx`
   - `src/components/chat/ChatSidebar.tsx`
 - Search UI:
@@ -436,7 +434,9 @@ Reference template: `.env.example`.
   - `src/lib/onboarding/steps.ts` (pure step/anchor/auto-start logic; tested by `test:onboarding`)
   - `src/components/onboarding/OnboardingTour.tsx` (anchored callouts, replay, persistence, a11y)
   - mounted in `src/components/layout/AppShell.tsx`; anchors are `data-tour` attributes in
-    `ChatInterface`/`SettingsPanel`/`SourcesPanel`/`ChatSidebar`; replay entry in `ChatSidebar`
+    `ChatInterface` (composer, `super-toggle`, `response-style`)/`SourcesPanel`/`ChatSidebar`;
+    replay entry in `ChatSidebar`. The `source-toggles` step was removed with the chat's
+    per-source UI.
 - RAG internals:
   - `src/lib/rag/system-prompt.ts`
   - `src/lib/rag/retriever.ts`

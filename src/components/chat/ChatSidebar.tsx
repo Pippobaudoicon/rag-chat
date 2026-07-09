@@ -22,8 +22,10 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "./language-context";
+import { LanguageToggle } from "./LanguageToggle";
 import { uiText } from "./i18n";
 import { version } from "../../../package.json";
 
@@ -207,12 +209,6 @@ export function ChatSidebar({ onClose, showMobileClose = false }: ChatSidebarPro
   // Optimistic active ID — set immediately on click, before the route resolves
   const [pendingId, setPendingId] = useState<string | null>(null);
   const cacheKey = user?.id ? `chat:conversations:${user.id}` : null;
-  const accountLabel =
-    user?.fullName ||
-    user?.firstName ||
-    user?.username ||
-    user?.primaryEmailAddress?.emailAddress ||
-    text.app.account;
 
   useEffect(() => {
     conversationCountRef.current = conversations.length;
@@ -650,7 +646,7 @@ export function ChatSidebar({ onClose, showMobileClose = false }: ChatSidebarPro
         </div>
       </div>
 
-      {/* Footer — memory + account */}
+      {/* Footer — account + language + memory + billing */}
       <div className="pb-safe border-t border-border/40 px-3 py-3">
         <div className="flex min-w-0 items-center gap-2">
           <div className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-lg px-2 text-muted-foreground">
@@ -665,36 +661,54 @@ export function ChatSidebar({ onClose, showMobileClose = false }: ChatSidebarPro
                 </UserButton.MenuItems>
               </UserButton>
             </span>
-            <span className="min-w-0 truncate text-xs">{accountLabel}</span>
           </div>
+          {/* Language — desktop only; on mobile it lives in the top bar. */}
+          <LanguageToggle iconOnly className="hidden md:inline-flex" />
           <span
             data-tour="memory"
             className="-m-1 flex shrink-0 rounded-xl border border-transparent p-1"
           >
-            <button
-              type="button"
-              onClick={() => {
-                router.push("/memory");
-                onClose?.();
-              }}
-              aria-label={text.memory.button}
-              title={text.memory.button}
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-            >
-              <BrainIcon className="h-4 w-4" />
-            </button>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <button
+                    type="button"
+                    onClick={() => {
+                      router.push("/memory");
+                      onClose?.();
+                    }}
+                    aria-label={text.memory.button}
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                  >
+                    <BrainIcon className="h-4 w-4" />
+                  </button>
+                }
+              />
+              <TooltipContent side="top" className="text-xs">
+                {text.memory.button}
+              </TooltipContent>
+            </Tooltip>
           </span>
-          <button
-            type="button"
-            onClick={() => {
-              router.push("/billing");
-              onClose?.();
-            }}
-            aria-label="Billing"
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-          >
-            <CreditCardIcon className="h-4 w-4" />
-          </button>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <button
+                  type="button"
+                  onClick={() => {
+                    router.push("/billing");
+                    onClose?.();
+                  }}
+                  aria-label={text.billing.title}
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                >
+                  <CreditCardIcon className="h-4 w-4" />
+                </button>
+              }
+            />
+            <TooltipContent side="top" className="text-xs">
+              {text.billing.title}
+            </TooltipContent>
+          </Tooltip>
         </div>
       </div>
 

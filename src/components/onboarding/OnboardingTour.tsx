@@ -25,7 +25,6 @@ const DESKTOP_BREAKPOINT_PX = 768;
 const REPLAY_READY_MAX_FRAMES = 180; // ~3s at 60fps for route/client hydration
 const REPLAY_READY_SELECTORS = [
   '[data-tour="composer"]',
-  '[data-tour="source-toggles"]',
   '[data-tour="super-toggle"]',
   '[data-tour="response-style"]',
 ] as const;

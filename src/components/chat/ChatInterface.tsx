@@ -2,7 +2,7 @@
 
 //TODO questa pagina sta incominciando a diventare un po' troppo grande, forse è il caso di suddividerla in più componenti (es. spostare la logica dei feedback in un custom hook e i pannelli di sources/details in componenti separate)
 //valutare come fare 
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { useChat } from "@ai-sdk/react";
 import { useUser } from "@clerk/nextjs";
 import { DefaultChatTransport } from "ai";
@@ -18,6 +18,7 @@ import {
   ThumbsDownIcon,
   ThumbsUpIcon,
   WrenchIcon,
+  ZapIcon,
 } from "lucide-react";
 import {
   Conversation,
@@ -35,21 +36,23 @@ import {
   PromptInput,
   PromptInputTextarea,
   PromptInputSubmit,
+  PromptInputFooter,
+  PromptInputTools,
 } from "@/components/ai-elements/prompt-input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import type { PromptInputMessage } from "@/components/ai-elements/prompt-input";
-import { SettingsPanel } from "./SettingsPanel";
+import { ResponseStylePicker } from "./ResponseStylePicker";
 import { EmptyState } from "./EmptyState";
 import { SourcesPanel } from "./SourcesPanel";
 import { DetailRows } from "./DetailsPanel";
-import { DEFAULT_SOURCES, SUPER_SOURCES } from "@/lib/types";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { ALL_SOURCES, SUPER_SOURCES } from "@/lib/types";
 import type {
   AssistantVersion,
   ChatProgressData,
   ChatProgressPhase,
-  SourceType,
   UiLanguage,
   MessageMetadata,
   MessageDetails,
@@ -274,6 +277,46 @@ function getPreviousUserQuery(messages: UIMessage[], fromIndex: number): string 
   return null;
 }
 
+/** Compact Standard/Super search-scope toggle for the composer toolbar. */
+function SearchScopeToggle({
+  language,
+  isSuper,
+  onToggle,
+  disabled,
+}: {
+  language: UiLanguage;
+  isSuper: boolean;
+  onToggle: () => void;
+  disabled?: boolean;
+}) {
+  const scope = uiText(language).settings.searchScope;
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        type="button"
+        data-tour="super-toggle"
+        onClick={onToggle}
+        disabled={disabled}
+        aria-pressed={isSuper}
+        className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs font-medium transition-all disabled:opacity-50 ${
+          isSuper
+            ? "border-amber-500/40 bg-amber-500/15 text-amber-300"
+            : "border-border/50 bg-transparent text-muted-foreground hover:border-border hover:text-foreground"
+        }`}
+      >
+        <ZapIcon size={13} className={isSuper ? "text-amber-400" : ""} />
+        <span className="hidden sm:inline">{scope.super}</span>
+      </TooltipTrigger>
+      <TooltipContent side="top" className="max-w-xs text-xs leading-relaxed">
+        <p className="mb-0.5 font-medium">{isSuper ? scope.super : scope.standard}</p>
+        <p className="text-muted-foreground">
+          {isSuper ? scope.superTooltip : scope.standardTooltip}
+        </p>
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
 export function ChatInterface({
   conversationId: initialConversationId,
   initialMessages = [],
@@ -287,7 +330,14 @@ export function ChatInterface({
   const { language } = useLanguage();
   const text = uiText(language);
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [sources, setSources] = useState<SourceType[]>(DEFAULT_SOURCES);
+  // Search scope replaces manual per-source selection: Standard sends every
+  // normally-visible source, Super sends all namespaces. The model may still
+  // narrow *within* this scope (the backend ceilings its override to it).
+  const [searchScope, setSearchScope] = useState<"standard" | "super">("standard");
+  const sources = useMemo(
+    () => (searchScope === "super" ? SUPER_SOURCES : ALL_SOURCES),
+    [searchScope]
+  );
 
   // Response style. The user's persistent default applies unless this
   // conversation has an explicit override (conversationStyle !== null). The
@@ -343,16 +393,11 @@ export function ChatInterface({
     });
   }, []);
 
-  // Hydrate sources from localStorage after mount to avoid SSR mismatch
+  // Hydrate the search scope from localStorage after mount to avoid SSR mismatch.
   useEffect(() => {
     try {
-      const storedSources = localStorage.getItem("chat:sources");
-      if (storedSources) {
-        const parsed = JSON.parse(storedSources) as string[];
-        const valid = SUPER_SOURCES as string[];
-        const filtered = parsed.filter((s) => valid.includes(s)) as SourceType[];
-        if (filtered.length > 0) setSources(filtered);
-      }
+      const stored = localStorage.getItem("chat:search-scope");
+      if (stored === "super" || stored === "standard") setSearchScope(stored);
     } catch {
       // ignore
     }
@@ -488,10 +533,10 @@ export function ChatInterface({
     return convId;
   }, [language, sources, conversationStyle]);
 
-  // Persist sources to localStorage (language is persisted by LanguageProvider)
+  // Persist the search scope (language is persisted by LanguageProvider).
   useEffect(() => {
-    localStorage.setItem("chat:sources", JSON.stringify(sources));
-  }, [sources]);
+    localStorage.setItem("chat:search-scope", searchScope);
+  }, [searchScope]);
 
   useEffect(() => {
     void refreshBillingOverview();
@@ -811,18 +856,6 @@ export function ChatInterface({
 
   return (
     <div className="flex flex-col h-full min-h-0">
-      {/* Settings bar — language + source toggles */}
-      <SettingsPanel
-        language={language}
-        sources={sources}
-        onSourcesChange={setSources}
-        responseStyle={activeResponseStyle}
-        defaultResponseStyle={defaultResponseStyle}
-        onResponseStyleChange={handleResponseStyleChange}
-        onSetDefaultResponseStyle={handleSetDefaultResponseStyle}
-        disabled={isStreaming}
-      />
-
       {shouldShowUsageWarning && chatUsage && (
         <div className="border-b border-primary/20 bg-primary/10 px-4 py-2">
           <div className="mx-auto flex max-w-3xl flex-col gap-2 text-sm sm:flex-row sm:items-center sm:justify-between">
@@ -1276,17 +1309,39 @@ export function ChatInterface({
           >
             <PromptInputTextarea
               autoFocus
-              className="min-h-14 max-h-44 px-4 py-4 pr-16 text-[15px] leading-6 placeholder:text-muted-foreground/80"
+              className="min-h-14 max-h-44 px-4 pt-4 pb-2 text-[15px] leading-6 placeholder:text-muted-foreground/80"
               enterKeyHint="send"
               placeholder={text.chat.placeholder}
             />
-            <PromptInputSubmit
-              status={status}
-              onStop={() => {
-                void stop();
-              }}
-              className="absolute right-1.5 bottom-1.5 size-11 rounded-full border border-primary/20 bg-primary text-primary-foreground shadow-[0_10px_20px_-10px_hsl(var(--primary)/0.85)] transition-all hover:scale-[1.03] hover:bg-primary/90 active:scale-100 disabled:opacity-60"
-            />
+            <PromptInputFooter className="px-3 pt-0 pb-2">
+              <PromptInputTools className="gap-1.5">
+                <ResponseStylePicker
+                  language={language}
+                  value={activeResponseStyle}
+                  defaultStyle={defaultResponseStyle}
+                  onChange={handleResponseStyleChange}
+                  onSetDefault={handleSetDefaultResponseStyle}
+                  disabled={isStreaming}
+                />
+                <SearchScopeToggle
+                  language={language}
+                  isSuper={searchScope === "super"}
+                  onToggle={() =>
+                    setSearchScope((current) =>
+                      current === "super" ? "standard" : "super"
+                    )
+                  }
+                  disabled={isStreaming}
+                />
+              </PromptInputTools>
+              <PromptInputSubmit
+                status={status}
+                onStop={() => {
+                  void stop();
+                }}
+                className="size-9 rounded-full border border-primary/20 bg-primary text-primary-foreground shadow-[0_10px_20px_-10px_hsl(var(--primary)/0.85)] transition-all hover:scale-[1.03] hover:bg-primary/90 active:scale-100 disabled:opacity-60"
+              />
+            </PromptInputFooter>
           </PromptInput>
           <p className="mt-2 text-center text-[9px] text-muted-foreground/50">
             {text.chat.disclaimer}

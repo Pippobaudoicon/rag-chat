@@ -11,7 +11,6 @@ export type OnboardingStatus = "pending" | "completed" | "skipped";
 
 export type OnboardingStepId =
   | "composer"
-  | "source-toggles"
   | "super-toggle"
   | "response-style"
   | "sources"
@@ -35,7 +34,6 @@ export interface OnboardingStep {
  */
 export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
   { id: "composer", anchor: '[data-tour="composer"]', inSidebar: false, allowFallback: true },
-  { id: "source-toggles", anchor: '[data-tour="source-toggles"]', inSidebar: false, allowFallback: false },
   { id: "super-toggle", anchor: '[data-tour="super-toggle"]', inSidebar: false, allowFallback: false },
   { id: "response-style", anchor: '[data-tour="response-style"]', inSidebar: false, allowFallback: false },
   { id: "sources", anchor: '[data-tour="sources"]', inSidebar: false, allowFallback: true },

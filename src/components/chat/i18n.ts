@@ -58,6 +58,14 @@ export const UI_TEXT = {
     },
     settings: {
       searchAllSources: "Cerca in tutte le fonti:",
+      searchScope: {
+        standard: "Standard",
+        super: "Super",
+        standardTooltip:
+          "Ricerca standard: cerca nel corpus principale e lascia che l'assistente restringa le fonti al suo interno.",
+        superTooltip:
+          "Super: cerca in tutte le fonti disponibili. Utile per domande ampie o trasversali; può essere più lenta.",
+      },
       responseStyle: "Stile di risposta",
       responseStyleAria: "Scegli lo stile di risposta",
       setAsDefault: "Imposta come predefinito",
@@ -292,10 +300,6 @@ export const UI_TEXT = {
           title: "Chiedi e cerca",
           body: "Scrivi qui la tua domanda. L'assistente sceglie da solo se attingere a scritture, discorsi di conferenza o fonti semantiche più ampie. La risposta segue la lingua in cui scrivi.",
         },
-        "source-toggles": {
-          title: "Selettore fonti",
-          body: "Attiva o disattiva la base di conoscenza delle diverse fonti di informazione nella risposta finale; meno fonti attive, più veloce e mirata sarà la risposta.",
-        },
         "super-toggle": {
           title: "Modalità Super",
           body: "Attiva la ricerca in tutte le fonti disponibili insieme. Utile per domande ampie o trasversali; l'ambito è più esteso e la risposta può richiedere un po' più di tempo.",
@@ -352,6 +356,14 @@ export const UI_TEXT = {
     },
     settings: {
       searchAllSources: "Search all sources:",
+      searchScope: {
+        standard: "Standard",
+        super: "Super",
+        standardTooltip:
+          "Standard search: searches the core corpus and lets the assistant narrow sources within it.",
+        superTooltip:
+          "Super: searches every available source. Useful for broad or cross-cutting questions; may be slower.",
+      },
       responseStyle: "Response style",
       responseStyleAria: "Choose response style",
       setAsDefault: "Set as default",
@@ -585,10 +597,6 @@ export const UI_TEXT = {
         composer: {
           title: "Ask and search",
           body: "Type your question here. The assistant decides on its own whether to draw on scriptures, conference talks, or broader semantic sources. Answers follow the language you write in.",
-        },
-        "source-toggles": {
-          title: "Source toggle",
-          body: "Toggle the visibility of different sources of information from the final response, the less the toggles, the faster and more focused the response.",
         },
         "super-toggle": {
           title: "Super mode",
