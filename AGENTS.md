@@ -16,6 +16,14 @@ If you change core architecture, APIs, integrations, environment requirements,
 or major user flows, update `docs/PROJECT_INFO.md` in the same change.
 For each change, update version of the project in `package.json` (by third decimal) and add a changelog entry in `CHANGELOG.md`.
 
+Also keep the Obsidian project wiki updated in
+`/Users/lopiparo/Documents/Work/LDS/chatlds-wiki`. Treat it as the main narrative
+and operational source of truth for `rag-chat`, `lds-scraper`, corpus contracts,
+runbooks, decisions, and agent context. When behavior, architecture, APIs,
+integrations, environment variables, source namespaces, corpus schemas, Pinecone
+contracts, validation commands, or major workflows change, update the relevant
+wiki note in the same change and keep links to implementation evidence current.
+
 Core tooling files:
 
 - `package.json`
