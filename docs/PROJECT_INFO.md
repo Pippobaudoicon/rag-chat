@@ -411,7 +411,10 @@ Reference template: `.env.example`.
   - `src/app/(app)/layout.tsx`
   - `src/components/layout/AppShell.tsx`
 - Chat UI and controls:
-  - `src/components/chat/ChatInterface.tsx`
+  - `src/components/chat/ChatInterface.tsx` (orchestration: chat transport, conversation lifecycle, billing/usage, regeneration, composer)
+  - `src/components/chat/ChatMessage.tsx` (per-message render: response, action toolbar, feedback panels, sources, version nav, pending indicators)
+  - `src/components/chat/useMessageFeedback.ts` (feedback state machine: thumbs persistence, follow-up auto-dismiss timer, submit, reset)
+  - `src/components/chat/chat-utils.tsx` (shared chat helpers + `ToolActivityIndicator`/`PendingIndicator`, imported by both `ChatInterface` and `ChatMessage`)
   - `src/components/chat/SettingsPanel.tsx` (source/style filter bar — now only the `/search` console)
   - `src/components/chat/SourcesPanel.tsx`
   - `src/components/chat/ChatSidebar.tsx`

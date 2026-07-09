@@ -1,37 +1,17 @@
 "use client";
 
-//TODO questa pagina sta incominciando a diventare un po' troppo grande, forse è il caso di suddividerla in più componenti (es. spostare la logica dei feedback in un custom hook e i pannelli di sources/details in componenti separate)
-//valutare come fare 
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { useChat } from "@ai-sdk/react";
 import { useUser } from "@clerk/nextjs";
 import { DefaultChatTransport } from "ai";
 import type { UIMessage } from "ai";
-import {
-  CheckIcon,
-  ChevronLeftIcon,
-  ChevronRightIcon,
-  CopyIcon,
-  InfoIcon,
-  AlertTriangleIcon,
-  RefreshCwIcon,
-  ThumbsDownIcon,
-  ThumbsUpIcon,
-  WrenchIcon,
-  ZapIcon,
-} from "lucide-react";
+import { AlertTriangleIcon, ZapIcon } from "lucide-react";
 import {
   Conversation,
   ConversationContent,
   ConversationScrollButton,
 } from "@/components/ai-elements/conversation";
-import {
-  Message,
-  MessageContent,
-  MessageResponse,
-  MessageToolbar,
-  MessageAction,
-} from "@/components/ai-elements/message";
+import { Message, MessageContent } from "@/components/ai-elements/message";
 import {
   PromptInput,
   PromptInputTextarea,
@@ -39,27 +19,27 @@ import {
   PromptInputFooter,
   PromptInputTools,
 } from "@/components/ai-elements/prompt-input";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
 import type { PromptInputMessage } from "@/components/ai-elements/prompt-input";
 import { ResponseStylePicker } from "./ResponseStylePicker";
 import { EmptyState } from "./EmptyState";
-import { SourcesPanel } from "./SourcesPanel";
-import { DetailRows } from "./DetailsPanel";
+import { ChatMessage } from "./ChatMessage";
+import {
+  PendingIndicator,
+  ToolActivityIndicator,
+  getPlainText,
+  getPreviousUserQuery,
+  isTextPart,
+} from "./chat-utils";
+import { useMessageFeedback } from "./useMessageFeedback";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ALL_SOURCES, SUPER_SOURCES } from "@/lib/types";
 import type {
   AssistantVersion,
   ChatProgressData,
-  ChatProgressPhase,
   UiLanguage,
   MessageMetadata,
-  MessageDetails,
   SourceChunk,
 } from "@/lib/types";
-import { linkifyInlineCitations } from "@/lib/rag/citation-links";
-import { parseScriptureSelection } from "@/lib/rag/scripture-reference";
 import {
   DEFAULT_RESPONSE_STYLE,
   type ResponseStyleId,
@@ -81,14 +61,8 @@ interface ChatInterfaceProps {
   initialDefaultResponseStyle?: ResponseStyleId;
 }
 
-type TextMessagePart = Extract<UIMessage["parts"][number], { type: "text" }>;
-type PendingPhase = Exclude<ChatProgressPhase, "complete">;
-type FeedbackComposer = { messageId: string; value: "up" | "down" } | null;
-type FeedbackFollowUp = { messageId: string; value: "up" | "down" } | null;
 type BillingOverview = BillingEntitlements & { usage: BillingUsageSummary };
 
-const FEEDBACK_FOLLOWUP_TIMEOUT_MS = 6000;
-const FEEDBACK_FOLLOWUP_FADE_MS = 300;
 const WAITING_PHRASE_INTERVAL_MS = 3400;
 
 function deriveConversationTitle(question: string): string {
@@ -103,33 +77,6 @@ function deriveConversationTitle(question: string): string {
   return title;
 }
 
-const isTextPart = (part: UIMessage["parts"][number]): part is TextMessagePart =>
-  part.type === "text";
-
-function getToolNameFromPart(part: UIMessage["parts"][number]): string | null {
-  const withToolName = part as { toolName?: unknown; name?: unknown; type?: unknown };
-  if (typeof withToolName.toolName === "string" && withToolName.toolName.trim()) {
-    return withToolName.toolName;
-  }
-  if (typeof withToolName.name === "string" && withToolName.name.trim()) {
-    return withToolName.name;
-  }
-  if (typeof withToolName.type === "string" && withToolName.type.startsWith("tool-")) {
-    return withToolName.type.slice(5);
-  }
-  return null;
-}
-
-function getToolUsage(message: UIMessage): string[] {
-  const toolNames = message.parts
-    .map(getToolNameFromPart)
-    .filter((name): name is string => !!name);
-
-  const metadataToolNames = (message.metadata as MessageMetadata | undefined)?.details?.toolNames ?? [];
-
-  return [...new Set([...toolNames, ...metadataToolNames])];
-}
-
 function hasVisibleAssistantText(message: UIMessage): boolean {
   if (message.role !== "assistant") return false;
   return message.parts
@@ -137,92 +84,9 @@ function hasVisibleAssistantText(message: UIMessage): boolean {
     .some((part) => part.text.trim().length > 0);
 }
 
-function formatToolName(toolName: string): string {
-  return toolName.replace(/_/g, " ");
-}
-
-function formatElapsedMs(elapsedMs: number | undefined): string | null {
-  if (typeof elapsedMs !== "number" || elapsedMs < 1000) return null;
-  return `${Math.max(1, Math.round(elapsedMs / 1000))}s`;
-}
-
 function randomIndex(length: number): number {
   if (length <= 1) return 0;
   return Math.floor(Math.random() * length);
-}
-
-function getPendingLabel(
-  language: UiLanguage,
-  phase: PendingPhase,
-  progress?: ChatProgressData | null
-): string {
-  const text = uiText(language);
-  if (phase === "queued") return text.chat.pendingQueued;
-  if (phase === "memory") return text.chat.pendingMemory;
-  if (phase === "sources") {
-    return progress?.toolName
-      ? `${text.chat.pendingSources} ${formatToolName(progress.toolName)}`
-      : text.chat.pendingSources;
-  }
-  if (phase === "tools") {
-    if (typeof progress?.sourceCount === "number") {
-      return `${text.chat.pendingTools} ${progress.sourceCount}`;
-    }
-    return text.chat.pendingTools;
-  }
-  return text.chat.pendingDrafting;
-}
-
-function ToolActivityIndicator({
-  language,
-  progress,
-  waitingPhrase,
-  className,
-}: {
-  language: UiLanguage;
-  progress?: ChatProgressData | null;
-  waitingPhrase?: string;
-  className?: string;
-}) {
-  const text = uiText(language);
-  const toolName = progress?.toolName ? formatToolName(progress.toolName) : text.chat.pendingSources;
-  const elapsed = formatElapsedMs(progress?.elapsedMs);
-  const sourceCount =
-    typeof progress?.sourceCount === "number"
-      ? `${progress.sourceCount} ${text.chat.toolSourcesFound}`
-      : null;
-
-  return (
-    <div
-      className={`inline-flex max-w-sm flex-col gap-1 px-0 py-0 text-xs text-muted-foreground ${className ?? ""}`}
-    >
-      <div className="flex min-w-0 items-center gap-2">
-        <span className="relative flex size-2 shrink-0">
-          <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400/50 opacity-70 animate-ping" />
-          <span className="relative inline-flex size-2 rounded-full bg-emerald-400" />
-        </span>
-        <WrenchIcon size={13} className="shrink-0 text-muted-foreground/70" />
-        <span className="truncate font-medium text-foreground/85">
-          {text.chat.toolWorking}
-        </span>
-        <span className="truncate text-muted-foreground/75">
-          {toolName}
-        </span>
-        {(sourceCount || progress?.cacheHit || elapsed) && (
-          <span className="ml-auto hidden shrink-0 items-center gap-1.5 text-[10px] text-muted-foreground/65 sm:flex">
-            {sourceCount && <span>{sourceCount}</span>}
-            {progress?.cacheHit && <span>{text.chat.toolCacheHit}</span>}
-            {elapsed && <span>{elapsed}</span>}
-          </span>
-        )}
-      </div>
-      {waitingPhrase && (
-        <div className="truncate pl-7 text-[11px] text-muted-foreground/70">
-          {waitingPhrase}
-        </div>
-      )}
-    </div>
-  );
 }
 
 function getLastAssistantMessageIndex(messages: UIMessage[]): number {
@@ -230,51 +94,6 @@ function getLastAssistantMessageIndex(messages: UIMessage[]): number {
     if (messages[i].role === "assistant") return i;
   }
   return -1;
-}
-
-function PendingIndicator({
-  language,
-  phase,
-  progress,
-  waitingPhrase,
-  className,
-}: {
-  language: UiLanguage;
-  phase: PendingPhase;
-  progress?: ChatProgressData | null;
-  waitingPhrase?: string;
-  className?: string;
-}) {
-  return (
-    <div
-      className={`inline-flex flex-col gap-1 px-0 py-0 text-xs text-muted-foreground ${className ?? ""}`}
-    >
-      <span className="inline-flex items-center gap-2">
-        <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/70 animate-bounce [animation-delay:0ms]" />
-        <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/70 animate-bounce [animation-delay:120ms]" />
-        <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/70 animate-bounce [animation-delay:240ms]" />
-        <span>{getPendingLabel(language, phase, progress)}</span>
-      </span>
-      {waitingPhrase && (
-        <span className="max-w-xs truncate text-[11px] text-muted-foreground/70">
-          {waitingPhrase}
-        </span>
-      )}
-    </div>
-  );
-}
-
-function getPlainText(message: UIMessage): string {
-  return message.parts.filter(isTextPart).map((part) => part.text).join("\n\n").trim();
-}
-
-function getPreviousUserQuery(messages: UIMessage[], fromIndex: number): string | null {
-  for (let i = fromIndex - 1; i >= 0; i -= 1) {
-    if (messages[i].role !== "user") continue;
-    const text = getPlainText(messages[i]);
-    if (text) return text;
-  }
-  return null;
 }
 
 /** Compact Standard/Super search-scope toggle for the composer toolbar. */
@@ -402,15 +221,6 @@ export function ChatInterface({
       // ignore
     }
   }, []);
-  const [feedbackByMessageId, setFeedbackByMessageId] = useState<
-    Record<string, { value: "up" | "down"; comment: string | null }>
-  >(initialFeedbackByMessageId);
-  const [feedbackComposer, setFeedbackComposer] = useState<FeedbackComposer>(null);
-  const [feedbackFollowUp, setFeedbackFollowUp] = useState<FeedbackFollowUp>(null);
-  const [feedbackFollowUpRemainingMs, setFeedbackFollowUpRemainingMs] = useState(0);
-  const [isFeedbackFollowUpClosing, setIsFeedbackFollowUpClosing] = useState(false);
-  const [feedbackCommentDraft, setFeedbackCommentDraft] = useState("");
-  const [submittingFeedbackId, setSubmittingFeedbackId] = useState<string | null>(null);
   const [expandedDetailsId, setExpandedDetailsId] = useState<string | null>(null);
   const [chatProgress, setChatProgress] = useState<ChatProgressData | null>(null);
   const [billingOverview, setBillingOverview] = useState<BillingOverview | null>(null);
@@ -436,6 +246,8 @@ export function ChatInterface({
       }
     | null
   >(null);
+
+  const feedback = useMessageFeedback(initialFeedbackByMessageId, conversationIdRef);
 
   const { messages, sendMessage, regenerate, status, setMessages, stop } = useChat({
     transport: new DefaultChatTransport({ api: "/api/chat" }),
@@ -646,54 +458,13 @@ export function ChatInterface({
     }
   }, []);
 
-  const handleFeedback = useCallback(
-    async (
-      messageId: string,
-      feedback: "up" | "down",
-      answerText: string,
-      answerSources: SourceChunk[] | undefined,
-      question: string | null,
-      comment: string | null
-    ) => {
-      const convId = conversationIdRef.current;
-      if (!convId || submittingFeedbackId === messageId) return;
+  const handleSelectVersion = useCallback((messageId: string, index: number) => {
+    setActiveVersionIndex((prev) => ({ ...prev, [messageId]: index }));
+  }, []);
 
-      const numericMessageId = Number(messageId);
-
-      try {
-        setSubmittingFeedbackId(messageId);
-
-        const response = await fetch("/api/feedback", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            conversationId: convId,
-            assistantMessageId: Number.isInteger(numericMessageId) ? numericMessageId : null,
-            clientMessageId: messageId,
-            feedback,
-            comment,
-            question,
-            answerText,
-            sources: answerSources ?? [],
-          }),
-        });
-
-        if (!response.ok) {
-          throw new Error(`Feedback request failed with status ${response.status}`);
-        }
-
-        setFeedbackByMessageId((prev) => ({
-          ...prev,
-          [messageId]: { value: feedback, comment },
-        }));
-      } catch (error) {
-        console.error("Failed to submit feedback", error);
-      } finally {
-        setSubmittingFeedbackId((current) => (current === messageId ? null : current));
-      }
-    },
-    [submittingFeedbackId]
-  );
+  const handleToggleDetails = useCallback((messageId: string) => {
+    setExpandedDetailsId((prev) => (prev === messageId ? null : messageId));
+  }, []);
 
   useEffect(() => {
     if (initialAssistantVersions.length === 0 || messages.length === 0) return;
@@ -723,12 +494,7 @@ export function ChatInterface({
       void stop();
       conversationIdRef.current = undefined;
       setMessages([]);
-      setFeedbackByMessageId({});
-      setFeedbackComposer(null);
-      setFeedbackFollowUp(null);
-      setFeedbackFollowUpRemainingMs(0);
-      setIsFeedbackFollowUpClosing(false);
-      setFeedbackCommentDraft("");
+      feedback.reset();
       setMessageVersions({});
       setActiveVersionIndex({});
       pendingRegenerationRef.current = null;
@@ -748,7 +514,7 @@ export function ChatInterface({
     return () => {
       window.removeEventListener("chat:new-conversation", onNewConversation);
     };
-  }, [setMessages, stop]);
+  }, [feedback.reset, setMessages, stop]);
 
   useEffect(() => {
     const pending = pendingRegenerationRef.current;
@@ -804,42 +570,6 @@ export function ChatInterface({
   }, [isStreaming, messages]);
 
   useEffect(() => {
-    if (!feedbackFollowUp) {
-      setFeedbackFollowUpRemainingMs(0);
-      setIsFeedbackFollowUpClosing(false);
-      return;
-    }
-
-    setIsFeedbackFollowUpClosing(false);
-
-    const endAt = Date.now() + FEEDBACK_FOLLOWUP_TIMEOUT_MS;
-    setFeedbackFollowUpRemainingMs(FEEDBACK_FOLLOWUP_TIMEOUT_MS);
-
-    const interval = window.setInterval(() => {
-      setFeedbackFollowUpRemainingMs(Math.max(0, endAt - Date.now()));
-    }, 100);
-
-    let fadeTimer: number | undefined;
-    const timer = window.setTimeout(() => {
-      setIsFeedbackFollowUpClosing(true);
-      setFeedbackFollowUpRemainingMs(0);
-      fadeTimer = window.setTimeout(() => {
-        setFeedbackFollowUp((current) =>
-          current && current.messageId === feedbackFollowUp.messageId ? null : current
-        );
-      }, FEEDBACK_FOLLOWUP_FADE_MS);
-    }, FEEDBACK_FOLLOWUP_TIMEOUT_MS);
-
-    return () => {
-      window.clearInterval(interval);
-      window.clearTimeout(timer);
-      if (fadeTimer) {
-        window.clearTimeout(fadeTimer);
-      }
-    };
-  }, [feedbackFollowUp]);
-
-  useEffect(() => {
     if (status !== "ready") return;
     setChatProgress(null);
     setWaitingPhraseIndex(0);
@@ -891,379 +621,29 @@ export function ChatInterface({
             {messages.length === 0 ? (
               <EmptyState language={language} onSelect={handleSubmit} userName={userDisplayName} />
             ) : (
-              messages.map((message, messageIndex) => {
-                const textParts = message.parts.filter(isTextPart);
-                const messageText = textParts.map((part) => part.text).join("\n\n");
-                const hasText = messageText.trim().length > 0;
-                const toolUsage = getToolUsage(message);
-                const hasToolUsage = toolUsage.length > 0;
-                // Extract sources from message metadata if available
-                const metadata = message.metadata as MessageMetadata | undefined;
-                const messageSources = metadata?.sources;
-                const messageDetails = metadata?.details;
-                const persistedVersions = metadata?.versions ?? [];
-                const previousUserQuery = getPreviousUserQuery(messages, messageIndex);
-                const versions = messageVersions[message.id] ?? persistedVersions;
-                const hasVersions = versions.length > 1;
-                const currentVersionIndex =
-                  hasVersions
-                    ? Math.min(activeVersionIndex[message.id] ?? versions.length - 1, versions.length - 1)
-                    : 0;
-                const displayedText =
-                  hasVersions ? versions[currentVersionIndex].text : messageText;
-                const displayedSources =
-                  hasVersions ? versions[currentVersionIndex].sources : messageSources;
-                const shouldShowScriptureCoverage =
-                  message.role === "assistant" &&
-                  !!previousUserQuery &&
-                  !!parseScriptureSelection(
-                    previousUserQuery,
-                    language === "ita" ? "ita" : "eng"
-                  );
-                const isLastAssistantMessage = messageIndex === lastAssistantMessageIndex;
-                const toolRunInProgress = isLastAssistantMessage && isStreaming && hasToolUsage;
-                const isAssistantPending =
-                  message.role === "assistant" && isLastAssistantMessage && isStreaming && !hasText;
-                const selectedFeedback = feedbackByMessageId[message.id];
-                const isComposerOpenForMessage = feedbackComposer?.messageId === message.id;
-                const isFollowUpOpenForMessage =
-                  feedbackFollowUp?.messageId === message.id && !isComposerOpenForMessage;
-                const isSubmittingFeedback = submittingFeedbackId === message.id;
-                const followUpSeconds = Math.max(0, Math.ceil(feedbackFollowUpRemainingMs / 1000));
-                const followUpProgressPct = Math.max(
-                  0,
-                  Math.min(100, (feedbackFollowUpRemainingMs / FEEDBACK_FOLLOWUP_TIMEOUT_MS) * 100)
-                );
-                const pendingPhase: PendingPhase =
-                  chatProgress && chatProgress.phase !== "complete"
-                    ? chatProgress.phase
-                    : status === "submitted"
-                    ? "queued"
-                    : toolRunInProgress
-                      ? "tools"
-                      : "drafting";
-
-                return (
-                  <Message key={message.id} from={message.role}>
-                    <MessageContent>
-                      {/* //FIX TO CONSIDER WHETER TO KEEP THIS OR NOW */}
-                      {/* {message.role === "assistant" && hasToolUsage && (
-                        <div className="mb-1 flex flex-wrap items-center gap-1.5">
-                          <Badge
-                            variant="outline"
-                            className="h-6 gap-1.5 border-indigo-500/30 bg-indigo-500/10 text-indigo-300"
-                          >
-                            <WrenchIcon size={12} />
-                            {toolRunInProgress
-                              ? text.chat.toolsUsing
-                              : text.chat.toolsUsed}
-                          </Badge>
-                          {toolUsage.map((toolName) => (
-                            <Badge
-                              key={`${message.id}-${toolName}`}
-                              variant="outline"
-                              className="h-6 border-border/60 bg-background/50 text-muted-foreground"
-                            >
-                              {toolName}
-                            </Badge>
-                          ))}
-                        </div>
-                      )} */}
-                      {hasVersions ? (
-                        <MessageResponse>{linkifyInlineCitations(displayedText, displayedSources)}</MessageResponse>
-                      ) : (
-                        textParts.map((part, index) => (
-                          <MessageResponse key={`${message.id}-${index}`}>
-                            {linkifyInlineCitations(part.text, messageSources)}
-                          </MessageResponse>
-                        ))
-                      )}
-                      {isAssistantPending && (
-                        pendingPhase === "sources" || pendingPhase === "tools" ? (
-                          <ToolActivityIndicator
-                            language={language}
-                            progress={chatProgress}
-                            waitingPhrase={waitingPhrase}
-                            className="mt-1"
-                          />
-                        ) : (
-                          <PendingIndicator
-                            language={language}
-                            phase={pendingPhase}
-                            progress={chatProgress}
-                            waitingPhrase={waitingPhrase}
-                            className="mt-1"
-                          />
-                        )
-                      )}
-                      {/* Action toolbar under response */}
-                      {hasText && message.role === "assistant" && (
-                        <MessageToolbar className="justify-start gap-1.5">
-                          {hasVersions && (
-                            <>
-                              <MessageAction
-                                tooltip={text.chat.previousVersion}
-                                size="sm"
-                                disabled={currentVersionIndex === 0}
-                                className="cursor-pointer px-2 text-xs text-muted-foreground"
-                                onClick={() => {
-                                  setActiveVersionIndex((prev) => ({
-                                    ...prev,
-                                    [message.id]: Math.max(0, currentVersionIndex - 1),
-                                  }));
-                                }}
-                              >
-                                <ChevronLeftIcon size={14} />
-                              </MessageAction>
-                              <span className="px-1 text-xs text-muted-foreground">
-                                {currentVersionIndex + 1}/{versions.length}
-                              </span>
-                              <MessageAction
-                                tooltip={text.chat.nextVersion}
-                                size="sm"
-                                disabled={currentVersionIndex >= versions.length - 1}
-                                className="cursor-pointer px-2 text-xs text-muted-foreground"
-                                onClick={() => {
-                                  setActiveVersionIndex((prev) => ({
-                                    ...prev,
-                                    [message.id]: Math.min(versions.length - 1, currentVersionIndex + 1),
-                                  }));
-                                }}
-                              >
-                                <ChevronRightIcon size={14} />
-                              </MessageAction>
-                            </>
-                          )}
-                          <MessageAction
-                            tooltip={text.chat.helpful}
-                            size="sm"
-                            disabled={isSubmittingFeedback || !conversationIdRef.current}
-                            className={`cursor-pointer gap-1.5 px-2 text-xs ${
-                              selectedFeedback?.value === "up"
-                                ? "text-emerald-400"
-                                : "text-muted-foreground"
-                            }`}
-                            onClick={() => {
-                              setFeedbackComposer(null);
-                              setFeedbackFollowUp({ messageId: message.id, value: "up" });
-                              setFeedbackCommentDraft("");
-                              void handleFeedback(
-                                message.id,
-                                "up",
-                                displayedText,
-                                displayedSources,
-                                previousUserQuery,
-                                null
-                              );
-                            }}
-                          >
-                            <ThumbsUpIcon size={14} />
-                          </MessageAction>
-                          <MessageAction
-                            tooltip={text.chat.unhelpful}
-                            size="sm"
-                            disabled={isSubmittingFeedback || !conversationIdRef.current}
-                            className={`cursor-pointer gap-1.5 px-2 text-xs ${
-                              selectedFeedback?.value === "down"
-                                ? "text-rose-400"
-                                : "text-muted-foreground"
-                            }`}
-                            onClick={() => {
-                              setFeedbackComposer(null);
-                              setFeedbackFollowUp({ messageId: message.id, value: "down" });
-                              setFeedbackCommentDraft("");
-                              void handleFeedback(
-                                message.id,
-                                "down",
-                                displayedText,
-                                displayedSources,
-                                previousUserQuery,
-                                null
-                              );
-                            }}
-                          >
-                            <ThumbsDownIcon size={14} />
-                          </MessageAction>
-                          <MessageAction
-                            tooltip={text.chat.copyMessage}
-                            size="sm"
-                            className="cursor-pointer gap-1.5 px-2 text-xs text-muted-foreground"
-                            onClick={() => {
-                              void handleCopyMessage(message.id, displayedText);
-                            }}
-                          >
-                            {copiedId === message.id ? (
-                              <>
-                                <CheckIcon size={14} />
-                                <span>{text.chat.copied}</span>
-                              </>
-                            ) : (
-                              <CopyIcon size={14} />
-                            )}
-                          </MessageAction>
-                          <MessageAction
-                            tooltip={text.chat.regenerate}
-                            size="sm"
-                            disabled={
-                              isStreaming || !previousUserQuery || !displayedSources || displayedSources.length === 0
-                            }
-                            className="cursor-pointer gap-1.5 px-2 text-xs text-muted-foreground"
-                            onClick={() => {
-                              if (!previousUserQuery || !displayedSources || displayedSources.length === 0) {
-                                return;
-                              }
-                              void handleRegenerate(message.id, previousUserQuery, displayedText, displayedSources);
-                            }}
-                          >
-                            <RefreshCwIcon size={14} />
-                          </MessageAction>
-                          {messageDetails && (
-                            <MessageAction
-                              tooltip={text.chat.details}
-                              size="sm"
-                              className={`cursor-pointer gap-1.5 px-2 text-xs ${
-                                expandedDetailsId === message.id
-                                  ? "text-indigo-400"
-                                  : "text-muted-foreground"
-                              }`}
-                              onClick={() => {
-                                setExpandedDetailsId((prev) =>
-                                  prev === message.id ? null : message.id
-                                );
-                              }}
-                            >
-                              <InfoIcon size={14} />
-                            </MessageAction>
-                          )}
-                        </MessageToolbar>
-                      )}
-                      {hasText && message.role === "assistant" && messageDetails && expandedDetailsId === message.id && (
-                        <div className="mt-1.5 rounded-md border border-border/40 bg-background/30 px-3 py-2">
-                          <DetailRows details={messageDetails} language={language} />
-                        </div>
-                      )}
-                      {hasText && message.role === "assistant" && isFollowUpOpenForMessage && (
-                        <div
-                          className={`mt-1 rounded-md border border-border/40 bg-background/30 px-2 py-1.5 text-[11px] text-muted-foreground/85 transition-all duration-300 ${
-                            isFeedbackFollowUpClosing ? "translate-y-1 opacity-0" : "translate-y-0 opacity-100"
-                          }`}
-                        >
-                          <div className="mb-1 flex items-center justify-between gap-2">
-                            <span>
-                              {feedbackFollowUp?.value === "down"
-                                ? text.chat.addReason
-                                : text.chat.addNote}
-                            </span>
-                            <span className="tabular-nums text-[10px] text-muted-foreground/60">
-                              {followUpSeconds}s
-                            </span>
-                          </div>
-                          <div className="mb-1.5 h-1 w-full overflow-hidden rounded-full bg-muted/25">
-                            <div
-                              className="h-full rounded-full bg-muted-foreground/40 transition-[width] duration-100 ease-linear"
-                              style={{ width: `${followUpProgressPct}%` }}
-                            />
-                          </div>
-                          <div className="flex items-center gap-1.5">
-                            <Button
-                              type="button"
-                              size="xs"
-                              variant="ghost"
-                              className="h-5 px-1.5 text-[10px]"
-                              onClick={() => {
-                                if (!feedbackFollowUp) return;
-                                setFeedbackComposer({
-                                  messageId: message.id,
-                                  value: feedbackFollowUp.value,
-                                });
-                                setFeedbackFollowUp(null);
-                                setFeedbackCommentDraft(selectedFeedback?.comment ?? "");
-                              }}
-                            >
-                              {text.chat.add}
-                            </Button>
-                            <Button
-                              type="button"
-                              size="xs"
-                              variant="ghost"
-                              className="h-5 px-1.5 text-[10px]"
-                              onClick={() => {
-                                setFeedbackFollowUp(null);
-                              }}
-                            >
-                              {text.chat.dismiss}
-                            </Button>
-                          </div>
-                        </div>
-                      )}
-                      {hasText && message.role === "assistant" && isComposerOpenForMessage && (
-                        <div className="mt-2 rounded-md border border-border/60 bg-background/60 p-2.5">
-                          <p className="mb-2 text-xs text-muted-foreground">
-                            {feedbackComposer?.value === "up"
-                              ? text.chat.helpfulCommentPrompt
-                              : text.chat.unhelpfulCommentPrompt}
-                          </p>
-                          <Textarea
-                            value={feedbackCommentDraft}
-                            onChange={(event) => setFeedbackCommentDraft(event.target.value)}
-                            placeholder={
-                              text.chat.commentPlaceholder
-                            }
-                            className="min-h-20"
-                          />
-                          <div className="mt-2 flex items-center justify-end gap-2">
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => {
-                                setFeedbackComposer(null);
-                                setFeedbackFollowUp(null);
-                                setFeedbackCommentDraft("");
-                              }}
-                              disabled={isSubmittingFeedback}
-                            >
-                              {text.chat.cancel}
-                            </Button>
-                            <Button
-                              type="button"
-                              size="sm"
-                              onClick={() => {
-                                if (!feedbackComposer) return;
-                                void (async () => {
-                                  await handleFeedback(
-                                    message.id,
-                                    feedbackComposer.value,
-                                    displayedText,
-                                    displayedSources,
-                                    previousUserQuery,
-                                    feedbackCommentDraft.trim() || null
-                                  );
-                                  setFeedbackComposer(null);
-                                  setFeedbackFollowUp(null);
-                                  setFeedbackCommentDraft("");
-                                })();
-                              }}
-                              disabled={isSubmittingFeedback || !conversationIdRef.current}
-                            >
-                              {text.chat.sendFeedback}
-                            </Button>
-                          </div>
-                        </div>
-                      )}
-                      {/* Show sources for assistant messages */}
-                      {message.role === "assistant" && hasText && displayedSources && displayedSources.length > 0 && (
-                        <SourcesPanel
-                          chunks={displayedSources}
-                          language={language}
-                          showScriptureCoverage={shouldShowScriptureCoverage}
-                        />
-                      )}
-
-                    </MessageContent>
-                  </Message>
-                );
-              })
+              messages.map((message, messageIndex) => (
+                <ChatMessage
+                  key={message.id}
+                  message={message}
+                  previousUserQuery={getPreviousUserQuery(messages, messageIndex)}
+                  isLastAssistantMessage={messageIndex === lastAssistantMessageIndex}
+                  language={language}
+                  isStreaming={isStreaming}
+                  status={status}
+                  chatProgress={chatProgress}
+                  waitingPhrase={waitingPhrase}
+                  copiedId={copiedId}
+                  expandedDetailsId={expandedDetailsId}
+                  conversationIdRef={conversationIdRef}
+                  versionsOverride={messageVersions[message.id]}
+                  activeVersionIndex={activeVersionIndex[message.id]}
+                  feedback={feedback}
+                  onSelectVersion={handleSelectVersion}
+                  onToggleDetails={handleToggleDetails}
+                  onCopy={handleCopyMessage}
+                  onRegenerate={handleRegenerate}
+                />
+              ))
             )}
 
             {/* Global pending indicator when no assistant message has visible text yet */}
