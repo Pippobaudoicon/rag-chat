@@ -1,6 +1,6 @@
 {
   "name": "rag-chat",
-  "version": "0.12.26",
+  "version": "0.12.27",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -15,7 +15,8 @@
     "test:eager": "tsx scripts/test/eager-eligibility.test.ts",
     "test:language-policy": "tsx scripts/test/language-policy.test.ts",
     "test:onboarding": "tsx scripts/test/onboarding-steps.test.ts",
-    "test:cross-language": "tsx scripts/test/cross-language-dedup.test.ts"
+    "test:cross-language": "tsx scripts/test/cross-language-dedup.test.ts",
+    "test:chat-lifecycle": "tsx scripts/test/chat-lifecycle.test.ts"
   },
   "dependencies": {
     "@ai-sdk/react": "^3.0.143",
@@ -41,6 +42,7 @@
     "next": "^16.2.4",
     "react": "19.2.4",
     "react-dom": "19.2.4",
+    "resumable-stream": "^2.2.12",
     "shadcn": "^4.1.1",
     "streamdown": "^2.5.0",
     "tailwind-merge": "^3.5.0",

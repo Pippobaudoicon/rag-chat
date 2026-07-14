@@ -3,7 +3,12 @@ import { Ratelimit } from "@upstash/ratelimit";
 import type { Duration } from "@upstash/ratelimit";
 import { Redis } from "@upstash/redis";
 import type { FinishReason } from "ai";
-import type { RetrievalTrace, SourceChunk, SourceType } from "@/lib/types";
+import type {
+  ChatGenerationStatus,
+  RetrievalTrace,
+  SourceChunk,
+  SourceType,
+} from "@/lib/types";
 
 // Distributed cache via Upstash Redis — survives cold starts and works
 // across all Vercel serverless instances.
@@ -27,6 +32,7 @@ type RetrievalCacheEntry = {
 export type ConversationListItem = {
   id: string;
   title: string | null;
+  generationStatus?: ChatGenerationStatus;
   language?: string;
   sources?: SourceType[];
   updatedAt: Date | string;
@@ -88,7 +94,7 @@ function resolveRedisConfig(): RedisConfig | null {
   return url && token ? { url, token } : null;
 }
 
-function hasRedisConfig() {
+export function hasRedisConfig() {
   return resolveRedisConfig() !== null;
 }
 

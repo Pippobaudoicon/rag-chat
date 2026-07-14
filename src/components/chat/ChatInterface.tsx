@@ -3,6 +3,7 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { useChat } from "@ai-sdk/react";
 import { useUser } from "@clerk/nextjs";
+import { useRouter } from "next/navigation";
 import { DefaultChatTransport } from "ai";
 import type { UIMessage } from "ai";
 import { AlertTriangleIcon, ZapIcon } from "lucide-react";
@@ -28,13 +29,13 @@ import {
   ToolActivityIndicator,
   getPlainText,
   getPreviousUserQuery,
-  isTextPart,
 } from "./chat-utils";
 import { useMessageFeedback } from "./useMessageFeedback";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ALL_SOURCES, SUPER_SOURCES } from "@/lib/types";
 import type {
   AssistantVersion,
+  ChatGenerationStatus,
   ChatProgressData,
   UiLanguage,
   MessageMetadata,
@@ -48,6 +49,11 @@ import { useLanguage } from "./language-context";
 import { uiText } from "./i18n";
 import type { BillingEntitlements } from "@/lib/billing/entitlements";
 import type { BillingUsageSummary } from "@/lib/billing/usage";
+import {
+  CHAT_GENERATION_CLAIM_TIMEOUT_MS,
+  shouldFailGenerationClaim,
+  shouldShowPendingAssistant,
+} from "@/lib/chat/client-lifecycle";
 
 interface ChatInterfaceProps {
   conversationId?: string;
@@ -59,9 +65,12 @@ interface ChatInterfaceProps {
   initialResponseStyle?: ResponseStyleId | null;
   // The user's persistent default style (applied when no override is set).
   initialDefaultResponseStyle?: ResponseStyleId;
+  initialGenerationStatus?: ChatGenerationStatus;
+  resumeStreamEnabled?: boolean;
 }
 
 type BillingOverview = BillingEntitlements & { usage: BillingUsageSummary };
+type EnsuredConversation = { id: string; initialMessageId?: number };
 
 const WAITING_PHRASE_INTERVAL_MS = 3400;
 
@@ -75,13 +84,6 @@ function deriveConversationTitle(question: string): string {
   }
 
   return title;
-}
-
-function hasVisibleAssistantText(message: UIMessage): boolean {
-  if (message.role !== "assistant") return false;
-  return message.parts
-    .filter(isTextPart)
-    .some((part) => part.text.trim().length > 0);
 }
 
 function randomIndex(length: number): number {
@@ -144,8 +146,11 @@ export function ChatInterface({
   initialFeedbackByMessageId = {},
   initialResponseStyle = null,
   initialDefaultResponseStyle = DEFAULT_RESPONSE_STYLE,
+  initialGenerationStatus = "idle",
+  resumeStreamEnabled = false,
 }: ChatInterfaceProps) {
   const { user } = useUser();
+  const router = useRouter();
   const { language } = useLanguage();
   const text = uiText(language);
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -223,6 +228,10 @@ export function ChatInterface({
   }, []);
   const [expandedDetailsId, setExpandedDetailsId] = useState<string | null>(null);
   const [chatProgress, setChatProgress] = useState<ChatProgressData | null>(null);
+  const [persistedGenerationStatus, setPersistedGenerationStatus] =
+    useState<ChatGenerationStatus>(initialGenerationStatus);
+  const [resolvedConversationId, setResolvedConversationId] =
+    useState<string | undefined>(initialConversationId);
   const [billingOverview, setBillingOverview] = useState<BillingOverview | null>(null);
   const [waitingPhraseIndex, setWaitingPhraseIndex] = useState(0);
   const [messageVersions, setMessageVersions] = useState<Record<string, AssistantVersion[]>>(
@@ -238,6 +247,14 @@ export function ChatInterface({
 
   // Track the resolved conversation ID (may be created on first send)
   const conversationIdRef = useRef<string | undefined>(initialConversationId);
+  const conversationContextVersionRef = useRef(0);
+  const conversationCreationPromiseRef = useRef<Promise<EnsuredConversation> | null>(null);
+  const submitTokenRef = useRef<symbol | null>(null);
+  const resumeInFlightRef = useRef(false);
+  const resumeAllowedRef = useRef(initialGenerationStatus === "streaming");
+  const generationClaimPendingRef = useRef(false);
+  const generationClaimStartedAtRef = useRef<number | null>(null);
+  const clientTransportErrorRef = useRef(false);
   const pendingConversationTitleRef = useRef<string | null>(null);
   const pendingRegenerationRef = useRef<
     | {
@@ -249,18 +266,48 @@ export function ChatInterface({
 
   const feedback = useMessageFeedback(initialFeedbackByMessageId, conversationIdRef);
 
-  const { messages, sendMessage, regenerate, status, setMessages, stop } = useChat({
-    transport: new DefaultChatTransport({ api: "/api/chat" }),
+  const markGenerationClaimError = useCallback(() => {
+    generationClaimPendingRef.current = false;
+    generationClaimStartedAtRef.current = null;
+    clientTransportErrorRef.current = false;
+    setPersistedGenerationStatus("error");
+    setChatProgress(null);
+    window.dispatchEvent(new CustomEvent("chat:conversations-changed"));
+  }, []);
+
+  const chatTransport = useMemo(
+    () => new DefaultChatTransport({ api: "/api/chat" }),
+    []
+  );
+
+  const {
+    messages,
+    sendMessage,
+    regenerate,
+    resumeStream,
+    status,
+    setMessages,
+    stop,
+  } = useChat({
+    ...(initialConversationId ? { id: initialConversationId } : {}),
+    transport: chatTransport,
     messages: initialMessages,
     onData: (dataPart) => {
       if (dataPart.type !== "data-chat-progress") return;
 
       const progress = dataPart.data as ChatProgressData;
+      generationClaimPendingRef.current = false;
+      generationClaimStartedAtRef.current = null;
+      clientTransportErrorRef.current = false;
       setChatProgress(progress.phase === "complete" ? null : progress);
+      setPersistedGenerationStatus(
+        progress.phase === "complete" ? "complete" : "streaming"
+      );
 
       if (progress.conversationId && conversationIdRef.current !== progress.conversationId) {
         const title = progress.title ?? pendingConversationTitleRef.current ?? text.sidebar.untitledChat;
         conversationIdRef.current = progress.conversationId;
+        setResolvedConversationId(progress.conversationId);
         pendingConversationTitleRef.current = null;
 
         const path = `/chat/${progress.conversationId}`;
@@ -275,16 +322,50 @@ export function ChatInterface({
             detail: {
               id: progress.conversationId,
               title,
+              generationStatus: "streaming",
               updatedAt: new Date().toISOString(),
             },
           })
         );
       }
     },
+    onError: () => {
+      // The SDK reports transport errors without rejecting sendMessage(). Keep
+      // polling once so a server-owned generation can still prove it was claimed.
+      clientTransportErrorRef.current = true;
+    },
+    onFinish: ({ isAbort, isDisconnect, isError }) => {
+      if (isAbort || isDisconnect || isError) return;
+
+      generationClaimPendingRef.current = false;
+      generationClaimStartedAtRef.current = null;
+      clientTransportErrorRef.current = false;
+      setPersistedGenerationStatus("complete");
+      setChatProgress(null);
+
+      const convId = conversationIdRef.current;
+      if (convId) {
+        window.dispatchEvent(
+          new CustomEvent("chat:conversation-updated", {
+            detail: {
+              id: convId,
+              generationStatus: "complete",
+              updatedAt: new Date().toISOString(),
+            },
+          })
+        );
+      }
+      window.dispatchEvent(new CustomEvent("chat:conversations-changed"));
+    },
   });
 
-  const isStreaming = status === "streaming" || status === "submitted";
-  const hasAnyVisibleAssistantText = messages.some(hasVisibleAssistantText);
+  const isStreaming =
+    status === "streaming" ||
+    status === "submitted" ||
+    persistedGenerationStatus === "streaming";
+  const chatStatusRef = useRef(status);
+  chatStatusRef.current = status;
+  const showPendingAssistant = shouldShowPendingAssistant(messages, isStreaming);
   const lastAssistantMessageIndex = getLastAssistantMessageIndex(messages);
   const userDisplayName =
     user?.firstName ||
@@ -302,6 +383,7 @@ export function ChatInterface({
     billingOverview?.plan === "free" &&
     chatUsage?.available &&
     (chatUsage.percentUsed >= 75 || chatUsage.remaining <= 5);
+  const composerStatus = isStreaming ? "submitted" : status;
 
   const refreshBillingOverview = useCallback(async () => {
     try {
@@ -313,12 +395,22 @@ export function ChatInterface({
     }
   }, []);
 
-  const ensureConversation = useCallback(async () => {
+  const ensureConversation = useCallback(async (initialTurn?: {
+    title: string;
+    message: string;
+  }): Promise<EnsuredConversation> => {
     // If there's no conversation yet, create one so history is always persisted.
     // Use window.history.replaceState so the URL updates WITHOUT a React navigation
     // (router.push would unmount this component and wipe the optimistic messages).
-    let convId = conversationIdRef.current;
-    if (!convId) {
+    const existingId = conversationIdRef.current;
+    if (existingId) return { id: existingId };
+    if (conversationCreationPromiseRef.current) {
+      return conversationCreationPromiseRef.current;
+    }
+
+    const contextVersion = conversationContextVersionRef.current;
+    const pathAtStart = window.location.pathname;
+    const creationPromise = (async () => {
       const res = await fetch("/api/conversations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -326,23 +418,41 @@ export function ChatInterface({
           language,
           sources,
           responseStyle: conversationStyle ?? undefined,
+          title: initialTurn?.title,
+          initialMessage: initialTurn?.message,
         }),
       });
-      if (res.ok) {
-        const convo = await res.json();
-        convId = convo.id as string;
+      if (!res.ok) {
+        throw new Error(`Conversation creation failed with status ${res.status}`);
+      }
+
+      const convo = (await res.json()) as EnsuredConversation;
+      const convId = convo.id;
+      if (conversationContextVersionRef.current === contextVersion) {
         conversationIdRef.current = convId;
+        setResolvedConversationId(convId);
         // Update URL bar silently — no remount, keeps optimistic messages intact.
-        window.history.replaceState(null, "", `/chat/${convId}`);
-        window.dispatchEvent(
-          new CustomEvent("chat:path-changed", {
-            detail: { path: `/chat/${convId}` },
-          })
-        );
+        if (pathAtStart === "/chat" && window.location.pathname === pathAtStart) {
+          window.history.replaceState(null, "", `/chat/${convId}`);
+          window.dispatchEvent(
+            new CustomEvent("chat:path-changed", {
+              detail: { path: `/chat/${convId}` },
+            })
+          );
+        }
+      }
+
+      return convo;
+    })();
+
+    conversationCreationPromiseRef.current = creationPromise;
+    try {
+      return await creationPromise;
+    } finally {
+      if (conversationCreationPromiseRef.current === creationPromise) {
+        conversationCreationPromiseRef.current = null;
       }
     }
-
-    return convId;
   }, [language, sources, conversationStyle]);
 
   // Persist the search scope (language is persisted by LanguageProvider).
@@ -367,50 +477,230 @@ export function ChatInterface({
     return () => window.clearInterval(interval);
   }, [isStreaming, waitingPhrases.length]);
 
+  useEffect(() => {
+    if (!resolvedConversationId || persistedGenerationStatus !== "streaming") return;
+
+    let cancelled = false;
+    let timer: number | undefined;
+
+    const synchronizeGeneration = async () => {
+      let shouldPollAgain = true;
+      try {
+        const response = await fetch(
+          `/api/conversations/${resolvedConversationId}?status=1`,
+          { cache: "no-store" }
+        );
+        if (!response.ok) return;
+
+        const payload = (await response.json()) as {
+          generationStatus: ChatGenerationStatus;
+        };
+        if (cancelled) return;
+
+        if (payload.generationStatus === "streaming") {
+          generationClaimPendingRef.current = false;
+          generationClaimStartedAtRef.current = null;
+          clientTransportErrorRef.current = false;
+          setPersistedGenerationStatus("streaming");
+
+          if (
+            initialGenerationStatus === "streaming" &&
+            resumeStreamEnabled &&
+            resumeAllowedRef.current &&
+            chatStatusRef.current === "ready" &&
+            !resumeInFlightRef.current
+          ) {
+            resumeInFlightRef.current = true;
+            try {
+              await resumeStream();
+            } finally {
+              resumeInFlightRef.current = false;
+              if (!cancelled) router.refresh();
+            }
+          }
+          return;
+        }
+
+        if (generationClaimPendingRef.current) {
+          const claimFailed = shouldFailGenerationClaim(
+            generationClaimStartedAtRef.current,
+            clientTransportErrorRef.current
+          );
+          if (!claimFailed) {
+            // The status can still reflect the preceding turn while /api/chat
+            // is completing its authenticated generation claim.
+            setPersistedGenerationStatus("streaming");
+            return;
+          }
+
+          shouldPollAgain = false;
+          markGenerationClaimError();
+          return;
+        }
+
+        setPersistedGenerationStatus(payload.generationStatus);
+        shouldPollAgain = false;
+        window.dispatchEvent(new CustomEvent("chat:conversations-changed"));
+        router.refresh();
+      } catch (error) {
+        console.error("Failed to synchronize active chat generation", error);
+      } finally {
+        if (!cancelled && shouldPollAgain) {
+          timer = window.setTimeout(synchronizeGeneration, 2000);
+        }
+      }
+    };
+
+    void synchronizeGeneration();
+    return () => {
+      cancelled = true;
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+  }, [
+    initialGenerationStatus,
+    persistedGenerationStatus,
+    resolvedConversationId,
+    resumeStream,
+    resumeStreamEnabled,
+    router,
+    markGenerationClaimError,
+  ]);
+
+  useEffect(() => {
+    const startedAt = generationClaimStartedAtRef.current;
+    if (
+      !resolvedConversationId ||
+      persistedGenerationStatus !== "streaming" ||
+      !generationClaimPendingRef.current ||
+      startedAt === null
+    ) {
+      return;
+    }
+
+    const remainingMs = Math.max(
+      0,
+      CHAT_GENERATION_CLAIM_TIMEOUT_MS - (Date.now() - startedAt)
+    );
+    const timer = window.setTimeout(() => {
+      if (generationClaimPendingRef.current) markGenerationClaimError();
+    }, remainingMs);
+    return () => window.clearTimeout(timer);
+  }, [markGenerationClaimError, persistedGenerationStatus, resolvedConversationId]);
+
   const handleSubmit = useCallback(
     async (text: string) => {
-      if (!text.trim() || isStreaming) return;
+      if (!text.trim() || isStreaming || submitTokenRef.current) return;
 
-      const convId = conversationIdRef.current;
+      const submitToken = Symbol("chat-submit");
+      submitTokenRef.current = submitToken;
+      const contextVersion = conversationContextVersionRef.current;
       const trimmedText = text.trim();
       const title = deriveConversationTitle(trimmedText);
-      pendingConversationTitleRef.current = convId ? null : title;
-      setWaitingPhraseIndex(randomIndex(uiText(language).chat.waitingPhrases.length));
-      setChatProgress({ phase: "queued", conversationId: convId, title });
+      pendingConversationTitleRef.current = conversationIdRef.current ? null : title;
 
-      if (convId && messages.length === 0) {
+      try {
+        const ensuredConversation = await ensureConversation({
+          title,
+          message: trimmedText,
+        });
+        const convId = ensuredConversation.id;
+        const isCurrentContext =
+          conversationContextVersionRef.current === contextVersion;
+
+        if (isCurrentContext) {
+          pendingConversationTitleRef.current = null;
+          generationClaimPendingRef.current = true;
+          generationClaimStartedAtRef.current = Date.now();
+          clientTransportErrorRef.current = false;
+          setWaitingPhraseIndex(randomIndex(uiText(language).chat.waitingPhrases.length));
+          setChatProgress({ phase: "queued", conversationId: convId, title });
+          setPersistedGenerationStatus("streaming");
+        }
+
         window.dispatchEvent(
           new CustomEvent("chat:conversation-updated", {
             detail: {
               id: convId,
-              title,
+              title: messages.length === 0 ? title : undefined,
+              generationStatus: "streaming",
               updatedAt: new Date().toISOString(),
             },
           })
         );
-      }
 
-      sendMessage(
-        { text: trimmedText },
-        {
-          body: {
-            conversationId: convId,
-            language,
-            sources,
-            responseStyle: conversationStyle ?? undefined,
-            topK: 20,
-          },
+        const requestBody = {
+          conversationId: convId,
+          language,
+          sources,
+          responseStyle: conversationStyle ?? undefined,
+          topK: 20,
+          persistedUserMessageId: ensuredConversation.initialMessageId,
+        };
+        const generationPromise = isCurrentContext
+          ? sendMessage({ text: trimmedText }, { body: requestBody })
+          : fetch("/api/chat", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                ...requestBody,
+                messages: [
+                  {
+                    role: "user",
+                    parts: [{ type: "text", text: trimmedText }],
+                  },
+                ],
+              }),
+            }).then(async (response) => {
+              if (!response.ok) {
+                throw new Error(
+                  `Detached chat generation failed with status ${response.status}`
+                );
+              }
+              await response.body?.cancel();
+            });
+
+        void generationPromise
+          .catch((error) => {
+            console.error("Failed to generate chat response", error);
+            if (conversationContextVersionRef.current === contextVersion) {
+              setPersistedGenerationStatus("error");
+              setChatProgress(null);
+            }
+          })
+          .finally(() => {
+            if (submitTokenRef.current === submitToken) {
+              submitTokenRef.current = null;
+            }
+          });
+      } catch (error) {
+        if (submitTokenRef.current === submitToken) {
+          submitTokenRef.current = null;
         }
-      );
+        pendingConversationTitleRef.current = null;
+        setChatProgress(null);
+        throw error;
+      }
     },
-    [isStreaming, language, messages.length, sendMessage, sources, conversationStyle]
+    [
+      conversationStyle,
+      ensureConversation,
+      isStreaming,
+      language,
+      messages.length,
+      sendMessage,
+      sources,
+    ]
   );
 
   const handleRegenerate = useCallback(
     async (messageId: string, question: string, currentText: string, fixedChunks: SourceChunk[]) => {
       if (!question.trim() || !currentText.trim() || fixedChunks.length === 0 || isStreaming) return;
 
-      const convId = await ensureConversation();
+      const { id: convId } = await ensureConversation();
+      generationClaimPendingRef.current = true;
+      generationClaimStartedAtRef.current = Date.now();
+      clientTransportErrorRef.current = false;
+      setPersistedGenerationStatus("streaming");
       setWaitingPhraseIndex(randomIndex(uiText(language).chat.waitingPhrases.length));
       setChatProgress({ phase: "queued", conversationId: convId });
 
@@ -492,13 +782,23 @@ export function ChatInterface({
   useEffect(() => {
     const onNewConversation = () => {
       void stop();
+      conversationContextVersionRef.current += 1;
       conversationIdRef.current = undefined;
+      setResolvedConversationId(undefined);
+      conversationCreationPromiseRef.current = null;
+      submitTokenRef.current = null;
+      resumeInFlightRef.current = false;
+      resumeAllowedRef.current = false;
+      generationClaimPendingRef.current = false;
+      generationClaimStartedAtRef.current = null;
+      clientTransportErrorRef.current = false;
       setMessages([]);
       feedback.reset();
       setMessageVersions({});
       setActiveVersionIndex({});
       pendingRegenerationRef.current = null;
       setChatProgress(null);
+      setPersistedGenerationStatus("idle");
       setWaitingPhraseIndex(0);
       if (window.location.pathname !== "/chat") {
         window.history.replaceState(null, "", "/chat");
@@ -574,15 +874,7 @@ export function ChatInterface({
     setChatProgress(null);
     setWaitingPhraseIndex(0);
     void refreshBillingOverview();
-
-    const convId = conversationIdRef.current;
-    if (!convId) return;
-
-    const lastMessage = messages[messages.length - 1];
-    if (!lastMessage || lastMessage.role !== "assistant") return;
-
-    window.dispatchEvent(new CustomEvent("chat:conversations-changed"));
-  }, [messages, refreshBillingOverview, status]);
+  }, [refreshBillingOverview, status]);
 
   return (
     <div className="flex flex-col h-full min-h-0">
@@ -646,8 +938,8 @@ export function ChatInterface({
               ))
             )}
 
-            {/* Global pending indicator when no assistant message has visible text yet */}
-            {isStreaming && !hasAnyVisibleAssistantText && lastAssistantMessageIndex === -1 && (
+            {/* Pending assistant after the newest user turn, even with older answers in history. */}
+            {showPendingAssistant && (
               <Message from="assistant">
                 <MessageContent>
                   {chatProgress?.phase === "sources" || chatProgress?.phase === "tools" ? (
@@ -715,10 +1007,14 @@ export function ChatInterface({
                 />
               </PromptInputTools>
               <PromptInputSubmit
-                status={status}
-                onStop={() => {
-                  void stop();
-                }}
+                status={composerStatus}
+                disabled={isStreaming}
+                {...(isStreaming
+                  ? {
+                      "aria-label": text.chat.pendingDrafting,
+                      title: text.chat.pendingDrafting,
+                    }
+                  : {})}
                 className="size-9 rounded-full border border-primary/20 bg-primary text-primary-foreground shadow-[0_10px_20px_-10px_hsl(var(--primary)/0.85)] transition-all hover:scale-[1.03] hover:bg-primary/90 active:scale-100 disabled:opacity-60"
               />
             </PromptInputFooter>

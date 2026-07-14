@@ -1,5 +1,5 @@
 import { auth } from "@clerk/nextjs/server";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, isNull } from "drizzle-orm";
 import { getDb } from "@/lib/db";
 import { conversations, messages } from "@/lib/db/schema";
 import {
@@ -14,6 +14,7 @@ import {
   invalidateConversationCaches,
   invalidateConversationTitleCache,
 } from "@/lib/rag/cache";
+import { isChatGenerationStale } from "@/lib/chat/generation";
 
 export const runtime = "nodejs";
 
@@ -34,13 +35,63 @@ async function getOwnedConversation(id: string, userId: string) {
 }
 
 // GET /api/conversations/[id] — full conversation with all messages
-export async function GET(_: Request, { params }: Params) {
+export async function GET(req: Request, { params }: Params) {
   const { userId } = await auth();
   if (!userId) return new Response("Unauthorized", { status: 401 });
 
   const { id } = await params;
-  const convo = await getOwnedConversation(id, userId);
+  let convo = await getOwnedConversation(id, userId);
   if (!convo) return new Response("Not Found", { status: 404 });
+
+  if (
+    isChatGenerationStale(
+      convo.generationStatus,
+      convo.generationStartedAt,
+      Date.now(),
+      convo.activeTurnId === null
+    )
+  ) {
+    const db = getDb();
+    const staleTurnId = convo.activeTurnId;
+    const [recovered] = await db
+      .update(conversations)
+      .set({
+        generationStatus: "error",
+        activeTurnId: null,
+        activeStreamId: null,
+        generationStartedAt: null,
+      })
+      .where(
+        and(
+          eq(conversations.id, convo.id),
+          eq(conversations.clerkUserId, userId),
+          eq(conversations.generationStatus, "streaming"),
+          staleTurnId === null
+            ? isNull(conversations.activeTurnId)
+            : eq(conversations.activeTurnId, staleTurnId)
+        )
+      )
+      .returning();
+    if (recovered) {
+      convo = recovered;
+      void invalidateConversationCaches(userId);
+    } else {
+      const currentConversation = await getOwnedConversation(id, userId);
+      if (!currentConversation) return new Response("Not Found", { status: 404 });
+      convo = currentConversation;
+    }
+  }
+
+  if (new URL(req.url).searchParams.get("status") === "1") {
+    return Response.json(
+      {
+        id: convo.id,
+        generationStatus: convo.generationStatus,
+        updatedAt: convo.updatedAt,
+      },
+      { headers: { "Cache-Control": "private, no-store" } }
+    );
+  }
 
   const titleCacheKey = conversationTitleCacheKey(userId, convo.id);
   const cachedTitle = await getConversationTitleFromCache(titleCacheKey);
@@ -52,7 +103,7 @@ export async function GET(_: Request, { params }: Params) {
     .select()
     .from(messages)
     .where(eq(messages.conversationId, convo.id))
-    .orderBy(asc(messages.createdAt));
+    .orderBy(asc(messages.createdAt), asc(messages.id));
 
   if (cachedTitle === undefined) {
     void setConversationTitleInCache(titleCacheKey, convo.title);

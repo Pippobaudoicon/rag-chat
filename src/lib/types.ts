@@ -16,6 +16,7 @@ export type SourceType =
 export type CorpusLanguage = "ita" | "eng";
 export type UiLanguage = "ita" | "eng" | "fra" | "spa" | "por" | "deu";
 export type Language = CorpusLanguage;
+export type ChatGenerationStatus = "idle" | "streaming" | "complete" | "error";
 export const INDEXED_LANGUAGES: CorpusLanguage[] = ["ita", "eng"];
 export const SUPPORTED_UI_LANGUAGES: UiLanguage[] = [
   "ita",
@@ -244,6 +245,7 @@ export type ChatProgressPhase =
 export interface ChatProgressData {
   phase: ChatProgressPhase;
   conversationId?: string;
+  turnId?: string;
   title?: string;
   toolName?: string;
   sourceCount?: number;

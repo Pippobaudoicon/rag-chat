@@ -854,6 +854,13 @@ export const PromptInput = ({
             const formData = new FormData(form);
             return (formData.get("message") as string) || "";
           })();
+      const restoreLocalDraft = () => {
+        if (usingProvider) return;
+        const textarea = form.elements.namedItem("message");
+        if (textarea instanceof HTMLTextAreaElement && textarea.value === "") {
+          textarea.value = text;
+        }
+      };
 
       // Reset form immediately after capturing text to avoid race condition
       // where user input during async blob conversion would be lost
@@ -888,7 +895,7 @@ export const PromptInput = ({
               controller.textInput.clear();
             }
           } catch {
-            // Don't clear on error - user may want to retry
+            restoreLocalDraft();
           }
         } else {
           // Sync function completed without throwing, clear inputs
@@ -898,7 +905,7 @@ export const PromptInput = ({
           }
         }
       } catch {
-        // Don't clear on error - user may want to retry
+        restoreLocalDraft();
       }
     },
     [usingProvider, controller, files, onSubmit, clear]

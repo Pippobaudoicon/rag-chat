@@ -9,6 +9,7 @@ import { getUserPreferences } from "@/lib/db/user-settings";
 import { coerceResponseStyle } from "@/lib/rag/system-prompt";
 import type { AssistantVersion } from "@/lib/types";
 import type { UIMessage } from "ai";
+import { isChatStreamResumeConfigured } from "@/lib/chat/resumable-stream";
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -35,7 +36,7 @@ export default async function ConversationPage({ params }: Props) {
     .select()
     .from(messages)
     .where(eq(messages.conversationId, convo.id))
-    .orderBy(asc(messages.createdAt));
+    .orderBy(asc(messages.createdAt), asc(messages.id));
 
   // Map DB messages to UIMessage format for AI SDK useChat initialMessages
   // Include sources for assistant messages so they can be displayed in the UI
@@ -95,7 +96,10 @@ export default async function ConversationPage({ params }: Props) {
 
   return (
     <ChatInterface
+      key={`${convo.id}:${convo.generationStatus}`}
       conversationId={convo.id}
+      initialGenerationStatus={convo.generationStatus}
+      resumeStreamEnabled={isChatStreamResumeConfigured()}
       initialMessages={initialMessages}
       initialMessageVersions={initialMessageVersions}
       initialAssistantVersions={initialAssistantVersions}

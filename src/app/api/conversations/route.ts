@@ -1,8 +1,12 @@
 import { auth } from "@clerk/nextjs/server";
-import { and, desc, eq, lt, or } from "drizzle-orm";
+import { and, desc, eq, isNull, lt, or } from "drizzle-orm";
 import type { NextRequest } from "next/server";
 import { getDb } from "@/lib/db";
-import { conversations } from "@/lib/db/schema";
+import {
+  conversations,
+  messages,
+  type Conversation,
+} from "@/lib/db/schema";
 import {
   badRequestFromZod,
   createConversationSchema,
@@ -14,6 +18,7 @@ import {
   invalidateConversationCaches,
   setConversationListInCache,
 } from "@/lib/rag/cache";
+import { isChatGenerationStale } from "@/lib/chat/generation";
 
 export const runtime = "nodejs";
 
@@ -55,7 +60,10 @@ export async function GET(req: NextRequest) {
   const cursor = parseCursor(req.nextUrl.searchParams.get("cursor"));
   const cacheKey = conversationListCacheKey(userId, limit, cursor ? encodeCursor(cursor) : null);
   const cached = await getConversationListFromCache(cacheKey);
-  if (cached) {
+  if (
+    cached &&
+    !cached.items.some((conversation) => conversation.generationStatus === "streaming")
+  ) {
     return Response.json(cached, {
       headers: { "Cache-Control": "private, no-store" },
     });
@@ -81,6 +89,9 @@ export async function GET(req: NextRequest) {
     .select({
       id: conversations.id,
       title: conversations.title,
+      generationStatus: conversations.generationStatus,
+      generationStartedAt: conversations.generationStartedAt,
+      activeTurnId: conversations.activeTurnId,
       language: conversations.language,
       sources: conversations.sources,
       updatedAt: conversations.updatedAt,
@@ -90,8 +101,58 @@ export async function GET(req: NextRequest) {
     .orderBy(desc(conversations.updatedAt), desc(conversations.id))
     .limit(pageSize);
 
-  const items = list.slice(0, limit);
-  const nextCursor = list.length > limit ? encodeCursor(items[items.length - 1]) : null;
+  const rawItems = list.slice(0, limit);
+  const staleItems = rawItems
+    .filter((conversation) =>
+      isChatGenerationStale(
+        conversation.generationStatus,
+        conversation.generationStartedAt,
+        Date.now(),
+        conversation.activeTurnId === null
+      )
+    );
+
+  const recoveryResults = await Promise.all(
+    staleItems.map((snapshot) =>
+      db
+        .update(conversations)
+        .set({
+          generationStatus: "error",
+          activeTurnId: null,
+          activeStreamId: null,
+          generationStartedAt: null,
+        })
+        .where(
+          and(
+            eq(conversations.id, snapshot.id),
+            eq(conversations.clerkUserId, userId),
+            eq(conversations.generationStatus, "streaming"),
+            snapshot.activeTurnId === null
+              ? isNull(conversations.activeTurnId)
+              : eq(conversations.activeTurnId, snapshot.activeTurnId)
+          )
+        )
+        .returning({ id: conversations.id })
+    )
+  );
+  const recoveredIds = new Set(
+    recoveryResults.flatMap((rows) => rows.map((row) => row.id))
+  );
+
+  if (recoveredIds.size > 0) {
+    await invalidateConversationCaches(userId);
+  }
+
+  const items = rawItems.map(
+    ({ generationStartedAt: _, activeTurnId: __, ...conversation }) => ({
+      ...conversation,
+      generationStatus: recoveredIds.has(conversation.id)
+        ? ("error" as const)
+        : conversation.generationStatus,
+    })
+  );
+  const nextCursor =
+    list.length > limit ? encodeCursor(rawItems[rawItems.length - 1]) : null;
 
   const payload = {
     items,
@@ -99,7 +160,9 @@ export async function GET(req: NextRequest) {
     hasMore: nextCursor !== null,
   };
 
-  void setConversationListInCache(cacheKey, payload);
+  if (!items.some((conversation) => conversation.generationStatus === "streaming")) {
+    void setConversationListInCache(cacheKey, payload);
+  }
 
   return Response.json(
     payload,
@@ -119,15 +182,53 @@ export async function POST(req: Request) {
     return badRequestFromZod(parsedBody.error);
   }
 
-  const { language, sources, responseStyle } = parsedBody.data;
+  const { language, sources, responseStyle, title, initialMessage } = parsedBody.data;
 
   const db = getDb();
-  const [convo] = await db
-    .insert(conversations)
-    .values({ clerkUserId: userId, language, sources, responseStyle: responseStyle ?? null })
-    .returning();
+  const conversationValues = {
+    clerkUserId: userId,
+    language,
+    sources,
+    responseStyle: responseStyle ?? null,
+    title: title ?? null,
+  };
+  let convo: Conversation;
+  let initialMessageId: number | undefined;
+
+  if (initialMessage) {
+    const conversationId = crypto.randomUUID();
+    const generationStartedAt = new Date();
+    const [createdConversations, createdMessages] = await db.batch([
+      db
+        .insert(conversations)
+        .values({
+          id: conversationId,
+          ...conversationValues,
+          // The durable user turn is immediately visible as pending work. The
+          // chat route atomically replaces activeTurnId=null with its turn id.
+          generationStatus: "streaming",
+          generationStartedAt,
+        })
+        .returning(),
+      db
+        .insert(messages)
+        .values({
+          conversationId,
+          role: "user",
+          content: initialMessage,
+        })
+        .returning({ id: messages.id }),
+    ]);
+    convo = createdConversations[0];
+    initialMessageId = createdMessages[0].id;
+  } else {
+    [convo] = await db
+      .insert(conversations)
+      .values(conversationValues)
+      .returning();
+  }
 
   void invalidateConversationCaches(userId);
 
-  return Response.json(convo, { status: 201 });
+  return Response.json({ ...convo, initialMessageId }, { status: 201 });
 }

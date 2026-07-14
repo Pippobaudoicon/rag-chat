@@ -9,7 +9,7 @@ import {
   stepCountIs,
   smoothStream,
 } from "ai";
-import { eq, and, asc } from "drizzle-orm";
+import { eq, and, asc, isNull, ne } from "drizzle-orm";
 import { getDb } from "@/lib/db";
 import { conversations, messages, type Conversation } from "@/lib/db/schema";
 import {
@@ -50,6 +50,15 @@ import {
   recordBillingUsage,
   setBillingUsageSnapshot,
 } from "@/lib/billing/usage";
+import {
+  isChatGenerationActive,
+  isChatGenerationStale,
+  matchesChatGenerationSnapshot,
+  resolvePersistedUserTurn,
+} from "@/lib/chat/generation";
+import {
+  getChatStreamContext,
+} from "@/lib/chat/resumable-stream";
 import type {
   AssistantVersion,
   ChatProgressData,
@@ -108,12 +117,49 @@ export async function POST(req: Request) {
     regenerateQuestion,
     trigger,
     messageId,
+    persistedUserMessageId,
   } = parsedBody.data;
-  const entitlements = await latency.phase("entitlements", () =>
-    getBillingEntitlements(userId, {
-      hasPlan: (plan) => has({ plan }),
-    })
-  );
+
+  // POST /api/conversations exposes the first turn immediately as an active
+  // pending generation (streaming + no activeTurnId). If an early gate rejects
+  // /api/chat before it can claim that turn, clear only that pending snapshot;
+  // never touch a request that already has a server-owned activeTurnId.
+  const releasePendingInitialTurn = async () => {
+    if (!conversationId || !persistedUserMessageId) return;
+    try {
+      const earlyDb = getDb();
+      const [released] = await earlyDb
+        .update(conversations)
+        .set({
+          generationStatus: "error",
+          generationStartedAt: null,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(conversations.id, conversationId),
+            eq(conversations.clerkUserId, userId),
+            eq(conversations.generationStatus, "streaming"),
+            isNull(conversations.activeTurnId)
+          )
+        )
+        .returning({ id: conversations.id });
+      if (released) await invalidateConversationCaches(userId);
+    } catch (error) {
+      console.error("Failed to release pending initial chat turn", error);
+    }
+  };
+
+  const entitlements = await latency
+    .phase("entitlements", () =>
+      getBillingEntitlements(userId, {
+        hasPlan: (plan) => has({ plan }),
+      })
+    )
+    .catch(async (error) => {
+      await releasePendingInitialTurn();
+      throw error;
+    });
   const effectiveTopK = Math.min(topK, entitlements.limits.maxTopK);
 
   const rateLimit = getSlidingWindowRateLimit(
@@ -122,10 +168,16 @@ export async function POST(req: Request) {
     entitlements.limits.window
   );
   if (rateLimit) {
-    const rateLimitResult = await latency.phase("ratelimit", () =>
-      rateLimit.limit(`chat:${entitlements.plan}:${userId}`)
-    );
+    const rateLimitResult = await latency
+      .phase("ratelimit", () =>
+        rateLimit.limit(`chat:${entitlements.plan}:${userId}`)
+      )
+      .catch(async (error) => {
+        await releasePendingInitialTurn();
+        throw error;
+      });
     if (!rateLimitResult.success) {
+      await releasePendingInitialTurn();
       return Response.json(
         {
           error: "Rate limit exceeded",
@@ -251,14 +303,19 @@ export async function POST(req: Request) {
   let conversation: Conversation | null = null;
   if (conversationId) {
     conversation =
-      (await latency.phase("convLoad", () =>
-        db.query.conversations.findFirst({
-          where: and(
-            eq(conversations.id, conversationId),
-            eq(conversations.clerkUserId, userId)
-          ),
-        })
-      )) ?? null;
+      (await latency
+        .phase("convLoad", () =>
+          db.query.conversations.findFirst({
+            where: and(
+              eq(conversations.id, conversationId),
+              eq(conversations.clerkUserId, userId)
+            ),
+          })
+        )
+        .catch(async (error) => {
+          await releasePendingInitialTurn();
+          throw error;
+        })) ?? null;
     if (!conversation) {
       return new Response("Conversation not found", { status: 404 });
     }
@@ -283,29 +340,20 @@ export async function POST(req: Request) {
             })
             .from(messages)
             .where(eq(messages.conversationId, ownedConversation.id))
-            .orderBy(asc(messages.createdAt))
+            .orderBy(asc(messages.createdAt), asc(messages.id))
         )
       : Promise.resolve([] as StoredMessage[]),
     latency.phase("memoryBrief", () => getUserMemoryBrief(userId)),
     latency.phase("prefs", () => getUserPreferences(userId)),
-  ]);
+  ]).catch(async (error) => {
+    await releasePendingInitialTurn();
+    throw error;
+  });
 
   let targetAssistantMessage: StoredMessage | null = null;
   let createdConversationTitle: string | null = null;
 
   if (conversationId) {
-    // Persist a per-conversation style override when the client sent a new one.
-    if (
-      requestedResponseStyle &&
-      requestedResponseStyle !== conversation!.responseStyle
-    ) {
-      await db
-        .update(conversations)
-        .set({ responseStyle: requestedResponseStyle })
-        .where(eq(conversations.id, conversation!.id));
-      conversation!.responseStyle = requestedResponseStyle;
-    }
-
     if (isRegenerateRequest && messageId) {
       const numericMessageId = Number(messageId);
       if (!Number.isNaN(numericMessageId)) {
@@ -350,7 +398,81 @@ export async function POST(req: Request) {
   }
 
   if (!question.trim()) {
+    await releasePendingInitialTurn();
     return new Response("Bad Request: empty question", { status: 400 });
+  }
+
+  const { currentMessage: persistedUserMessage, priorMessages: priorStoredMessages } =
+    resolvePersistedUserTurn(
+      storedMessages,
+      isRegenerateRequest ? undefined : persistedUserMessageId,
+      question
+    );
+
+  if (persistedUserMessageId && !persistedUserMessage) {
+    await releasePendingInitialTurn();
+    return new Response("Persisted user message not found", { status: 400 });
+  }
+
+  if (
+    conversation &&
+    isChatGenerationStale(
+      conversation.generationStatus,
+      conversation.generationStartedAt,
+      Date.now(),
+      conversation.activeTurnId === null
+    )
+  ) {
+    const staleTurnId = conversation.activeTurnId;
+    const [recoveredConversation] = await db
+      .update(conversations)
+      .set({
+        generationStatus: "error",
+        activeTurnId: null,
+        activeStreamId: null,
+        generationStartedAt: null,
+      })
+      .where(
+        and(
+          eq(conversations.id, conversation.id),
+          eq(conversations.clerkUserId, userId),
+          eq(conversations.generationStatus, "streaming"),
+          staleTurnId === null
+            ? isNull(conversations.activeTurnId)
+            : eq(conversations.activeTurnId, staleTurnId)
+        )
+      )
+      .returning({ id: conversations.id });
+    if (recoveredConversation) {
+      conversation.generationStatus = "error";
+      conversation.activeTurnId = null;
+      conversation.activeStreamId = null;
+      conversation.generationStartedAt = null;
+    }
+  }
+
+  // A first-turn conversation is exposed in the sidebar before /api/chat starts
+  // as streaming + activeTurnId=null. Only the request carrying its verified
+  // tail user row may turn that pending marker into a server-owned claim.
+  const hasPendingInitialTurn =
+    !!conversation &&
+    !isRegenerateRequest &&
+    !!persistedUserMessage &&
+    conversation.generationStatus === "streaming" &&
+    conversation.activeTurnId === null;
+
+  if (
+    conversation &&
+    isChatGenerationActive(conversation.generationStatus) &&
+    !isChatGenerationStale(
+      conversation.generationStatus,
+      conversation.generationStartedAt,
+      Date.now(),
+      conversation.activeTurnId === null
+    ) &&
+    !hasPendingInitialTurn
+  ) {
+    return new Response("A response is already being generated", { status: 409 });
   }
 
   const indexLanguage = getIndexLanguage();
@@ -359,7 +481,7 @@ export async function POST(req: Request) {
   const retrievalResolver = createRetrievalQueryResolver();
 
   const historySignature = JSON.stringify(
-    storedMessages.map((message) => ({
+    priorStoredMessages.map((message) => ({
       id: message.id,
       role: message.role,
       content: message.content,
@@ -379,6 +501,95 @@ export async function POST(req: Request) {
       })
     : null;
 
+  if (!conversation) {
+    return new Response("Conversation not found", { status: 404 });
+  }
+
+  const turnId = generateId();
+  const streamContext = getChatStreamContext();
+  const activeStreamId = streamContext ? generateId() : null;
+  const [claimedConversation] = await db
+    .update(conversations)
+    .set({
+      generationStatus: "streaming",
+      activeTurnId: turnId,
+      activeStreamId,
+      generationStartedAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(conversations.id, conversation.id),
+        eq(conversations.clerkUserId, userId),
+        hasPendingInitialTurn
+          ? and(
+              eq(conversations.generationStatus, "streaming"),
+              isNull(conversations.activeTurnId)
+            )
+          : ne(conversations.generationStatus, "streaming")
+      )
+    )
+    .returning({ id: conversations.id });
+
+  if (!claimedConversation) {
+    return new Response("A response is already being generated", { status: 409 });
+  }
+
+  const markGenerationError = async () => {
+    const [markedConversation] = await db
+      .update(conversations)
+      .set({
+        generationStatus: "error",
+        activeTurnId: null,
+        activeStreamId: null,
+        generationStartedAt: null,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(conversations.id, conversation.id),
+          eq(conversations.clerkUserId, userId),
+          eq(conversations.generationStatus, "streaming"),
+          eq(conversations.activeTurnId, turnId)
+        )
+      )
+      .returning({ id: conversations.id });
+    if (markedConversation) {
+      await invalidateConversationCaches(userId);
+    }
+  };
+
+  const markGenerationErrorSafely = async () => {
+    try {
+      await markGenerationError();
+    } catch (markError) {
+      console.error("Failed to persist chat generation error state", markError);
+    }
+  };
+
+  try {
+    await invalidateConversationCaches(userId);
+
+    // Persist this turn's style override only after the generation claim, so a
+    // concurrent request that loses the claim cannot mutate the conversation.
+    if (
+      requestedResponseStyle &&
+      requestedResponseStyle !== conversation.responseStyle
+    ) {
+      await db
+        .update(conversations)
+        .set({ responseStyle: requestedResponseStyle })
+        .where(
+          and(
+            eq(conversations.id, conversation.id),
+            eq(conversations.clerkUserId, userId),
+            eq(conversations.generationStatus, "streaming"),
+            eq(conversations.activeTurnId, turnId)
+          )
+        );
+      conversation.responseStyle = requestedResponseStyle;
+    }
+
   // ── 5. Load conversation history for multi-turn memory ────────────────────
   // This is the key improvement over the Python single-turn RAG:
   // AI sees the full conversation history + fresh RAG context each turn.
@@ -386,17 +597,50 @@ export async function POST(req: Request) {
   const modelHistory: ChatMessage[] = [];
 
   if (conversation) {
+    if (!isRegenerateRequest) {
+      // Persist the user turn and make the conversation visible in the sidebar
+      // before cache lookup, retrieval, or model generation can delay the request.
+      if (!persistedUserMessage) {
+        await latency.phase("userMsgInsert", () =>
+          db.insert(messages).values({
+            conversationId: conversation!.id,
+            role: "user",
+            content: question,
+          })
+        );
+      }
+
+      const title = conversation.title ?? deriveConversationTitle(question);
+      await db
+        .update(conversations)
+        .set({ title, updatedAt: new Date() })
+        .where(
+          and(
+            eq(conversations.id, conversation.id),
+            eq(conversations.clerkUserId, userId),
+            eq(conversations.generationStatus, "streaming"),
+            eq(conversations.activeTurnId, turnId)
+          )
+        );
+      if (!conversation.title) {
+        conversation.title = title;
+        createdConversationTitle = title;
+        void setConversationTitleInCache(
+          conversationTitleCacheKey(userId, conversation.id),
+          title
+        );
+      }
+      await invalidateConversationCaches(userId);
+
+      const historyWindow = priorStoredMessages.slice(-20);
+      modelHistory.push(...(historyWindow as ChatMessage[]));
+    }
+
     if (!isRegenerateRequest && answerCacheKey && !hasFixedChunks) {
       const cachedAnswer = await latency.phase("answerCacheLookup", () =>
         getSessionAnswerFromCache(answerCacheKey)
       );
       if (cachedAnswer) {
-        await db.insert(messages).values({
-          conversationId: conversation.id,
-          role: "user",
-          content: question,
-        });
-
         // Cached answer resolved; the inserts/updates below are not included here.
         latency.milestone("answerReadyMs");
         const cachedDetails: MessageDetails = {
@@ -412,28 +656,33 @@ export async function POST(req: Request) {
           latency: latency.build("answer-cache"),
         };
 
-        await db.insert(messages).values({
-          conversationId: conversation.id,
-          role: "assistant",
-          content: cachedAnswer.text,
-          sourcesJson: cachedAnswer.sources,
-          versionsJson: [{ text: cachedAnswer.text, sources: cachedAnswer.sources }],
-          detailsJson: cachedDetails,
-        });
-
-        if (!conversation.title) {
-          const title = deriveConversationTitle(question);
-          await db
+        await db.batch([
+          db.insert(messages).values({
+            conversationId: conversation.id,
+            role: "assistant",
+            content: cachedAnswer.text,
+            sourcesJson: cachedAnswer.sources,
+            versionsJson: [{ text: cachedAnswer.text, sources: cachedAnswer.sources }],
+            detailsJson: cachedDetails,
+          }),
+          db
             .update(conversations)
-            .set({ title, updatedAt: new Date() })
-            .where(eq(conversations.id, conversation.id));
-          void setConversationTitleInCache(conversationTitleCacheKey(userId, conversation.id), title);
-        } else {
-          await db
-            .update(conversations)
-            .set({ updatedAt: new Date() })
-            .where(eq(conversations.id, conversation.id));
-        }
+            .set({
+              generationStatus: "complete",
+              activeTurnId: null,
+              activeStreamId: null,
+              generationStartedAt: null,
+              updatedAt: new Date(),
+            })
+            .where(
+              and(
+                eq(conversations.id, conversation.id),
+                eq(conversations.clerkUserId, userId),
+                eq(conversations.generationStatus, "streaming"),
+                eq(conversations.activeTurnId, turnId)
+              )
+            ),
+        ]);
 
         void invalidateConversationCaches(userId);
 
@@ -464,19 +713,7 @@ export async function POST(req: Request) {
       }
     }
 
-    if (!isRegenerateRequest) {
-      // Persist the new user message immediately (before streaming starts)
-      await latency.phase("userMsgInsert", () =>
-        db.insert(messages).values({
-          conversationId: conversation!.id,
-          role: "user",
-          content: question,
-        })
-      );
-
-      const historyWindow = storedMessages.slice(-20);
-      modelHistory.push(...(historyWindow as ChatMessage[]));
-    } else if (targetAssistantMessage) {
+    if (isRegenerateRequest && targetAssistantMessage) {
       const targetIndex = storedMessages.findIndex(
         (msg) => msg.id === targetAssistantMessage?.id
       );
@@ -681,7 +918,30 @@ export async function POST(req: Request) {
       });
     },
 
+    onError: async () => {
+      await markGenerationErrorSafely();
+    },
+
     onFinish: async ({ text, totalUsage, finishReason, steps }) => {
+      try {
+      const currentGeneration = await db.query.conversations.findFirst({
+        columns: { generationStatus: true, activeTurnId: true },
+        where: and(
+          eq(conversations.id, conversation.id),
+          eq(conversations.clerkUserId, userId)
+        ),
+      });
+      if (
+        !currentGeneration ||
+        !matchesChatGenerationSnapshot(
+          currentGeneration.generationStatus,
+          currentGeneration.activeTurnId,
+          turnId
+        )
+      ) {
+        return;
+      }
+
       // Generation finished; the cache/DB writes below are not included here.
       latency.milestone("answerReadyMs");
       const latencyTrace = latency.build(
@@ -741,27 +1001,44 @@ export async function POST(req: Request) {
         });
       }
 
-      // Persist assistant response + update conversation metadata
-      if (conversation) {
-        const responseSources = getResponseSources();
+      // Persist assistant response + update conversation metadata.
+      const responseSources = getResponseSources();
+      const completeConversation = db
+        .update(conversations)
+        .set({
+          generationStatus: "complete",
+          activeTurnId: null,
+          activeStreamId: null,
+          generationStartedAt: null,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(conversations.id, conversation.id),
+            eq(conversations.clerkUserId, userId),
+            eq(conversations.generationStatus, "streaming"),
+            eq(conversations.activeTurnId, turnId)
+          )
+        );
 
-        if (isRegenerateRequest && targetAssistantMessage) {
-          const existingVersions =
-            targetAssistantMessage.versionsJson && targetAssistantMessage.versionsJson.length > 0
-              ? targetAssistantMessage.versionsJson
-              : [
-                  {
-                    text: targetAssistantMessage.content,
-                    sources: targetAssistantMessage.sourcesJson ?? [],
-                  },
-                ];
+      if (isRegenerateRequest && targetAssistantMessage) {
+        const existingVersions =
+          targetAssistantMessage.versionsJson && targetAssistantMessage.versionsJson.length > 0
+            ? targetAssistantMessage.versionsJson
+            : [
+                {
+                  text: targetAssistantMessage.content,
+                  sources: targetAssistantMessage.sourcesJson ?? [],
+                },
+              ];
 
-          const updatedVersions: AssistantVersion[] = [
-            ...existingVersions,
-            { text, sources: responseSources },
-          ];
+        const updatedVersions: AssistantVersion[] = [
+          ...existingVersions,
+          { text, sources: responseSources },
+        ];
 
-          await db
+        await db.batch([
+          db
             .update(messages)
             .set({
               content: text,
@@ -769,34 +1046,27 @@ export async function POST(req: Request) {
               versionsJson: updatedVersions,
               detailsJson: details,
             })
-            .where(eq(messages.id, targetAssistantMessage.id));
-        } else {
-          await db.insert(messages).values({
+            .where(eq(messages.id, targetAssistantMessage.id)),
+          completeConversation,
+        ]);
+      } else {
+        await db.batch([
+          db.insert(messages).values({
             conversationId: conversation.id,
             role: "assistant",
             content: text,
             sourcesJson: responseSources,
             versionsJson: [{ text, sources: responseSources }],
             detailsJson: details,
-          });
-        }
+          }),
+          completeConversation,
+        ]);
+      }
 
-        // Auto-title from first question (≤60 chars, break at word boundary)
-        if (!conversation.title && !isRegenerateRequest) {
-          const title = deriveConversationTitle(question);
-          await db
-            .update(conversations)
-            .set({ title, updatedAt: new Date() })
-            .where(eq(conversations.id, conversation.id));
-          await setConversationTitleInCache(conversationTitleCacheKey(userId, conversation.id), title);
-        } else {
-          await db
-            .update(conversations)
-            .set({ updatedAt: new Date() })
-            .where(eq(conversations.id, conversation.id));
-        }
-
-        await invalidateConversationCaches(userId);
+      await invalidateConversationCaches(userId);
+      } catch (error) {
+        await markGenerationErrorSafely();
+        throw error;
       }
     },
   });
@@ -817,8 +1087,9 @@ export async function POST(req: Request) {
 
       writeProgress({
         phase: "queued",
-        conversationId: conversation?.id,
-        title: createdConversationTitle ?? conversation?.title ?? undefined,
+        conversationId: conversation.id,
+        title: createdConversationTitle ?? conversation.title ?? undefined,
+        turnId,
       });
       writeProgress({ phase: "drafting" });
 
@@ -852,5 +1123,30 @@ export async function POST(req: Request) {
     },
   });
 
-  return createUIMessageStreamResponse({ stream });
+  if (!streamContext || !activeStreamId) {
+    // Keep the model stream alive after a browser disconnect even when Redis is
+    // unavailable. Returning to the conversation then polls the persisted state.
+    after(Promise.resolve(result.consumeStream()));
+  }
+
+  let streamSetupPromise: Promise<void> | null = null;
+  const response = createUIMessageStreamResponse({
+    stream,
+    consumeSseStream:
+      streamContext && activeStreamId
+        ? ({ stream: sseStream }) => {
+            streamSetupPromise = streamContext
+              .createNewResumableStream(activeStreamId, () => sseStream)
+              .then(() => undefined);
+            return streamSetupPromise;
+          }
+        : undefined,
+  });
+
+  if (streamSetupPromise) await streamSetupPromise;
+  return response;
+  } catch (error) {
+    await markGenerationErrorSafely();
+    throw error;
+  }
 }

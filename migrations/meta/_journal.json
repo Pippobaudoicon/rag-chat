@@ -71,6 +71,13 @@
       "when": 1782375693373,
       "tag": "0009_sticky_greymalkin",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1784023150821,
+      "tag": "0010_sad_pestilence",
+      "breakpoints": true
     }
   ]
 }

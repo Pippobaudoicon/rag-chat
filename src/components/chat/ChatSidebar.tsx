@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import Image from "next/image";
 import { useRouter, usePathname } from "next/navigation";
 import { useUser, UserButton } from "@clerk/nextjs";
-import { BrainIcon, CircleHelpIcon, CreditCardIcon, EllipsisVerticalIcon, PencilIcon, SearchIcon, Trash2Icon } from "lucide-react";
+import { BrainIcon, CircleHelpIcon, CreditCardIcon, EllipsisVerticalIcon, LoaderCircleIcon, PencilIcon, SearchIcon, Trash2Icon } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -28,6 +28,8 @@ import { useLanguage } from "./language-context";
 import { LanguageToggle } from "./LanguageToggle";
 import { uiText } from "./i18n";
 import { version } from "../../../package.json";
+import type { ChatGenerationStatus } from "@/lib/types";
+import { mergeRefreshedConversationFirstPage } from "@/lib/chat/client-lifecycle";
 
 const CONVERSATION_PAGE_SIZE = 20;
 const CONVERSATION_CACHE_TTL_MS = 2 * 60 * 1000;
@@ -50,12 +52,14 @@ const memoryCache = new Map<string, ConversationCache>();
 interface ConversationItem {
   id: string;
   title: string | null;
+  generationStatus?: ChatGenerationStatus;
   updatedAt: string;
 }
 
 interface ConversationUpdatedDetail {
   id: string;
   title?: string | null;
+  generationStatus?: ChatGenerationStatus;
   updatedAt?: string;
 }
 
@@ -100,6 +104,7 @@ function upsertConversationItem(
       {
         id: update.id,
         title: update.title ?? null,
+        generationStatus: update.generationStatus,
         updatedAt,
       },
       ...conversations,
@@ -111,6 +116,10 @@ function upsertConversationItem(
       ? {
           ...conversation,
           title: update.title === undefined ? conversation.title : update.title,
+          generationStatus:
+            update.generationStatus === undefined
+              ? conversation.generationStatus
+              : update.generationStatus,
           updatedAt,
         }
       : conversation
@@ -206,13 +215,24 @@ export function ChatSidebar({ onClose, showMobileClose = false }: ChatSidebarPro
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
   const loadingPageRef = useRef(false);
   const conversationCountRef = useRef(0);
+  const paginationRef = useRef<Pick<ConversationCache, "nextCursor" | "hasMore">>({
+    nextCursor: null,
+    hasMore: false,
+  });
   // Optimistic active ID — set immediately on click, before the route resolves
   const [pendingId, setPendingId] = useState<string | null>(null);
   const cacheKey = user?.id ? `chat:conversations:${user.id}` : null;
+  const hasActiveGeneration = conversations.some(
+    (conversation) => conversation.generationStatus === "streaming"
+  );
 
   useEffect(() => {
     conversationCountRef.current = conversations.length;
   }, [conversations.length]);
+
+  useEffect(() => {
+    paginationRef.current = { nextCursor, hasMore };
+  }, [hasMore, nextCursor]);
 
   const persistConversationState = useCallback(
     (items: ConversationItem[], cursor: string | null, more: boolean) => {
@@ -230,9 +250,11 @@ export function ChatSidebar({ onClose, showMobileClose = false }: ChatSidebarPro
   const loadConversations = useCallback(async ({
     cursor = null,
     replace = false,
+    preserveLoadedPages = false,
   }: {
     cursor?: string | null;
     replace?: boolean;
+    preserveLoadedPages?: boolean;
   } = {}) => {
     if (!cacheKey || loadingPageRef.current) return;
 
@@ -255,13 +277,28 @@ export function ChatSidebar({ onClose, showMobileClose = false }: ChatSidebarPro
       if (!response.ok) return;
 
       const data = (await response.json()) as ConversationPage;
-      setNextCursor(data.nextCursor);
-      setHasMore(data.hasMore);
+      const preservePagination =
+        preserveLoadedPages &&
+        conversationCountRef.current > CONVERSATION_PAGE_SIZE;
+      const effectiveNextCursor = preservePagination
+        ? paginationRef.current.nextCursor
+        : data.nextCursor;
+      const effectiveHasMore = preservePagination
+        ? paginationRef.current.hasMore
+        : data.hasMore;
+      setNextCursor(effectiveNextCursor);
+      setHasMore(effectiveHasMore);
       setConversations((prev) => {
         const nextItems = replace
-          ? data.items
+          ? preserveLoadedPages
+            ? mergeRefreshedConversationFirstPage(
+                prev,
+                data.items,
+                CONVERSATION_PAGE_SIZE
+              )
+            : data.items
           : mergeConversationPages(prev, data.items);
-        persistConversationState(nextItems, data.nextCursor, data.hasMore);
+        persistConversationState(nextItems, effectiveNextCursor, effectiveHasMore);
         return nextItems;
       });
     } finally {
@@ -328,7 +365,7 @@ export function ChatSidebar({ onClose, showMobileClose = false }: ChatSidebarPro
     };
 
     const onConversationsChanged = () => {
-      loadConversations({ replace: true });
+      loadConversations({ replace: true, preserveLoadedPages: true });
     };
 
     const onConversationUpdated = (event: Event) => {
@@ -358,6 +395,14 @@ export function ChatSidebar({ onClose, showMobileClose = false }: ChatSidebarPro
   useEffect(() => {
     setPendingId(null);
   }, [pathname]);
+
+  useEffect(() => {
+    if (!hasActiveGeneration) return;
+    const interval = window.setInterval(() => {
+      void loadConversations({ replace: true, preserveLoadedPages: true });
+    }, 2500);
+    return () => window.clearInterval(interval);
+  }, [hasActiveGeneration, loadConversations]);
 
   function handleNewChat() {
     setPendingId(null);
@@ -588,6 +633,12 @@ export function ChatSidebar({ onClose, showMobileClose = false }: ChatSidebarPro
                           <span className="italic text-muted-foreground/60">{text.sidebar.untitledChat}</span>
                         )}
                       </span>
+                      {convo.generationStatus === "streaming" && (
+                        <LoaderCircleIcon
+                          aria-label={text.chat.pendingDrafting}
+                          className="h-3.5 w-3.5 shrink-0 animate-spin text-primary"
+                        />
+                      )}
                       <DropdownMenu
                         open={menuOpenId === convo.id}
                         onOpenChange={(open) => setMenuOpenId(open ? convo.id : null)}

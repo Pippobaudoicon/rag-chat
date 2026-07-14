@@ -61,12 +61,17 @@ export const chatRequestSchema = z.object({
   regenerateQuestion: z.string().max(4000).optional(),
   trigger: z.string().max(100).optional(),
   messageId: z.union([z.string().max(100), z.number().int().positive()]).optional(),
+  // Returned by POST /api/conversations when the first turn is persisted before
+  // generation. The chat route verifies ownership, role, and content before use.
+  persistedUserMessageId: z.number().int().positive().optional(),
 });
 
 export const createConversationSchema = z.object({
   language: uiLanguageSchema.default("ita"),
   sources: sourcesSchema.default(DEFAULT_SOURCES),
   responseStyle: responseStyleSchema.optional(),
+  title: z.string().trim().min(1).max(200).optional(),
+  initialMessage: z.string().trim().min(1).max(12000).optional(),
 });
 
 // PATCH /api/conversations/[id] — rename and/or change the per-conversation

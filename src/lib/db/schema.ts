@@ -1,6 +1,7 @@
 import { index, pgTable, serial, text, integer, timestamp, jsonb, uuid, uniqueIndex } from "drizzle-orm/pg-core";
 import type {
   AssistantVersion,
+  ChatGenerationStatus,
   MessageDetails,
   SourceChunk,
   SourceType,
@@ -22,6 +23,16 @@ export const conversations = pgTable(
       .$type<SourceType[]>()
       .notNull()
       .default(["scriptures", "conference", "handbook"]),
+    // A generation is owned by the server once streaming starts. Keeping the
+    // status on the conversation lets navigation detach from the HTTP response
+    // without making the turn disappear from the UI.
+    generationStatus: text("generation_status")
+      .$type<ChatGenerationStatus>()
+      .notNull()
+      .default("idle"),
+    activeTurnId: text("active_turn_id"),
+    activeStreamId: text("active_stream_id"),
+    generationStartedAt: timestamp("generation_started_at"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at")
       .notNull()
