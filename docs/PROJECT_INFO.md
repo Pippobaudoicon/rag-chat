@@ -1,6 +1,6 @@
 # ChatLDS Project Knowledge Base
 
-Last updated: 2026-06-08
+Last updated: 2026-07-14
 
 This document is the single source of truth for project context.
 Read this first before deep code exploration.
@@ -22,12 +22,16 @@ Read this first before deep code exploration.
 - Vector DB: Pinecone.
 - Embeddings: Voyage AI (`voyage-4-large`, 1024 dims).
 - LLM runtime: Vercel AI SDK (`streamText`) through gateway.
-- Cache: Upstash Redis.
+- Cache and resumable stream transport: Upstash Redis REST plus
+  `resumable-stream/generic` (status-polling fallback when Redis is absent).
 - Observability: Vercel Analytics + Speed Insights.
 
 ## 3) User-facing capabilities
 
 - Multi-turn chat with persisted conversation history.
+- Navigation-safe generation: the first submitted message is persisted before
+  generation, active work is visible in the sidebar, and returning to a
+  conversation resumes its Redis-backed stream or reloads the completed result.
 - Search-scope toggle (chat composer, replaces the old per-source toggles):
   - `Standard` — sends `ALL_SOURCES` (scriptures, conference, handbook, study_helps, topics); the model may narrow *within* this scope.
   - `Super` — sends `SUPER_SOURCES` (every Pinecone namespace). Persisted to `localStorage` under `chat:search-scope`.
@@ -51,14 +55,31 @@ Read this first before deep code exploration.
 
 ## 4) Runtime architecture flow
 
-1. Client sends chat message to `POST /api/chat` with selected UI language/sources/topK.
-2. Server verifies auth and extracts the latest user question.
-3. Server loads Clerk Billing entitlements, checks Clerk plan access via `auth().has({ plan })`, and applies plan-aware chat rate limits plus a `topK` cap. These auth/ratelimit gates resolve first so a rejected request (401/429) never pays for the LLM/DB work below.
-3b. The conversation **ownership gate** (a single indexed lookup, 404 on a deleted/unowned id) resolves first, before any other preamble work. Once past it, the mutually independent reads run concurrently in a single `Promise.all`: messages, the memory brief, and user preferences. There is no answer-language or translation model call in the preamble.
-4. The main chat model infers the answer language directly from the original user message. TinyLD does not supply an answer-language hint or scripture-language preference. During the same tool-decision step, the model translates `semantic_search` and `search_conference_talks` query/title arguments into the corpus language stated in each tool description, while preserving names and references. Both `semantic_search` and `lookup_scripture_passage` require the model to select the prompt's indexed scripture language (`"ita"` or `"eng"`; English fallback for unsupported languages). `RagToolContext` locks the first selection across the whole turn, and semantic retrieval filters primary, related, and cached chunks, so scripture source cards can never mix languages. `RAG_LANGUAGE_ROUTING` defaults to `false`; setting it to `true` restores the legacy per-tool dedicated routing model.
-5. Server constructs an AI SDK `streamText` call with the RAG tool set and lets the model decide how to retrieve.
-5b. **Eager retrieval (P1, flag-gated, default OFF — opt-in):** on an answer-cache miss, for a high-confidence same-language topical question the server can run the default `semantic_search` retrieval during the preamble and seed the chunks into the user message. Its TinyLD check is only an eager-retrieval safety gate; it never controls answer or scripture language.
-6. The model calls retrieval tools and supplies corpus-ready arguments in the same step:
+1. Opening `/chat` or the sidebar does **not** create a database row. On the first
+   non-empty submit, the client calls `POST /api/conversations` with `title` and
+   `initialMessage`; one batched operation atomically stores the owned conversation
+   and first user message, marks the row as pending (`streaming` with no active
+   turn id), and returns the conversation plus `initialMessageId`.
+2. The client immediately exposes that conversation in the sidebar, switches the
+   URL to `/chat/[id]`, and calls `POST /api/chat` with the same user content,
+   `conversationId`, and `persistedUserMessageId`.
+3. The chat route verifies auth, extracts the latest user question, loads Clerk
+   Billing entitlements, checks Clerk plan access via `auth().has({ plan })`, and
+   applies plan-aware chat rate limits plus a `topK` cap. These auth/ratelimit gates
+   resolve first so a rejected request never pays for model/retrieval work; a rejected
+   pending first turn is moved to `error` instead of remaining active.
+4. The conversation **ownership gate** is a single indexed lookup (404 on a
+   deleted/unowned id). When `persistedUserMessageId` is supplied, the stored row
+   must be the current tail user message in that conversation and its content must
+   match the submitted question; it is excluded from model history and is not
+   inserted a second time. Old or already-completed message ids cannot be replayed.
+   Once past the gate, mutually independent reads run concurrently: messages, the
+   memory brief, and user preferences. There is no answer-language or translation
+   model call in the preamble.
+5. The main chat model infers the answer language directly from the original user message. TinyLD does not supply an answer-language hint or scripture-language preference. During the same tool-decision step, the model translates `semantic_search` and `search_conference_talks` query/title arguments into the corpus language stated in each tool description, while preserving names and references. Both `semantic_search` and `lookup_scripture_passage` require the model to select the prompt's indexed scripture language (`"ita"` or `"eng"`; English fallback for unsupported languages). `RagToolContext` locks the first selection across the whole turn, and semantic retrieval filters primary, related, and cached chunks, so scripture source cards can never mix languages. `RAG_LANGUAGE_ROUTING` defaults to `false`; setting it to `true` restores the legacy per-tool dedicated routing model.
+6. Server constructs an AI SDK `streamText` call with the RAG tool set and lets the model decide how to retrieve.
+7. **Eager retrieval (P1, flag-gated, default OFF — opt-in):** on an answer-cache miss, for a high-confidence same-language topical question the server can run the default `semantic_search` retrieval during the preamble and seed the chunks into the user message. Its TinyLD check is only an eager-retrieval safety gate; it never controls answer or scripture language.
+8. The model calls retrieval tools and supplies corpus-ready arguments in the same step:
    - `semantic_search` for general topical queries (caches via Upstash Redis).
    - `lookup_scripture_passage` for scripture references (also cached via Upstash Redis).
    - `search_conference_talks` for talks by title / speaker / year (also cached via Upstash Redis).
@@ -66,23 +87,39 @@ Read this first before deep code exploration.
    genuinely multi-source questions may call two tools together in that round.
    Afterward only optional citation verification remains available before the
    final answer.
-7. Tool results register chunks in a shared per-turn `RagToolContext` so all
+9. Tool results register chunks in a shared per-turn `RagToolContext` so all
    citation indices remain stable across multiple tool calls.
-8. The model generates the final answer in the original language of the user's prompt and may call `citation_verifier`
+10. The model generates the final answer in the original language of the user's prompt and may call `citation_verifier`
    before completing.
-9. LLM response is streamed back via AI SDK.
-10. The chat route loads a compact personalization memory brief by default,
+11. Before generation starts, the route claims the conversation with an atomic
+   compare-and-set: a pending first row (`streaming` + null `active_turn_id`) or a
+   terminal/idle row receives a unique `active_turn_id`, optional Redis
+   `active_stream_id`, and fresh `generation_started_at`. A second active request
+   gets `409`; only the matching active turn may later commit its result.
+12. The LLM response is streamed through AI SDK. With Upstash REST configured,
+   `resumable-stream/generic` publishes the SSE stream and a returning client uses
+   `GET /api/chat/[id]/stream` to resume it. The producer continues after the
+   original browser disconnects.
+13. Without Redis stream resume, the server consumes the stream in a Next.js
+   `after()` task so generation can continue while that function remains alive.
+   Clients poll `GET /api/conversations/[id]?status=1` and reload persisted messages
+   when the status stops being `streaming`; partial tokens cannot be replayed.
+14. The chat route loads a compact personalization memory brief by default,
    plus a memory version signature for cache invalidation. The full saved
    memory is available only through the `read_personal_memory` tool when the
    model decides the current turn needs it.
-11. For normal non-regenerate conversation turns, the chat route checks a
+15. For normal non-regenerate conversation turns, the chat route checks a
    session-scoped answer cache keyed by user, conversation, normalized question,
    turn settings, recent history, and memory signature. Cache hits skip the full
    retrieval + model pipeline while still persisting the user/assistant messages.
-12. Assistant text + collected tool chunks + tool names used during the turn are
-   persisted to DB and returned as metadata. Redis cache entries are updated
-   with retrieval outputs, session answer payloads, and sidebar title/list data.
-13. UI renders message, inline citations, and source cards.
+16. Assistant text + collected tool chunks + tool names used during the turn are
+   persisted to DB and returned as metadata. The owning turn changes generation
+   status to `complete` (or `error`) and clears the active ids/timestamp. Redis
+   cache entries are updated with retrieval outputs, session answer payloads, and
+   sidebar title/list data.
+17. UI renders message, inline citations, and source cards. Conversation-level
+   polling plus the sidebar spinner keep in-progress work visible across route or
+   conversation changes.
 
 ## 5) API surface (internal app API)
 
@@ -90,7 +127,15 @@ Read this first before deep code exploration.
   - Auth required.
   - Retrieval + generation + streaming.
   - Per-user, plan-aware Upstash Redis rate limiting.
-  - Persists messages for existing/new conversation flow.
+  - Accepts an owned `conversationId` and optional `persistedUserMessageId`.
+    When that id is present, it must be the matching tail user row for the current
+    turn; the route reuses it instead of inserting a duplicate.
+  - Claims persisted generation ownership before streaming, returns `409` while
+    another non-stale turn is active, and commits only for the owning turn.
+- `GET /api/chat/[id]/stream`
+  - Auth and conversation ownership required.
+  - Resumes the current SSE stream through `resumable-stream/generic` when
+    Upstash REST is configured; returns `204` when no stream is resumable.
 - `GET /api/search`
   - Auth required.
   - Retrieval only, no generation.
@@ -107,12 +152,20 @@ Read this first before deep code exploration.
     manual (spam-prone) trigger is gated.
   - Refreshes recent-conversation memory and period rollups, then returns the updated memory snapshot.
 - `GET /api/conversations`
-  - List user conversations (latest first).
+  - List user conversations (latest first), including `generationStatus` for
+    sidebar activity indicators.
 - `POST /api/conversations`
-  - Create conversation with language/sources defaults and an optional
-    `responseStyle` override.
+  - Creates a conversation with language/sources defaults plus optional
+    `responseStyle`, `title`, and `initialMessage`.
+  - When `initialMessage` is present, the conversation and first user message are
+    written atomically in one batch and exposed immediately as pending work; the
+    `201` response includes `initialMessageId`.
 - `GET /api/conversations/[id]`
   - Fetch conversation with full messages.
+  - `?status=1` returns only `{ id, generationStatus, updatedAt }` with `no-store`
+    for lightweight polling. An unclaimed first turn older than 30 seconds, or a
+    claimed generation older than four minutes, is recovered from `streaming` to
+    `error` before the response.
 - `PATCH /api/conversations/[id]`
   - Rename conversation and/or set its `responseStyle` override (at least one
     field required).
@@ -130,6 +183,10 @@ Read this first before deep code exploration.
 - `rag_conversations`
   - UUID primary key, owner (`clerk_user_id`), title, language, sources,
     `response_style` (nullable per-conversation override), timestamps.
+  - Generation lifecycle: `generation_status`
+    (`idle|streaming|complete|error`, default `idle`), nullable
+    `active_turn_id`, nullable `active_stream_id`, and nullable
+    `generation_started_at`. Added by migration `0010_sad_pestilence.sql`.
 - `rag_messages`
   - UUID conversation FK, integer message id, role (`user|assistant`), content,
     `sources_json`, `versions_json`, `details_json`, timestamp.
@@ -183,14 +240,22 @@ Notes:
   absent), so derived percentiles are an optimization baseline, not an SLO.
   `serverFirstTextMs` is the server's first emitted text after `smoothStream`,
   not browser first paint.
-- Conversation auto-title is derived from first user message.
+- Conversation auto-title is derived from the first user message.
 - Conversation titles are cached in Redis and the conversation list endpoint is
   cached per user/page cursor with invalidation on create, rename, delete, and
   chat activity that updates `updatedAt`.
-- New conversations are inserted into the sidebar immediately with an optimistic
-  client title. The sidebar waits to refetch until after the first assistant
-  response, so the optimistic title is not overwritten by the just-created DB
-  row that still has `title = null`.
+- A blank `/chat` view does not create an empty conversation merely because the
+  sidebar opened. The first non-empty submit creates it, persists the initial user
+  message before generation, inserts it into the sidebar immediately as pending,
+  and starts the owned generation using the returned `initialMessageId`.
+- Sidebar rows include persisted generation status. Active rows display a spinner
+  and the sidebar polls while any row is `streaming`; an open conversation also
+  polls its lightweight status endpoint and either resumes the Redis stream or
+  reloads the persisted completed/error state. First-page polling preserves any
+  additional conversation pages the user already loaded.
+- A failed conversation pre-create restores the local draft. Transport/claim
+  failures have bounded recovery, and server-owned work uses a non-interactive
+  composer progress indicator instead of implying that a local Stop cancels it.
 - Sidebar conversation actions use a hover menu with rename and delete, and
   renames persist through `PATCH /api/conversations/[id]` while updating the
   local sidebar cache immediately.
@@ -426,6 +491,7 @@ Reference template: `.env.example`.
   - `src/components/memory/MemoryPageClient.tsx`
 - API routes:
   - `src/app/api/chat/route.ts`
+  - `src/app/api/chat/[id]/stream/route.ts` (resume the owned active stream)
   - `src/app/api/search/route.ts`
   - `src/app/api/billing/subscription/route.ts`
   - `src/app/api/conversations/route.ts`
@@ -433,6 +499,12 @@ Reference template: `.env.example`.
   - `src/app/api/settings/route.ts` (per-user prefs: response style + onboarding state)
 - User settings:
   - `src/lib/db/user-settings.ts` (read/write `rag_user_settings`)
+- Chat generation lifecycle:
+  - `src/lib/chat/client-lifecycle.ts` (bounded client claim/polling and sidebar-page merge rules)
+  - `src/lib/chat/generation.ts` (active/stale/ownership and persisted-turn rules)
+  - `src/lib/chat/resumable-stream.ts` (`resumable-stream/generic` Upstash adapter)
+  - `migrations/0010_sad_pestilence.sql` (conversation generation-state columns)
+  - `scripts/test/chat-lifecycle.test.ts` (pure lifecycle regression suite)
 - Onboarding tour (first-visit guided tutorial, issue #12):
   - `src/lib/onboarding/steps.ts` (pure step/anchor/auto-start logic; tested by `test:onboarding`)
   - `src/components/onboarding/OnboardingTour.tsx` (anchored callouts, replay, persistence, a11y)
@@ -476,6 +548,16 @@ Reference template: `.env.example`.
 - Clerk Billing is beta/experimental, so `@clerk/nextjs` is pinned in `package.json` instead of using a semver range.
 - Clerk's subscription detail API is best-effort. If user billing is not enabled in the Clerk instance, the app falls back to Free entitlements without logging noisy expected 403 errors.
 - Chat and search usage display uses Redis sorted-set counters keyed per user and rolling window. If Redis is unavailable, enforcement and usage display gracefully degrade.
+- Chat generation and stream-resume routes have a 180-second execution limit.
+  Navigation or closing the browser does not by itself cancel an active producer,
+  but this is not a durable queue: a server process crash or deployment can still
+  interrupt generation before the assistant message is persisted.
+- A pending first turn (`streaming` with no `active_turn_id`) is stale after 30
+  seconds; a claimed `streaming` generation is stale after four minutes. Recovery
+  is compare-and-set and cannot clear a newer replacement turn.
+- Upstash REST enables token-level stream resume. Without it, generation can still
+  continue within the live server function and clients poll persisted status, but
+  partial stream tokens cannot be replayed after navigation.
 - Embedding model must remain compatible with index dimensions.
 - Chat route uses a limited recent history window for context size control.
 - Pinecone search language defaults to English (`lds-rag-v1`). Scriptures retrieve in both English and Italian; all other namespaces are English-only.
@@ -489,6 +571,9 @@ Reference template: `.env.example`.
 - Generate migrations: `npm run db:generate`
 - Apply migrations: `npm run db:migrate`
 - Docs guard: `npm run docs:guard`
+- Chat lifecycle test: `npm run test:chat-lifecycle` (pure, network-free coverage
+  for pending/active stale state, resume eligibility, turn ownership, tail-turn
+  idempotency, bounded client claim recovery, inline pending state, and sidebar paging)
 - Retrieval eval: `npm run eval` (golden set in `scripts/eval/dataset.ts`; reports
   MRR/recall/structural checks with the cross-encoder reranker off vs on, writes
   JSON to `scripts/eval/results/`). The harness forces both rerank arms itself, so

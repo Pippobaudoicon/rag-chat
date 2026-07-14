@@ -17,7 +17,7 @@ if [[ -z "${changed_files}" ]]; then
   exit 0
 fi
 
-tracked_regex='^(package\.json|\.env\.example|drizzle\.config\.ts|src/app/layout\.tsx|src/app/\(app\)/layout\.tsx|src/components/layout/AppShell\.tsx|src/components/chat/(ChatInterface|ChatSidebar|SettingsPanel|SourcesPanel)\.tsx|src/app/api/chat/route\.ts|src/app/api/search/route\.ts|src/app/api/conversations/route\.ts|src/app/api/conversations/\[id\]/route\.ts|src/lib/db/(schema|index)\.ts|src/lib/types\.ts|src/lib/rag/(retriever|embedder|cache|system-prompt|scripture-reference|citation-links)\.ts)$'
+tracked_regex='^(package\.json|\.env\.example|drizzle\.config\.ts|migrations/[0-9][0-9][0-9][0-9]_[^/]+\.sql|src/app/layout\.tsx|src/app/\(app\)/layout\.tsx|src/components/layout/AppShell\.tsx|src/components/ai-elements/prompt-input\.tsx|src/components/chat/(ChatInterface|ChatSidebar|SettingsPanel|SourcesPanel)\.tsx|src/app/api/chat/route\.ts|src/app/api/chat/\[id\]/stream/route\.ts|src/app/api/search/route\.ts|src/app/api/conversations/route\.ts|src/app/api/conversations/\[id\]/route\.ts|src/lib/chat/(client-lifecycle|generation|resumable-stream)\.ts|src/lib/db/(schema|index)\.ts|src/lib/types\.ts|src/lib/rag/(retriever|embedder|cache|system-prompt|scripture-reference|citation-links)\.ts)$'
 docs_regex='^(AGENTS\.md|docs/PROJECT_INFO\.md)$'
 
 if echo "${changed_files}" | grep -Eq "${tracked_regex}"; then
