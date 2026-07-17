@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
+import { flushSync } from "react-dom";
 import { useChat } from "@ai-sdk/react";
 import { useUser } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
@@ -49,8 +50,10 @@ import { useLanguage } from "./language-context";
 import { uiText } from "./i18n";
 import type { BillingEntitlements } from "@/lib/billing/entitlements";
 import type { BillingUsageSummary } from "@/lib/billing/usage";
+import type { OnboardingStatus } from "@/lib/onboarding/steps";
 import {
   CHAT_GENERATION_CLAIM_TIMEOUT_MS,
+  shouldAutoFocusNewChatComposer,
   shouldFailGenerationClaim,
   shouldShowPendingAssistant,
 } from "@/lib/chat/client-lifecycle";
@@ -65,6 +68,7 @@ interface ChatInterfaceProps {
   initialResponseStyle?: ResponseStyleId | null;
   // The user's persistent default style (applied when no override is set).
   initialDefaultResponseStyle?: ResponseStyleId;
+  initialOnboardingStatus?: OnboardingStatus;
   initialGenerationStatus?: ChatGenerationStatus;
   resumeStreamEnabled?: boolean;
 }
@@ -146,6 +150,7 @@ export function ChatInterface({
   initialFeedbackByMessageId = {},
   initialResponseStyle = null,
   initialDefaultResponseStyle = DEFAULT_RESPONSE_STYLE,
+  initialOnboardingStatus,
   initialGenerationStatus = "idle",
   resumeStreamEnabled = false,
 }: ChatInterfaceProps) {
@@ -154,16 +159,37 @@ export function ChatInterface({
   const { language } = useLanguage();
   const text = uiText(language);
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  // Focus the composer only where a hardware keyboard is likely: on touch,
-  // focusing at load opens the on-screen keyboard and buries the conversation.
-  // This is an effect rather than `autoFocus` because React serializes autoFocus
-  // into the SSR HTML, so a client-only condition would desync hydration.
+  const isEmptyNewChat =
+    initialConversationId === undefined && initialMessages.length === 0;
+  const shouldFocusNewChatAfterPaint = shouldAutoFocusNewChatComposer(
+    initialConversationId,
+    initialMessages.length,
+    initialOnboardingStatus === "pending"
+  );
   const composerRef = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
-    if (window.matchMedia("(pointer: fine)").matches) {
-      composerRef.current?.focus();
+    const shouldFocusExistingDesktopChat =
+      !isEmptyNewChat && window.matchMedia("(pointer: fine)").matches;
+    if (!shouldFocusNewChatAfterPaint && !shouldFocusExistingDesktopChat) {
+      return;
     }
-  }, []);
+
+    // Wait until ChatInterface has replaced the route loading boundary and
+    // painted. A native autoFocus attribute can open the mobile keyboard while
+    // the page is still visibly loading.
+    let focusFrameId: number | undefined;
+    const paintFrameId = window.requestAnimationFrame(() => {
+      focusFrameId = window.requestAnimationFrame(() => {
+        composerRef.current?.focus({ preventScroll: true });
+      });
+    });
+    return () => {
+      window.cancelAnimationFrame(paintFrameId);
+      if (focusFrameId !== undefined) {
+        window.cancelAnimationFrame(focusFrameId);
+      }
+    };
+  }, [isEmptyNewChat, shouldFocusNewChatAfterPaint]);
   // Search scope replaces manual per-source selection: Standard sends every
   // normally-visible source, Super sends all namespaces. The model may still
   // narrow *within* this scope (the backend ceilings its override to it).
@@ -794,7 +820,6 @@ export function ChatInterface({
       void stop();
       conversationContextVersionRef.current += 1;
       conversationIdRef.current = undefined;
-      setResolvedConversationId(undefined);
       conversationCreationPromiseRef.current = null;
       submitTokenRef.current = null;
       resumeInFlightRef.current = false;
@@ -802,14 +827,22 @@ export function ChatInterface({
       generationClaimPendingRef.current = false;
       generationClaimStartedAtRef.current = null;
       clientTransportErrorRef.current = false;
-      setMessages([]);
-      feedback.reset();
-      setMessageVersions({});
-      setActiveVersionIndex({});
       pendingRegenerationRef.current = null;
-      setChatProgress(null);
-      setPersistedGenerationStatus("idle");
-      setWaitingPhraseIndex(0);
+
+      // Commit the blank-chat screen before focusing. Keeping this synchronous
+      // preserves the initiating mobile gesture without letting the keyboard
+      // appear over the previous conversation.
+      flushSync(() => {
+        setResolvedConversationId(undefined);
+        setMessages([]);
+        feedback.reset();
+        setMessageVersions({});
+        setActiveVersionIndex({});
+        setChatProgress(null);
+        setPersistedGenerationStatus("idle");
+        setWaitingPhraseIndex(0);
+      });
+
       if (window.location.pathname !== "/chat") {
         window.history.replaceState(null, "", "/chat");
       }
@@ -818,6 +851,7 @@ export function ChatInterface({
           detail: { path: "/chat" },
         })
       );
+      composerRef.current?.focus({ preventScroll: true });
     };
 
     window.addEventListener("chat:new-conversation", onNewConversation);

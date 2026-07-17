@@ -30,6 +30,18 @@ export function shouldShowPendingAssistant(
   return !lastMessage || lastMessage.role === "user";
 }
 
+export function shouldAutoFocusNewChatComposer(
+  conversationId: string | undefined,
+  initialMessageCount: number,
+  onboardingPending: boolean
+): boolean {
+  return (
+    conversationId === undefined &&
+    initialMessageCount === 0 &&
+    !onboardingPending
+  );
+}
+
 export function mergeRefreshedConversationFirstPage<T extends { id: string }>(
   existing: readonly T[],
   refreshedFirstPage: readonly T[],

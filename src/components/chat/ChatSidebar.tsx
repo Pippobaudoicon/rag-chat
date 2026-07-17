@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
+import { flushSync } from "react-dom";
 import Image from "next/image";
 import { useRouter, usePathname } from "next/navigation";
 import { useUser, UserButton } from "@clerk/nextjs";
@@ -405,12 +406,16 @@ export function ChatSidebar({ onClose, showMobileClose = false }: ChatSidebarPro
   }, [hasActiveGeneration, loadConversations]);
 
   function handleNewChat() {
-    setPendingId(null);
-    setCurrentPath("/chat");
+    // Close the mobile drawer before ChatInterface commits and focuses the new
+    // chat, so the keyboard never opens behind a still-visible sheet.
+    flushSync(() => {
+      setPendingId(null);
+      setCurrentPath("/chat");
+      onClose?.();
+    });
     window.dispatchEvent(new CustomEvent("chat:new-conversation"));
     startTransition(() => {
       router.push("/chat");
-      onClose?.();
     });
   }
 

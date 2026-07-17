@@ -108,6 +108,7 @@ export default async function ConversationPage({ params }: Props) {
         convo.responseStyle ? coerceResponseStyle(convo.responseStyle) : null
       }
       initialDefaultResponseStyle={prefs.defaultResponseStyle}
+      initialOnboardingStatus={prefs.onboardingStatus}
     />
   );
 }

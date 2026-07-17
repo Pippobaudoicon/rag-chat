@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.12.34
+
+- **Composer focus waits for the new-chat screen.** Removed the serialized `autoFocus` attribute that could open the mobile keyboard while the route loading UI was still visible. Mount-driven new-chat focus now runs after `ChatInterface` has painted, while an explicit New Chat action closes the mobile drawer and synchronously commits the blank-chat state before focusing inside the initiating gesture. The keyboard therefore opens over the ready composer instead of the previous conversation or loading skeleton.
+
+## 0.12.33
+
+- **Context-aware mobile composer autofocus.** Empty new chats now autofocus the composer on touch devices as well as desktop, matching the composition-first behavior users expect from dedicated chat apps. Existing conversations still avoid opening the mobile keyboard on load, while fine-pointer devices retain desktop autofocus. Clicking a New Chat control also focuses synchronously inside the initiating gesture for mobile WebKit. A pending first-run onboarding tour suppresses new-chat autofocus so its callout is not covered by the keyboard. The condition is derived from request-stable props, keeping the serialized `autoFocus` attribute hydration-safe, and is covered by the chat lifecycle regression suite.
+
 ## 0.12.32
 
 - **Next.js stable patch upgrade.** Upgraded Next.js and its platform SWC packages from the previously resolved `16.2.6` to stable `16.2.10`. React remains pinned at compatible `19.2.4`; Turbopack remains the default for both `next dev` and `next build`. This patch release required no codemod or configuration migration.

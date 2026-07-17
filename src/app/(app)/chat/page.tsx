@@ -9,6 +9,7 @@ export default async function NewChatPage() {
   return (
     <ChatInterface
       initialDefaultResponseStyle={prefs?.defaultResponseStyle}
+      initialOnboardingStatus={prefs?.onboardingStatus}
     />
   );
 }

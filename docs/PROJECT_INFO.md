@@ -581,20 +581,22 @@ Reference template: `.env.example`.
   - `<html lang>` is seeded to `it` by the root layout and synced to the stored UI
     language by `LanguageProvider` (`UI_LANGUAGE_BCP47`, WCAG 3.1.1). Screen-reader
     voice selection depends on it.
-  - The composer focuses via a mount effect gated on `(pointer: fine)` (a ref on
-    `PromptInputTextarea`), so touch devices do not open the on-screen keyboard on
-    load. Do not "simplify" this back to a conditional `autoFocus` prop: React
-    serializes `autoFocus` into SSR HTML, so a client-only condition desyncs
-    hydration.
+  - Composer focus is contextual: after an empty new chat has mounted and painted,
+    it focuses on touch and desktop unless first-run onboarding is pending; an
+    existing conversation focuses only for `(pointer: fine)`. Do not use the native
+    `autoFocus` attribute here because streamed HTML can open the mobile keyboard
+    while the route loading UI is still visible. An explicit New Chat action closes
+    the mobile drawer, synchronously commits the blank-chat state, and only then
+    focuses the ref inside the initiating gesture.
 - **Verified on Android (Samsung S24 / Chrome, 0.12.29) — NOT on iOS:** pinch-zoom
   works (WCAG 1.4.4 — Android Chrome is the browser that *honored* the old
   `userScalable: false`, so the fix is confirmed on the platform where it actually
   bit; iOS ignores that flag); landscape rotation works in the installed PWA
   (WCAG 1.3.4 — the manifest `orientation` lock is only enforced in standalone, so a
-  browser tab never showed it); the keyboard does not open on load; tapping the
-  composer does not zoom; and the composer stays visible with the keyboard up.
-  The zoom and orientation results are the load-bearing ones. The focus-gate result
-  also generalizes, since `(pointer: fine)` is false on any touch device.
+  browser tab never showed it); tapping the composer does not zoom; and the
+  composer stays visible with the keyboard up. The 0.12.34 contextual focus-timing
+  policy (keyboard opens for a new chat, not an existing conversation) still needs
+  physical Android and iOS PWA verification.
 - **iOS is unverified, and is the platform two of these fixes actually target.**
   Android Chrome never auto-zooms on input focus, so an Android pass cannot exercise
   the 16px floor — that exists solely for iOS Safari. Android also resizes the

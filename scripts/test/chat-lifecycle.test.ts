@@ -18,6 +18,7 @@ import {
   CHAT_GENERATION_TRANSPORT_ERROR_GRACE_MS,
   isGenerationClaimTimedOut,
   mergeRefreshedConversationFirstPage,
+  shouldAutoFocusNewChatComposer,
   shouldFailGenerationClaim,
   shouldShowPendingAssistant,
 } from "@/lib/chat/client-lifecycle";
@@ -178,6 +179,23 @@ check(
 check(
   "pending assistant is not duplicated after an assistant message exists",
   !shouldShowPendingAssistant([{ role: "user" }, { role: "assistant" }], true)
+);
+
+check(
+  "empty new chat requests post-paint composer focus",
+  shouldAutoFocusNewChatComposer(undefined, 0, false)
+);
+check(
+  "existing conversation does not request mobile autofocus",
+  !shouldAutoFocusNewChatComposer("conversation-1", 0, false)
+);
+check(
+  "hydrated messages do not request new-chat autofocus",
+  !shouldAutoFocusNewChatComposer(undefined, 1, false)
+);
+check(
+  "pending onboarding suppresses new-chat autofocus",
+  !shouldAutoFocusNewChatComposer(undefined, 0, true)
 );
 
 const preservedPages = mergeRefreshedConversationFirstPage(
