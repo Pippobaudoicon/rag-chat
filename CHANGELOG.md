@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.12.32
+
+- **Next.js stable patch upgrade.** Upgraded Next.js and its platform SWC packages from the previously resolved `16.2.6` to stable `16.2.10`. React remains pinned at compatible `19.2.4`; Turbopack remains the default for both `next dev` and `next build`. This patch release required no codemod or configuration migration.
+
 ## 0.12.31
 
 - **Mobile app architecture decision.** Capacitor 8 is the preferred path only for a packaged local mobile client that talks to the existing Next.js deployment as its authenticated backend; the current server-rendered app will not be shipped through Capacitor's development-only remote `server.url`. `docs/MOBILE_APP_PLAN.md` records the client/API/auth, streaming, billing, deep-link, native-value, and store-readiness gates before the native projects are scaffolded.

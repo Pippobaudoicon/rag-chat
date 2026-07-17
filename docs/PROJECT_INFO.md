@@ -1,6 +1,6 @@
 # ChatLDS Project Knowledge Base
 
-Last updated: 2026-07-14
+Last updated: 2026-07-17
 
 This document is the single source of truth for project context.
 Read this first before deep code exploration.
@@ -15,7 +15,7 @@ Read this first before deep code exploration.
 
 ## 2) Current stack
 
-- Framework/UI: Next.js 16, React 19, Tailwind 4.
+- Framework/UI: Next.js 16.2.10, React 19, Tailwind 4.
 - Auth: Clerk.
 - Billing: Clerk Billing for subscriptions; Stripe is used only for payment processing.
 - DB: Neon Postgres + Drizzle ORM.
