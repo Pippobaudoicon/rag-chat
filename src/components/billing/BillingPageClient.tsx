@@ -2,7 +2,7 @@
 
 import { CheckIcon, GaugeIcon, MessageSquareIcon, SearchIcon, SparklesIcon } from "lucide-react";
 import { BillingActions } from "@/components/billing/BillingActions";
-import { useLanguage } from "@/components/chat/language-context";
+import { UI_LANGUAGE_BCP47, useLanguage } from "@/components/chat/language-context";
 import { uiText } from "@/components/chat/i18n";
 import type { BillingEntitlements } from "@/lib/billing/entitlements";
 import type { BillingUsageSnapshot, BillingUsageSummary } from "@/lib/billing/usage";
@@ -103,7 +103,7 @@ function PlanCard({
 export function BillingPageClient({ entitlements, usage }: BillingPageClientProps) {
   const { language } = useLanguage();
   const text = uiText(language).billing;
-  const locale = language === "ita" ? "it-IT" : "en-US";
+  const locale = UI_LANGUAGE_BCP47[language];
   const resetDate = formatDate(entitlements.subscription.currentPeriodEnd, locale);
   const usageAvailable = usage.chat.available || usage.search.available;
   const isCloseToLimit =

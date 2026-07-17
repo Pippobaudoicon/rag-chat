@@ -18,6 +18,18 @@ interface LanguageContextValue {
 
 const LanguageContext = createContext<LanguageContextValue | null>(null);
 
+// ISO 639-1 for the UI languages: <html lang> (the root layout can only seed a
+// static SSR default, so it is synced after mount) and `Intl` locales. Bare
+// subtags resolve to the same defaults as "it-IT" / "en-US" for our formats.
+export const UI_LANGUAGE_BCP47: Record<UiLanguage, string> = {
+  ita: "it",
+  eng: "en",
+  fra: "fr",
+  spa: "es",
+  por: "pt",
+  deu: "de",
+};
+
 export function LanguageProvider({ children }: { children: React.ReactNode }) {
   const [language, setLanguageState] = useState<UiLanguage>("ita");
 
@@ -28,6 +40,17 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
       setLanguageState(stored as UiLanguage);
     }
   }, []);
+
+  // Screen readers pick their voice from <html lang>; without this every
+  // language is announced with an Italian one.
+  useEffect(() => {
+    document.documentElement.lang = UI_LANGUAGE_BCP47[language];
+    return () => {
+      // The root layout persists across client navigation. Restore its SSR
+      // default when leaving the app layout for auth or other public routes.
+      document.documentElement.lang = "it";
+    };
+  }, [language]);
 
   const setLanguage = useCallback((lang: UiLanguage) => {
     setLanguageState(lang);

@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.12.31
+
+- **Mobile app architecture decision.** Capacitor 8 is the preferred path only for a packaged local mobile client that talks to the existing Next.js deployment as its authenticated backend; the current server-rendered app will not be shipped through Capacitor's development-only remote `server.url`. `docs/MOBILE_APP_PLAN.md` records the client/API/auth, streaming, billing, deep-link, native-value, and store-readiness gates before the native projects are scaffolded.
+- **Mobile review corrections.** The UI-language effect now restores the root layout's Italian SSR default when the app layout unmounts, so client navigation to auth/public routes cannot inherit a stale language. The package lockfile version is also synchronized with `package.json`.
+
+## 0.12.30
+
+- **Billing reset date respects all six UI languages.** `BillingPageClient` derived its `Intl.DateTimeFormat` locale from `language === "ita" ? "it-IT" : "en-US"`, so French, Spanish, Portuguese, and German users saw the period-end date as `Jul 15` instead of `15 juil.` / `15 jul` / `15 de jul.` / `15. Juli` — the same two-language assumption behind the 0.12.29 `<html lang>` bug. It now reuses the `UI_LANGUAGE_BCP47` map added in 0.12.29 (exported from `language-context.tsx`), which is the single place UI languages map to ISO 639-1. No change for existing users: `Intl` resolves the bare `it` / `en` subtags to output identical to `it-IT` / `en-US` for this format. `locale` feeds only the short date here — no currency or number formatting was affected.
+
+## 0.12.29
+
+- **Mobile accessibility sweep.** Four WCAG fixes in the UI layer; no API, retrieval, or data-model change.
+  - *Pinch-zoom restored* (`src/app/layout.tsx`). The viewport dropped `maximumScale: 1` / `userScalable: false`, which failed WCAG 1.4.4 (Resize Text, AA) — Android Chrome honors the lock, so anyone who needed to zoom could not. Unlocking zoom exposed a coupled bug: the composer's `text-[15px]` was overriding the codebase-wide `text-base md:text-sm` input convention (`ui/textarea.tsx`, reached via `PromptInputTextarea` → `InputGroupTextarea` → `Textarea`) down to 15px on mobile, and iOS Safari zooms the viewport when focusing any input under 16px. The lock had been masking it. The composer is now `text-base md:text-[15px]` — 16px on mobile, the intended 15px on desktop. It was the only override; the feedback, search, and sidebar-rename inputs already inherit the safe default.
+  - *Screen readers announce the right language* (`src/components/chat/language-context.tsx`). `<html lang>` was hardcoded to `it` while the UI ships six languages, failing WCAG 3.1.1 (Language of Page, A) — VoiceOver/TalkBack read English, Spanish, and German answers with an Italian voice. `LanguageProvider` now syncs `document.documentElement.lang` from the stored preference through a new `UI_LANGUAGE_BCP47` map. The root layout keeps `lang="it"` as the SSR seed, matching the provider's default state.
+  - *Orientation unlocked* (`src/app/manifest.ts`). Dropped `orientation: "portrait-primary"`, which failed WCAG 1.3.4 (Orientation, AA) for devices fixed in landscape on a mount.
+  - *No keyboard on load* (`src/components/chat/ChatInterface.tsx`). The composer's unconditional `autoFocus` opened the on-screen keyboard on every mobile load, burying the conversation before it could be read. Focus is now driven by a mount effect gated on `(pointer: fine)` through a ref on `PromptInputTextarea`. Deliberately **not** a conditional `autoFocus` prop: React serializes `autoFocus` into SSR HTML (`renderToStaticMarkup` emits `autofocus=""`), so a client-only condition renders the attribute on the client but not the server — desyncing hydration and leaving desktop autofocus dependent on whether React re-fires focus during hydrate. The effect sidesteps both.
+
 ## 0.12.28
 
 - **Monthly and annual Clerk Billing checkout.** The billing page now lets users choose the monthly or annual Pro billing period before opening Clerk Checkout. The existing Clerk plan ID and entitlement flow are unchanged.

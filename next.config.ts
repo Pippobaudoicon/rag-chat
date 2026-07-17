@@ -1,4 +1,4 @@
-import type { NextConfig } from "next";
+import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
   serverExternalPackages: ["mermaid"],
@@ -6,7 +6,7 @@ const nextConfig: NextConfig = {
     optimizeCss: true,
     optimizeServerReact: true,
   },
-  allowedDevOrigins: ["localhost", "192.168.1.11"],
+  allowedDevOrigins: ["localhost", "192.168.1.11", "10.1.4.28"],
   async headers() {
     return [
       {

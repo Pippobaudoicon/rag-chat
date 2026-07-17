@@ -1,4 +1,4 @@
-import type { MetadataRoute } from "next";
+import type { MetadataRoute } from 'next';
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
@@ -9,11 +9,10 @@ export default function manifest(): MetadataRoute.Manifest {
     start_url: "/chat",
     scope: "/",
     display: "standalone",
-    orientation: "portrait-primary",
     background_color: "#1a1a1a",
     theme_color: "#1a1a1a",
     categories: ["education", "utilities"],
-    lang: "it",
+    lang: "en-US",
     icons: [
       {
         src: "/web-app-manifest-192x192.png",

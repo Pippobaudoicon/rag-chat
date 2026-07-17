@@ -37,6 +37,17 @@ Read this first before deep code exploration.
   - `Super` — sends `SUPER_SOURCES` (every Pinecone namespace). Persisted to `localStorage` under `chat:search-scope`.
   - The `/search` console keeps the full per-source `SettingsPanel` for debugging.
 - Language selector: UI-only language preference. Current selectable UI languages are Italian, English, French, Spanish, Portuguese, and German; non-translated UI copy falls back to English.
+- Installable PWA: web manifest (`src/app/manifest.ts`), service worker
+  (`public/sw.js` — network-first navigation with an offline `/chat` fallback,
+  stale-while-revalidate for static assets), and install prompts
+  (`src/components/pwa/`): Android `beforeinstallprompt`, iOS Add-to-Home-Screen
+  instructions. The mobile shell (`AppShell.tsx`) adds a swipe-open sidebar drawer
+  and safe-area-aware layout.
+- Native mobile direction: keep this Next.js app as the web PWA and hosted backend.
+  Capacitor 8 is the preferred store-runtime only for a separately built, locally
+  packaged web client; do not point a production native app at the deployment with
+  Capacitor `server.url`. The staged architecture, blockers, and acceptance gates
+  live in `docs/MOBILE_APP_PLAN.md`.
 - Inline numeric citations linked to source cards.
 - Sources panel with scripture coverage behavior for chapter/book requests.
 - Conversation CRUD in sidebar (create/list/open/delete) and title updates.
@@ -558,6 +569,49 @@ Reference template: `.env.example`.
 - Upstash REST enables token-level stream resume. Without it, generation can still
   continue within the live server function and clients poll persisted status, but
   partial stream tokens cannot be replayed after navigation.
+- **Mobile accessibility contract (0.12.29) — these are load-bearing, do not
+  regress:**
+  - The viewport must not set `maximumScale` / `userScalable: false` (WCAG 1.4.4),
+    and the manifest must not lock `orientation` (WCAG 1.3.4).
+  - Because zoom is unlocked, every focusable input must render at **>= 16px on
+    mobile** or iOS Safari zooms the viewport on focus. The convention is
+    `text-base md:<smaller>` (`ui/input.tsx`, `ui/textarea.tsx`); overriding it with
+    a bare `text-[Npx]` silently reintroduces the bug, which is exactly how the
+    composer regressed.
+  - `<html lang>` is seeded to `it` by the root layout and synced to the stored UI
+    language by `LanguageProvider` (`UI_LANGUAGE_BCP47`, WCAG 3.1.1). Screen-reader
+    voice selection depends on it.
+  - The composer focuses via a mount effect gated on `(pointer: fine)` (a ref on
+    `PromptInputTextarea`), so touch devices do not open the on-screen keyboard on
+    load. Do not "simplify" this back to a conditional `autoFocus` prop: React
+    serializes `autoFocus` into SSR HTML, so a client-only condition desyncs
+    hydration.
+- **Verified on Android (Samsung S24 / Chrome, 0.12.29) — NOT on iOS:** pinch-zoom
+  works (WCAG 1.4.4 — Android Chrome is the browser that *honored* the old
+  `userScalable: false`, so the fix is confirmed on the platform where it actually
+  bit; iOS ignores that flag); landscape rotation works in the installed PWA
+  (WCAG 1.3.4 — the manifest `orientation` lock is only enforced in standalone, so a
+  browser tab never showed it); the keyboard does not open on load; tapping the
+  composer does not zoom; and the composer stays visible with the keyboard up.
+  The zoom and orientation results are the load-bearing ones. The focus-gate result
+  also generalizes, since `(pointer: fine)` is false on any touch device.
+- **iOS is unverified, and is the platform two of these fixes actually target.**
+  Android Chrome never auto-zooms on input focus, so an Android pass cannot exercise
+  the 16px floor — that exists solely for iOS Safari. Android also resizes the
+  viewport when the keyboard opens; iOS Safari does not, which is precisely why
+  composers get buried there. So whether `visualViewport` handling is needed remains
+  **open on iOS**, and no Android result can close it. Test on an iPhone before
+  concluding either way.
+- Known mobile a11y gaps, not yet addressed: the composer submit control is 36px,
+  under the 44pt touch guidance (still clears WCAG 2.1 AA, which has no
+  target-size criterion); `InstallPrompt` copy is hardcoded Italian in a
+  six-language UI; and per-message `lang` (WCAG 3.1.2) is unset for answers whose
+  language differs from the UI preference.
+- The current Next.js application is not a Capacitor `webDir` artifact. It relies
+  on request-time Clerk auth, server-rendered database reads, dynamic conversation
+  routes, response headers, and POST/streaming Route Handlers, all of which rule
+  out a direct Next.js static export. Native work must follow
+  `docs/MOBILE_APP_PLAN.md` and preserve the hosted backend boundary.
 - Embedding model must remain compatible with index dimensions.
 - Chat route uses a limited recent history window for context size control.
 - Pinecone search language defaults to English (`lds-rag-v1`). Scriptures retrieve in both English and Italian; all other namespaces are English-only.

@@ -154,6 +154,16 @@ export function ChatInterface({
   const { language } = useLanguage();
   const text = uiText(language);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  // Focus the composer only where a hardware keyboard is likely: on touch,
+  // focusing at load opens the on-screen keyboard and buries the conversation.
+  // This is an effect rather than `autoFocus` because React serializes autoFocus
+  // into the SSR HTML, so a client-only condition would desync hydration.
+  const composerRef = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    if (window.matchMedia("(pointer: fine)").matches) {
+      composerRef.current?.focus();
+    }
+  }, []);
   // Search scope replaces manual per-source selection: Standard sends every
   // normally-visible source, Super sends all namespaces. The model may still
   // narrow *within* this scope (the backend ceilings its override to it).
@@ -979,9 +989,12 @@ export function ChatInterface({
             onSubmit={handlePromptSubmit}
             className="rounded-[2rem] transition-all duration-200 **:data-[slot=input-group]:h-auto **:data-[slot=input-group]:rounded-[2rem] **:data-[slot=input-group]:border **:data-[slot=input-group]:border-border/70 **:data-[slot=input-group]:bg-background/95 **:data-[slot=input-group]:px-2.5 **:data-[slot=input-group]:shadow-[inset_0_1px_0_hsl(var(--background)),0_8px_20px_-14px_hsl(var(--foreground)/0.45)] focus-within:**:data-[slot=input-group]:border-primary/50 focus-within:**:data-[slot=input-group]:shadow-[inset_0_1px_0_hsl(var(--background)),0_12px_28px_-14px_hsl(var(--foreground)/0.55)]"
           >
+            {/* text-base md:* is the codebase-wide input convention (see
+                ui/textarea.tsx): iOS Safari zooms the viewport when focusing an
+                input under 16px, so mobile keeps 16px and only desktop drops. */}
             <PromptInputTextarea
-              autoFocus
-              className="min-h-14 max-h-44 px-4 pt-4 pb-2 text-[15px] leading-6 placeholder:text-muted-foreground/80"
+              ref={composerRef}
+              className="min-h-14 max-h-44 px-4 pt-4 pb-2 text-base md:text-[15px] leading-6 placeholder:text-muted-foreground/80"
               enterKeyHint="send"
               placeholder={text.chat.placeholder}
             />
