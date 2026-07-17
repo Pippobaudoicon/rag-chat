@@ -234,6 +234,9 @@ export const UI_TEXT = {
         billingDisabledAction: "Abilita Billing in Clerk",
         manageSubscription: "Gestisci abbonamento",
         upgradeToPro: "Passa a Pro",
+        billingPeriod: "Periodo di fatturazione",
+        monthly: "Mensile",
+        annual: "Annuale",
       },
     },
     sources: {
@@ -532,6 +535,9 @@ export const UI_TEXT = {
         billingDisabledAction: "Enable Billing in Clerk",
         manageSubscription: "Manage subscription",
         upgradeToPro: "Upgrade to Pro",
+        billingPeriod: "Billing period",
+        monthly: "Monthly",
+        annual: "Annual",
       },
     },
     sources: {

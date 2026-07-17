@@ -44,7 +44,7 @@ Read this first before deep code exploration.
 - Semantic search endpoint (`/api/search`) for retrieval-only use cases.
 - Dedicated semantic search page (`/search`) for authenticated retrieval-only source inspection.
 - Subscription-aware Free/Pro entitlements through Clerk Billing.
-- Billing page with localized plan status, usage meters, and upgrade/manage actions.
+- Billing page with localized plan status, usage meters, monthly/annual checkout selection, and upgrade/manage actions.
 - Dedicated memory page (`/memory`) for authenticated users to review and refresh saved personalization memory.
 - Free-plan warning banner in chat when the user approaches the chat request limit.
 - Tool-assisted answer refinement for:

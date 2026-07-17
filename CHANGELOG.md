@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.12.28
+
+- **Monthly and annual Clerk Billing checkout.** The billing page now lets users choose the monthly or annual Pro billing period before opening Clerk Checkout. The existing Clerk plan ID and entitlement flow are unchanged.
+
 ## 0.12.27
 
 - **Navigation-safe chat generation.** A new conversation is now created on the first non-empty submit — not when the sidebar or `/chat` opens — and `POST /api/conversations` atomically persists the conversation plus the first user message (`title`, `initialMessage`) before returning `initialMessageId`. The row is immediately visible as pending (`generation_status=streaming`, no active turn yet), so changing route in the pre-claim window still shows in-progress work. `POST /api/chat` accepts only that current tail user row, avoiding duplicate writes and preventing an old identical message id from being replayed.
