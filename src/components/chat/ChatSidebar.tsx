@@ -1,11 +1,31 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, useTransition } from "react";
-import { flushSync } from "react-dom";
-import Image from "next/image";
-import { useRouter, usePathname } from "next/navigation";
-import { useUser, UserButton } from "@clerk/nextjs";
-import { BrainIcon, CircleHelpIcon, CreditCardIcon, EllipsisVerticalIcon, LoaderCircleIcon, PencilIcon, SearchIcon, Trash2Icon } from "lucide-react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useTransition,
+} from 'react';
+import { flushSync } from 'react-dom';
+
+import {
+  BadgeCheckIcon,
+  BrainIcon,
+  CircleHelpIcon,
+  CreditCardIcon,
+  EllipsisVerticalIcon,
+  LoaderCircleIcon,
+  PencilIcon,
+  SearchIcon,
+  Trash2Icon,
+} from 'lucide-react';
+import {
+  usePathname,
+  useRouter,
+} from 'next/navigation';
+
+import { Button } from '@/components/ui/button';
 import {
   Dialog,
   DialogContent,
@@ -13,24 +33,35 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog";
+} from '@/components/ui/dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { cn } from "@/lib/utils";
-import { useLanguage } from "./language-context";
-import { LanguageToggle } from "./LanguageToggle";
-import { uiText } from "./i18n";
-import { version } from "../../../package.json";
-import type { ChatGenerationStatus } from "@/lib/types";
-import { mergeRefreshedConversationFirstPage } from "@/lib/chat/client-lifecycle";
+} from '@/components/ui/dropdown-menu';
+import { Input } from '@/components/ui/input';
+import { Skeleton } from '@/components/ui/skeleton';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+import type { SubscriptionPlan } from '@/lib/billing/entitlements';
+import {
+  mergeRefreshedConversationFirstPage,
+} from '@/lib/chat/client-lifecycle';
+import type { ChatGenerationStatus } from '@/lib/types';
+import { cn } from '@/lib/utils';
+import {
+  UserButton,
+  useUser,
+} from '@clerk/nextjs';
+
+import { version } from '../../../package.json';
+import { uiText } from './i18n';
+import { useLanguage } from './language-context';
+import { LanguageToggle } from './LanguageToggle';
 
 const CONVERSATION_PAGE_SIZE = 20;
 const CONVERSATION_CACHE_TTL_MS = 2 * 60 * 1000;
@@ -67,6 +98,7 @@ interface ConversationUpdatedDetail {
 interface ChatSidebarProps {
   onClose?: () => void;
   showMobileClose?: boolean;
+  subscriptionPlan: SubscriptionPlan | null;
 }
 
 interface ConversationGroup {
@@ -194,7 +226,11 @@ function writeConversationCache(key: string, cache: ConversationCache) {
   }
 }
 
-export function ChatSidebar({ onClose, showMobileClose = false }: ChatSidebarProps) {
+export function ChatSidebar({
+  onClose,
+  showMobileClose = false,
+  subscriptionPlan,
+}: ChatSidebarProps) {
   const { language } = useLanguage();
   const text = uiText(language);
   const router = useRouter();
@@ -226,6 +262,8 @@ export function ChatSidebar({ onClose, showMobileClose = false }: ChatSidebarPro
   const hasActiveGeneration = conversations.some(
     (conversation) => conversation.generationStatus === "streaming"
   );
+  const subscriptionPlanLabel =
+    subscriptionPlan === "pro" ? text.billing.proPlan : text.billing.freePlan;
 
   useEffect(() => {
     conversationCountRef.current = conversations.length;
@@ -704,67 +742,94 @@ export function ChatSidebar({ onClose, showMobileClose = false }: ChatSidebarPro
 
       {/* Footer — account + language + memory + billing */}
       <div className="pb-safe border-t border-border/40 px-3 py-3">
-        <div className="flex min-w-0 items-center gap-2">
-          <div className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-lg px-2 text-muted-foreground">
-            <span className="shrink-0">
-              <UserButton>
-                <UserButton.MenuItems>
-                  <UserButton.Action
-                    label={text.onboarding.replayLabel}
-                    labelIcon={<CircleHelpIcon className="h-4 w-4" />}
-                    onClick={replayTutorial}
-                  />
-                </UserButton.MenuItems>
-              </UserButton>
+        <div className="flex min-w-0 items-center gap-2 rounded-lg px-2 py-1">
+          <span className="shrink-0">
+            <UserButton>
+              <UserButton.MenuItems>
+                <UserButton.Action
+                  label={text.onboarding.replayLabel}
+                  labelIcon={<CircleHelpIcon className="h-4 w-4" />}
+                  onClick={replayTutorial}
+                />
+              </UserButton.MenuItems>
+            </UserButton>
+          </span>
+          {subscriptionPlan ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <button
+                    type="button"
+                    aria-label={`${text.billing.currentPlan}: ${subscriptionPlanLabel}`}
+                    className={cn(
+                      "inline-flex shrink-0 items-center gap-1 rounded-full transition-colors",
+                      subscriptionPlan === "pro"
+                        ? "text-indigo-400 hover:bg-indigo-500/20"
+                        : "bg-muted/50 text-muted-foreground hover:bg-accent hover:text-foreground"
+                    )}
+                  >
+                    {subscriptionPlan === "pro" ? (
+                      <BadgeCheckIcon className="h-4 w-4 text-indigo-400" aria-hidden="true" />
+                    ) : null}
+                  </button>
+                }
+              />
+              <TooltipContent side="top" className="text-xs">
+                {`${text.billing.currentPlan}: ${subscriptionPlanLabel}`}
+              </TooltipContent>
+            </Tooltip>
+          ) : (
+            <Skeleton className="h-6 w-11 rounded-full" />
+          )}
+          <div className="ml-auto flex min-w-0 items-center gap-2">
+            {/* Language — desktop only; on mobile it lives in the top bar. */}
+            <LanguageToggle iconOnly className="hidden md:inline-flex" />
+            <span
+              data-tour="memory"
+              className="-m-1 flex shrink-0 rounded-xl border border-transparent p-1"
+            >
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <button
+                      type="button"
+                      onClick={() => {
+                        router.push("/memory");
+                        onClose?.();
+                      }}
+                      aria-label={text.memory.button}
+                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                    >
+                      <BrainIcon className="h-4 w-4" />
+                    </button>
+                  }
+                />
+                <TooltipContent side="top" className="text-xs">
+                  {text.memory.button}
+                </TooltipContent>
+              </Tooltip>
             </span>
-          </div>
-          {/* Language — desktop only; on mobile it lives in the top bar. */}
-          <LanguageToggle iconOnly className="hidden md:inline-flex" />
-          <span
-            data-tour="memory"
-            className="-m-1 flex shrink-0 rounded-xl border border-transparent p-1"
-          >
             <Tooltip>
               <TooltipTrigger
                 render={
                   <button
                     type="button"
                     onClick={() => {
-                      router.push("/memory");
+                      router.push("/billing");
                       onClose?.();
                     }}
-                    aria-label={text.memory.button}
+                    aria-label={text.billing.title}
                     className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                   >
-                    <BrainIcon className="h-4 w-4" />
+                    <CreditCardIcon className="h-4 w-4" />
                   </button>
                 }
               />
               <TooltipContent side="top" className="text-xs">
-                {text.memory.button}
+                {text.billing.title}
               </TooltipContent>
             </Tooltip>
-          </span>
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <button
-                  type="button"
-                  onClick={() => {
-                    router.push("/billing");
-                    onClose?.();
-                  }}
-                  aria-label={text.billing.title}
-                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                >
-                  <CreditCardIcon className="h-4 w-4" />
-                </button>
-              }
-            />
-            <TooltipContent side="top" className="text-xs">
-              {text.billing.title}
-            </TooltipContent>
-          </Tooltip>
+          </div>
         </div>
       </div>
 

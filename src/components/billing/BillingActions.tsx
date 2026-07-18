@@ -4,6 +4,7 @@ import { useState } from "react";
 import { CheckoutButton, SubscriptionDetailsButton } from "@clerk/nextjs/experimental";
 import { CreditCardIcon, ExternalLinkIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useBillingOverview } from "@/components/billing/BillingContext";
 
 type BillingPeriod = "month" | "annual";
 
@@ -27,6 +28,10 @@ const CHECKOUT_PLAN_ID = PRO_PLAN_ID ?? PRO_PLAN_KEY;
 
 export function BillingActions({ isPro, disabledReason, labels }: BillingActionsProps) {
   const [period, setPeriod] = useState<BillingPeriod>("month");
+  const { refreshBillingOverview } = useBillingOverview();
+  const refreshAfterBillingChange = () => {
+    void refreshBillingOverview({ force: true });
+  };
 
   if (!CHECKOUT_PLAN_ID || disabledReason) {
     return (
@@ -41,7 +46,7 @@ export function BillingActions({ isPro, disabledReason, labels }: BillingActions
 
   if (isPro) {
     return (
-      <SubscriptionDetailsButton>
+      <SubscriptionDetailsButton onSubscriptionCancel={refreshAfterBillingChange}>
         <Button variant="outline">
           <CreditCardIcon />
           {labels.manageSubscription}
@@ -76,7 +81,11 @@ export function BillingActions({ isPro, disabledReason, labels }: BillingActions
           );
         })}
       </div>
-      <CheckoutButton planId={CHECKOUT_PLAN_ID} planPeriod={period}>
+      <CheckoutButton
+        planId={CHECKOUT_PLAN_ID}
+        planPeriod={period}
+        onSubscriptionComplete={refreshAfterBillingChange}
+      >
         <Button>
           <ExternalLinkIcon />
           {labels.upgradeToPro}

@@ -9,6 +9,10 @@ import { LanguageToggle } from "@/components/chat/LanguageToggle";
 import { useLanguage } from "@/components/chat/language-context";
 import { uiText } from "@/components/chat/i18n";
 import { OnboardingTour } from "@/components/onboarding/OnboardingTour";
+import {
+  BillingProvider,
+  useBillingOverview,
+} from "@/components/billing/BillingContext";
 
 const Sheet = lazy(() =>
   import("@/components/ui/sheet").then((m) => ({ default: m.Sheet }))
@@ -27,9 +31,11 @@ const OPEN_SWIPE_HORIZONTAL_RATIO = 1.5; // |dx| must dominate |dy| by this fact
 
 export function AppShell({ children }: AppShellProps) {
   return (
-    <LanguageProvider>
-      <AppShellContent>{children}</AppShellContent>
-    </LanguageProvider>
+    <BillingProvider>
+      <LanguageProvider>
+        <AppShellContent>{children}</AppShellContent>
+      </LanguageProvider>
+    </BillingProvider>
   );
 }
 
@@ -38,7 +44,13 @@ function AppShellContent({ children }: AppShellProps) {
   const [tourOwnsSidebar, setTourOwnsSidebar] = useState(false);
   const router = useRouter();
   const { language } = useLanguage();
+  const { billingOverview } = useBillingOverview();
   const text = uiText(language);
+  const subscriptionPlan =
+    billingOverview &&
+    (billingOverview.plan === "pro" || billingOverview.billingStatus !== "unavailable")
+      ? billingOverview.plan
+      : null;
   const swipeStartRef = useRef<
     | {
         x: number;
@@ -146,7 +158,7 @@ function AppShellContent({ children }: AppShellProps) {
     <div className="app-shell-height flex w-full overflow-hidden bg-background overscroll-none">
       {/* Desktop sidebar — fixed, always visible */}
       <aside className="hidden md:flex w-64 shrink-0 flex-col">
-        <ChatSidebar />
+        <ChatSidebar subscriptionPlan={subscriptionPlan} />
       </aside>
 
       {/* Main column: mobile top bar + page content */}
@@ -210,6 +222,7 @@ function AppShellContent({ children }: AppShellProps) {
                   <ChatSidebar
                     onClose={() => setMobileOpen(false)}
                     showMobileClose
+                    subscriptionPlan={subscriptionPlan}
                   />
                 </SidebarSwipeClose>
               </SheetContent>

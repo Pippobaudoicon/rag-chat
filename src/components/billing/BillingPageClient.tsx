@@ -1,11 +1,24 @@
 "use client";
 
-import { CheckIcon, GaugeIcon, MessageSquareIcon, SearchIcon, SparklesIcon } from "lucide-react";
-import { BillingActions } from "@/components/billing/BillingActions";
-import { UI_LANGUAGE_BCP47, useLanguage } from "@/components/chat/language-context";
-import { uiText } from "@/components/chat/i18n";
-import type { BillingEntitlements } from "@/lib/billing/entitlements";
-import type { BillingUsageSnapshot, BillingUsageSummary } from "@/lib/billing/usage";
+import {
+  CheckIcon,
+  GaugeIcon,
+  MessageSquareIcon,
+  SearchIcon,
+  SparklesIcon,
+} from 'lucide-react';
+
+import { BillingActions } from '@/components/billing/BillingActions';
+import { uiText } from '@/components/chat/i18n';
+import {
+  UI_LANGUAGE_BCP47,
+  useLanguage,
+} from '@/components/chat/language-context';
+import type { BillingEntitlements } from '@/lib/billing/entitlements';
+import type {
+  BillingUsageSnapshot,
+  BillingUsageSummary,
+} from '@/lib/billing/usage';
 
 type BillingPageClientProps = {
   entitlements: BillingEntitlements;
@@ -14,7 +27,7 @@ type BillingPageClientProps = {
 
 function formatDate(value: number | null, locale: string): string | null {
   if (!value) return null;
-  return new Intl.DateTimeFormat(locale, { month: "short", day: "numeric" }).format(new Date(value));
+  return new Intl.DateTimeFormat(locale, { month: "short", day: "numeric", year: "numeric" }).format(new Date(value));
 }
 
 function usageTone(percentUsed: number) {

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.12.35
+
+- **Visible Pro account badge.** The desktop and mobile sidebar account row now shows an Instagram-style plan flag beside the account avatar: a warm gold, checked `Pro` badge.The footer keeps the account, plan, language, memory, and billing controls on one line without displaying the user's name. The plan badge uses the shared app tooltip and has no visible border. A shared app-level billing context supplies the badge and existing chat usage warnings with one deduplicated, order-safe request. The badge opens `/billing`; Clerk's checkout-complete and subscription-cancel callbacks bypass the short-lived entitlement cache so a changed plan appears immediately without refreshing on ordinary window focus. While the plan is loading or Clerk billing is unavailable, a skeleton is shown instead
+
 ## 0.12.34
 
 - **Composer focus waits for the new-chat screen.** Removed the serialized `autoFocus` attribute that could open the mobile keyboard while the route loading UI was still visible. Mount-driven new-chat focus now runs after `ChatInterface` has painted, while an explicit New Chat action closes the mobile drawer and synchronously commits the blank-chat state before focusing inside the initiating gesture. The keyboard therefore opens over the ready composer instead of the previous conversation or loading skeleton.

@@ -41,6 +41,12 @@ Validation command:
 npm run docs:guard
 ```
 
+## Browser Verification
+
+Do not attempt automated browser verification for ChatLDS. The authenticated app
+is behind Clerk and the user performs browser/UI verification manually. Use
+typecheck, build, targeted tests, and docs guard for agent-side validation.
+
 # Karpathy Guidelines
 
 **Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.

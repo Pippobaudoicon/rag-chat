@@ -48,8 +48,7 @@ import {
 } from "@/lib/rag/system-prompt";
 import { useLanguage } from "./language-context";
 import { uiText } from "./i18n";
-import type { BillingEntitlements } from "@/lib/billing/entitlements";
-import type { BillingUsageSummary } from "@/lib/billing/usage";
+import { useBillingOverview } from "@/components/billing/BillingContext";
 import type { OnboardingStatus } from "@/lib/onboarding/steps";
 import {
   CHAT_GENERATION_CLAIM_TIMEOUT_MS,
@@ -73,7 +72,6 @@ interface ChatInterfaceProps {
   resumeStreamEnabled?: boolean;
 }
 
-type BillingOverview = BillingEntitlements & { usage: BillingUsageSummary };
 type EnsuredConversation = { id: string; initialMessageId?: number };
 
 const WAITING_PHRASE_INTERVAL_MS = 3400;
@@ -157,6 +155,7 @@ export function ChatInterface({
   const { user } = useUser();
   const router = useRouter();
   const { language } = useLanguage();
+  const { billingOverview, refreshBillingOverview } = useBillingOverview();
   const text = uiText(language);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const isEmptyNewChat =
@@ -268,7 +267,6 @@ export function ChatInterface({
     useState<ChatGenerationStatus>(initialGenerationStatus);
   const [resolvedConversationId, setResolvedConversationId] =
     useState<string | undefined>(initialConversationId);
-  const [billingOverview, setBillingOverview] = useState<BillingOverview | null>(null);
   const [waitingPhraseIndex, setWaitingPhraseIndex] = useState(0);
   const [messageVersions, setMessageVersions] = useState<Record<string, AssistantVersion[]>>(
     initialMessageVersions
@@ -421,16 +419,6 @@ export function ChatInterface({
     (chatUsage.percentUsed >= 75 || chatUsage.remaining <= 5);
   const composerStatus = isStreaming ? "submitted" : status;
 
-  const refreshBillingOverview = useCallback(async () => {
-    try {
-      const response = await fetch("/api/billing/subscription", { cache: "no-store" });
-      if (!response.ok) return;
-      setBillingOverview((await response.json()) as BillingOverview);
-    } catch {
-      // Billing status should not interrupt chat.
-    }
-  }, []);
-
   const ensureConversation = useCallback(async (initialTurn?: {
     title: string;
     message: string;
@@ -495,10 +483,6 @@ export function ChatInterface({
   useEffect(() => {
     localStorage.setItem("chat:search-scope", searchScope);
   }, [searchScope]);
-
-  useEffect(() => {
-    void refreshBillingOverview();
-  }, [refreshBillingOverview]);
 
   useEffect(() => {
     if (!isStreaming || waitingPhrases.length <= 1) return;

@@ -55,6 +55,14 @@ Read this first before deep code exploration.
 - Semantic search endpoint (`/api/search`) for retrieval-only use cases.
 - Dedicated semantic search page (`/search`) for authenticated retrieval-only source inspection.
 - Subscription-aware Free/Pro entitlements through Clerk Billing.
+- The sidebar account row always shows the confirmed subscription tier beside
+  the account avatar: a gold Pro badge or a neutral, explicit Free badge. The
+  account, plan, language, memory, and billing controls remain on one line
+  without displaying the user's name. The badge uses the shared app tooltip,
+  has no visible border, and links to `/billing`; while entitlements are
+  loading or unavailable it shows a skeleton rather than mislabeling the user.
+  A shared app-level billing context supplies both this badge and chat usage
+  warnings without duplicate requests.
 - Billing page with localized plan status, usage meters, monthly/annual checkout selection, and upgrade/manage actions.
 - Dedicated memory page (`/memory`) for authenticated users to review and refresh saved personalization memory.
 - Free-plan warning banner in chat when the user approaches the chat request limit.
@@ -154,6 +162,9 @@ Read this first before deep code exploration.
 - `GET /api/billing/subscription`
   - Auth required.
   - Returns normalized Free/Pro entitlements from Clerk Billing plus Redis-backed usage snapshots.
+  - Optional `?refresh=1` clears the current user's short-lived entitlement
+    cache before resolving. Clerk's checkout-complete and subscription-cancel
+    callbacks use it so the badge reflects a billing change immediately.
 - `GET /api/memory`
   - Auth required.
   - Returns the current user's saved profile memory, weekly/monthly rollups, and recent-conversation memory.
@@ -546,6 +557,7 @@ Reference template: `.env.example`.
   - `src/lib/db/index.ts`
   - `drizzle.config.ts`
 - Billing:
+  - `src/components/billing/BillingContext.tsx`
   - `src/lib/billing/entitlements.ts`
   - `src/lib/billing/usage.ts`
   - `src/app/(app)/billing/page.tsx`
