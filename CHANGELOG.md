@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.12.36
+
+- **Billing refreshes only after real chat completions.** Opening or switching between saved chat histories no longer calls `/api/billing/subscription` merely because `ChatInterface` mounted in the ready state. The shared billing overview now refreshes from AI SDK's successful `onFinish` lifecycle callback, preserving up-to-date usage after generated responses without history-navigation traffic.
+
 ## 0.12.35
 
 - **Visible Pro account badge.** The desktop and mobile sidebar account row now shows an Instagram-style plan flag beside the account avatar: a warm gold, checked `Pro` badge.The footer keeps the account, plan, language, memory, and billing controls on one line without displaying the user's name. The plan badge uses the shared app tooltip and has no visible border. A shared app-level billing context supplies the badge and existing chat usage warnings with one deduplicated, order-safe request. The badge opens `/billing`; Clerk's checkout-complete and subscription-cancel callbacks bypass the short-lived entitlement cache so a changed plan appears immediately without refreshing on ordinary window focus. While the plan is loading or Clerk billing is unavailable, a skeleton is shown instead

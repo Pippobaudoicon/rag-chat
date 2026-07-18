@@ -390,6 +390,7 @@ export function ChatInterface({
         );
       }
       window.dispatchEvent(new CustomEvent("chat:conversations-changed"));
+      void refreshBillingOverview();
     },
   });
 
@@ -901,8 +902,7 @@ export function ChatInterface({
     if (status !== "ready") return;
     setChatProgress(null);
     setWaitingPhraseIndex(0);
-    void refreshBillingOverview();
-  }, [refreshBillingOverview, status]);
+  }, [status]);
 
   return (
     <div className="flex flex-col h-full min-h-0">

@@ -1,6 +1,6 @@
 # ChatLDS Project Knowledge Base
 
-Last updated: 2026-07-17
+Last updated: 2026-07-18
 
 This document is the single source of truth for project context.
 Read this first before deep code exploration.
@@ -62,7 +62,8 @@ Read this first before deep code exploration.
   has no visible border, and links to `/billing`; while entitlements are
   loading or unavailable it shows a skeleton rather than mislabeling the user.
   A shared app-level billing context supplies both this badge and chat usage
-  warnings without duplicate requests.
+  warnings without duplicate requests. Chat usage refreshes after successful
+  AI SDK completions, not when saved histories mount already ready.
 - Billing page with localized plan status, usage meters, monthly/annual checkout selection, and upgrade/manage actions.
 - Dedicated memory page (`/memory`) for authenticated users to review and refresh saved personalization memory.
 - Free-plan warning banner in chat when the user approaches the chat request limit.
