@@ -51,6 +51,7 @@ export const UI_TEXT = {
       cancel: "Annulla",
       save: "Salva",
       saving: "Salvataggio...",
+      loadingPage: "Caricamento...",
     },
     language: {
       selectLabel: "Lingua interfaccia",
@@ -352,6 +353,7 @@ export const UI_TEXT = {
       cancel: "Cancel",
       save: "Save",
       saving: "Saving...",
+      loadingPage: "Loading...",
     },
     language: {
       selectLabel: "Interface language",

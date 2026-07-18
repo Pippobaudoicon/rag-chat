@@ -1,8 +1,9 @@
 "use client";
 
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { LoaderCircleIcon } from "lucide-react";
 import Image from "next/image";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { ChatSidebar } from "@/components/chat/ChatSidebar";
 import { LanguageProvider } from "@/components/chat/language-context";
 import { LanguageToggle } from "@/components/chat/LanguageToggle";
@@ -42,7 +43,9 @@ export function AppShell({ children }: AppShellProps) {
 function AppShellContent({ children }: AppShellProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [tourOwnsSidebar, setTourOwnsSidebar] = useState(false);
+  const [navigationPending, setNavigationPending] = useState(false);
   const router = useRouter();
+  const pathname = usePathname();
   const { language } = useLanguage();
   const { billingOverview } = useBillingOverview();
   const text = uiText(language);
@@ -59,6 +62,22 @@ function AppShellContent({ children }: AppShellProps) {
       }
     | null
   >(null);
+
+  useEffect(() => {
+    const handleNavigationStart = () => setNavigationPending(true);
+    window.addEventListener("app:navigation-start", handleNavigationStart);
+    return () => window.removeEventListener("app:navigation-start", handleNavigationStart);
+  }, []);
+
+  useEffect(() => {
+    setNavigationPending(false);
+  }, [pathname]);
+
+  useEffect(() => {
+    if (!navigationPending) return;
+    const timeout = window.setTimeout(() => setNavigationPending(false), 15000);
+    return () => window.clearTimeout(timeout);
+  }, [navigationPending]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -162,7 +181,7 @@ function AppShellContent({ children }: AppShellProps) {
       </aside>
 
       {/* Main column: mobile top bar + page content */}
-      <main className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
+      <main className="relative flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
         {/* Mobile top bar — participates in flex layout (no absolute) so it
             cannot overlap the language selector or the notch. */}
         <header
@@ -231,6 +250,22 @@ function AppShellContent({ children }: AppShellProps) {
         </div>
 
         <div className="flex-1 min-h-0 overflow-hidden">{children}</div>
+
+        {navigationPending ? (
+          <div
+            role="status"
+            aria-live="polite"
+            className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center bg-background/70 backdrop-blur-[2px]"
+          >
+            <div className="flex items-center gap-2 rounded-full border border-border/60 bg-card/95 px-3 py-2 text-xs font-medium text-foreground shadow-xl">
+              <LoaderCircleIcon
+                className="h-4 w-4 animate-spin text-indigo-400"
+                aria-hidden="true"
+              />
+              <span>{text.sidebar.loadingPage}</span>
+            </div>
+          </div>
+        ) : null}
       </main>
 
       <OnboardingTour />

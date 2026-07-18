@@ -458,11 +458,17 @@ export function ChatSidebar({
   }
 
   function handleSearch() {
+    if (isSearchActive) {
+      onClose?.();
+      return;
+    }
+
     setPendingId(null);
     setCurrentPath("/search");
+    window.dispatchEvent(new CustomEvent("app:navigation-start"));
+    onClose?.();
     startTransition(() => {
       router.push("/search");
-      onClose?.();
     });
   }
 
@@ -471,6 +477,20 @@ export function ChatSidebar({
     startTransition(() => {
       router.push(`/chat/${id}`);
       onClose?.();
+    });
+  }
+
+  function handlePageNavigation(path: "/memory" | "/billing") {
+    if (currentPath === path) {
+      onClose?.();
+      return;
+    }
+
+    setPendingId(null);
+    window.dispatchEvent(new CustomEvent("app:navigation-start"));
+    onClose?.();
+    startTransition(() => {
+      router.push(path);
     });
   }
 
@@ -624,6 +644,8 @@ export function ChatSidebar({
           <button
             type="button"
             onClick={handleSearch}
+            onPointerEnter={() => router.prefetch("/search")}
+            onFocus={() => router.prefetch("/search")}
             disabled={isPending}
             aria-label={text.sidebar.search}
             title={text.sidebar.search}
@@ -793,12 +815,12 @@ export function ChatSidebar({
                   render={
                     <button
                       type="button"
-                      onClick={() => {
-                        router.push("/memory");
-                        onClose?.();
-                      }}
+                      onClick={() => handlePageNavigation("/memory")}
+                      onPointerEnter={() => router.prefetch("/memory")}
+                      onFocus={() => router.prefetch("/memory")}
+                      disabled={isPending}
                       aria-label={text.memory.button}
-                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50"
                     >
                       <BrainIcon className="h-4 w-4" />
                     </button>
@@ -814,12 +836,12 @@ export function ChatSidebar({
                 render={
                   <button
                     type="button"
-                    onClick={() => {
-                      router.push("/billing");
-                      onClose?.();
-                    }}
+                    onClick={() => handlePageNavigation("/billing")}
+                    onPointerEnter={() => router.prefetch("/billing")}
+                    onFocus={() => router.prefetch("/billing")}
+                    disabled={isPending}
                     aria-label={text.billing.title}
-                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50"
                   >
                     <CreditCardIcon className="h-4 w-4" />
                   </button>

@@ -66,6 +66,9 @@ Read this first before deep code exploration.
   AI SDK completions, not when saved histories mount already ready.
 - Billing page with localized plan status, usage meters, monthly/annual checkout selection, and upgrade/manage actions.
 - Dedicated memory page (`/memory`) for authenticated users to review and refresh saved personalization memory.
+- Search, Memory, and Billing navigation provides immediate sidebar-driven loading
+  feedback, hover/focus prefetching, and route-level skeletons while the target
+  route renders.
 - Free-plan warning banner in chat when the user approaches the chat request limit.
 - Tool-assisted answer refinement for:
   - scripture passage lookup

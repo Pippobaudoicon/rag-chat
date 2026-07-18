@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.12.38
+
+- **Responsive Search navigation.** Search now uses the same immediate app-shell loading overlay, hover/focus route prefetching, and App Router `loading.tsx` skeleton as Memory and Billing, so first-time navigation receives immediate visual feedback.
+
+## 0.12.37
+
+- **Responsive Memory and Billing navigation.** Sidebar navigation now acknowledges route changes immediately with a lightweight overlay, manually prefetches Memory and Billing on hover or focus, and uses dedicated App Router `loading.tsx` skeletons while their authenticated server data resolves. This also masks first-visit development compilation delays without changing the existing chat-history loading skeleton.
+
 ## 0.12.36
 
 - **Billing refreshes only after real chat completions.** Opening or switching between saved chat histories no longer calls `/api/billing/subscription` merely because `ChatInterface` mounted in the ready state. The shared billing overview now refreshes from AI SDK's successful `onFinish` lifecycle callback, preserving up-to-date usage after generated responses without history-navigation traffic.
