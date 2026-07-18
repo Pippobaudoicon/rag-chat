@@ -22,10 +22,10 @@ const LanguageContext = createContext<LanguageContextValue | null>(null);
 // static SSR default, so it is synced after mount) and `Intl` locales. Bare
 // subtags resolve to the same defaults as "it-IT" / "en-US" for our formats.
 export const UI_LANGUAGE_BCP47: Record<UiLanguage, string> = {
-  ita: "it",
   eng: "en",
-  fra: "fr",
+  ita: "it",
   spa: "es",
+  fra: "fr",
   por: "pt",
   deu: "de",
 };

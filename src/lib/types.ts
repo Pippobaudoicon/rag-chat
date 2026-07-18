@@ -19,10 +19,10 @@ export type Language = CorpusLanguage;
 export type ChatGenerationStatus = "idle" | "streaming" | "complete" | "error";
 export const INDEXED_LANGUAGES: CorpusLanguage[] = ["ita", "eng"];
 export const SUPPORTED_UI_LANGUAGES: UiLanguage[] = [
-  "ita",
   "eng",
-  "fra",
+  "ita",
   "spa",
+  "fra",
   "por",
   "deu",
 ];
@@ -61,19 +61,19 @@ export const SUPER_SOURCES: SourceType[] = [
   "gospel_youth",
 ];
 
-export const SOURCE_LABELS: Record<SourceType, { it: string; en: string }> = {
-  scriptures: { it: "Scritture", en: "Scriptures" },
-  conference: { it: "Conferenza", en: "Conference" },
-  handbook: { it: "Manuale", en: "Handbook" },
-  study_helps: { it: "Sussidi per lo studio", en: "Study Helps" },
-  gospel_topics: { it: "Argomenti", en: "Topics" },
-  gospel_selfreliance: { it: "Autosufficienza", en: "Self-Reliance" },
-  gospel_teachings: { it: "Insegnamenti", en: "Teachings" },
-  gospel_other: { it: "Altro", en: "Other" },
-  gospel_music: { it: "Musica", en: "Music" },
-  gospel_study: { it: "Studio", en: "Study" },
-  gospel_history: { it: "Storia", en: "History" },
-  gospel_youth: { it: "Giovani", en: "Youth" },
+export const SOURCE_LABELS: Record<SourceType, { it: string; en: string; es: string }> = {
+  scriptures: { it: "Scritture", en: "Scriptures", es: "Escrituras" },
+  conference: { it: "Conferenza", en: "Conference", es: "Conferencia" },
+  handbook: { it: "Manuale", en: "Handbook", es: "Manual" },
+  study_helps: { it: "Sussidi per lo studio", en: "Study Helps", es: "Ayudas para el estudio" },
+  gospel_topics: { it: "Argomenti", en: "Topics", es: "Temas" },
+  gospel_selfreliance: { it: "Autosufficienza", en: "Self-Reliance", es: "Autosuficiencia" },
+  gospel_teachings: { it: "Insegnamenti", en: "Teachings", es: "Enseñanzas" },
+  gospel_other: { it: "Altro", en: "Other", es: "Otros" },
+  gospel_music: { it: "Musica", en: "Music", es: "Música" },
+  gospel_study: { it: "Studio", en: "Study", es: "Estudio" },
+  gospel_history: { it: "Storia", en: "History", es: "Historia" },
+  gospel_youth: { it: "Giovani", en: "Youth", es: "Jóvenes" },
 };
 
 export const SOURCE_COLORS: Record<SourceType, string> = {

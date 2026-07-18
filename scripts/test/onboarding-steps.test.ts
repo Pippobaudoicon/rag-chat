@@ -50,9 +50,10 @@ check(
   nextStatusOnSkip() !== "pending" && nextStatusOnFinish() !== "pending"
 );
 
-// ── Language fallback (IT/EN authored; others inherit English) ────────────────
+// ── Language fallback (IT/EN/ES authored; others inherit English) ─────────────
 check("italian → ita", onboardingLanguage("ita") === "ita");
 check("english → eng", onboardingLanguage("eng") === "eng");
+check("spanish → spa", onboardingLanguage("spa") === "spa");
 check("french falls back to eng", onboardingLanguage("fra") === "eng");
 check("german falls back to eng", onboardingLanguage("deu") === "eng");
 

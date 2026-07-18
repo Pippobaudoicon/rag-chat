@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.12.39
+
+- **Spanish UI translations.** Selecting Español now localizes the complete interface, including chat, Search, Billing, Memory, source labels, loading feedback, and onboarding. Italian, English, and Spanish have authored UI copy; French, Portuguese, and German continue to fall back to English.
+
 ## 0.12.38
 
 - **Responsive Search navigation.** Search now uses the same immediate app-shell loading overlay, hover/focus route prefetching, and App Router `loading.tsx` skeleton as Memory and Billing, so first-time navigation receives immediate visual feedback.

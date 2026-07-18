@@ -99,9 +99,11 @@ export function coerceOnboardingStatus(value: unknown): OnboardingStatus {
 }
 
 /**
- * Onboarding copy is only authored in Italian and English (matching the rest of
- * the app); every other UI language inherits English. Mirrors `uiText()`.
+ * Onboarding copy is authored in Italian, English, and Spanish; every other UI
+ * language inherits English. Mirrors `uiText()`.
+ * //TODO: temporarily hardcode the three languages that have onboarding copy, until we have all the copy translated into all languages. Then we can remove this function and just use the `language` directly.
  */
-export function onboardingLanguage(language: UiLanguage): "ita" | "eng" {
-  return language === "ita" ? "ita" : "eng";
+export function onboardingLanguage(language: UiLanguage): "ita" | "eng" | "spa" {
+  if (language === "ita" || language === "spa") return language;
+  return "eng";
 }

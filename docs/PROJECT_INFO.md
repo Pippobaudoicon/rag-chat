@@ -36,7 +36,7 @@ Read this first before deep code exploration.
   - `Standard` — sends `ALL_SOURCES` (scriptures, conference, handbook, study_helps, topics); the model may narrow *within* this scope.
   - `Super` — sends `SUPER_SOURCES` (every Pinecone namespace). Persisted to `localStorage` under `chat:search-scope`.
   - The `/search` console keeps the full per-source `SettingsPanel` for debugging.
-- Language selector: UI-only language preference. Current selectable UI languages are Italian, English, French, Spanish, Portuguese, and German; non-translated UI copy falls back to English.
+- Language selector: UI-only language preference. Current selectable UI languages are Italian, English, French, Spanish, Portuguese, and German. Italian, English, and Spanish have complete UI translations; French, Portuguese, and German currently fall back to English.
 - Installable PWA: web manifest (`src/app/manifest.ts`), service worker
   (`public/sw.js` — network-first navigation with an offline `/chat` fallback,
   stale-while-revalidate for static assets), and install prompts
