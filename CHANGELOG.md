@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.12.40
+
+- **Clear response-style picker states.** Opening the response-style menu no longer makes its first programmatically focused row look hovered when it is not selected. Pointer hover now owns the hover surface and text treatment, keyboard navigation retains a separate visible focus ring, and the active style has a persistent indigo tint and inset border in addition to its check icon.
+
 ## 0.12.39
 
 - **Spanish UI translations.** Selecting Español now localizes the complete interface, including chat, Search, Billing, Memory, source labels, loading feedback, and onboarding. Italian, English, and Spanish have authored UI copy; French, Portuguese, and German continue to fall back to English.

@@ -1,18 +1,27 @@
 "use client";
 
-import { ChevronDownIcon, GraduationCapIcon, Minimize2Icon, ScaleIcon, SproutIcon, StarIcon } from "lucide-react";
-import type { LucideIcon } from "lucide-react";
+import type { LucideIcon } from 'lucide-react';
+import {
+  ChevronDownIcon,
+  GraduationCapIcon,
+  Minimize2Icon,
+  ScaleIcon,
+  SproutIcon,
+  StarIcon,
+} from 'lucide-react';
+
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { RESPONSE_STYLE_IDS } from "@/lib/rag/system-prompt";
-import type { ResponseStyleId } from "@/lib/rag/system-prompt";
-import type { UiLanguage } from "@/lib/types";
-import { uiText } from "./i18n";
+} from '@/components/ui/dropdown-menu';
+import type { ResponseStyleId } from '@/lib/rag/system-prompt';
+import { RESPONSE_STYLE_IDS } from '@/lib/rag/system-prompt';
+import type { UiLanguage } from '@/lib/types';
+
+import { uiText } from './i18n';
 
 // A small, distinct glyph per style so the trigger and menu read as "designed"
 // rather than a generic dropdown: scales = balanced, cap = scholar, sprout =
@@ -73,18 +82,27 @@ export function ResponseStylePicker({
           {RESPONSE_STYLE_IDS.map((id) => {
             const Icon = STYLE_ICONS[id];
             const isRowDefault = id === defaultStyle;
+            const isSelected = id === value;
             return (
               <DropdownMenuRadioItem
                 key={id}
                 value={id}
-                className="group/row relative cursor-pointer items-start gap-2 py-1.5 pr-8"
+                highlightOnFocus={false}
+                className={`group/row relative cursor-pointer items-start gap-2 py-1.5 pr-8 transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-400/60 ${
+                  isSelected
+                    ? "bg-indigo-500/10 text-foreground ring-1 ring-inset ring-indigo-500/30"
+                    : ""
+                }`}
               >
-                <Icon size={14} className="mt-0.5 shrink-0 text-indigo-300/80" />
+                <Icon
+                  size={14}
+                  className="mt-0.5 shrink-0 text-indigo-300/80 transition-colors group-hover/row:text-accent-foreground"
+                />
                 <span className="flex flex-col gap-0.5">
                   <span className="text-sm font-medium leading-none">
                     {styles[id].label}
                   </span>
-                  <span className="text-[11px] leading-snug text-muted-foreground">
+                  <span className="text-[11px] leading-snug text-muted-foreground transition-colors group-hover/row:text-accent-foreground">
                     {styles[id].description}
                   </span>
                 </span>

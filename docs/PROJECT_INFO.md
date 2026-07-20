@@ -451,7 +451,10 @@ Notes:
   `buildSystemPrompt(effectiveStyle)`. The chat composer toolbar exposes a
   compact `ResponseStylePicker` dropdown with the 4 styles plus a "set as
   default" action (`PUT /api/settings`); changing the style mid-conversation
-  persists via `PATCH /api/conversations/[id]`. (The `/search` console still
+  persists via `PATCH /api/conversations/[id]`. Its radio rows keep the selected
+  style visibly tinted and bordered in addition to the check; opening the menu
+  does not paint the first programmatically focused row as hovered. Pointer hover
+  and keyboard focus use separate visual treatments. (The `/search` console still
   renders `ResponseStylePicker` inside `SettingsPanel`.)
 
 ## 8) Environment variables
