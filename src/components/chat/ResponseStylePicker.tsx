@@ -51,13 +51,13 @@ export function ResponseStylePicker({
         data-tour="response-style"
         disabled={disabled}
         aria-label={text.settings.responseStyleAria}
-        className="group inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border/50 bg-transparent px-2 py-0.5 text-xs font-medium text-muted-foreground transition-colors hover:border-border hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-indigo-500/40 disabled:cursor-not-allowed disabled:opacity-50 data-[popup-open]:border-indigo-500/30 data-[popup-open]:text-foreground"
+        className="group inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border/50 bg-transparent px-2 py-0.5 text-xs font-medium text-muted-foreground transition-colors hover:border-border hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-indigo-500/40 disabled:cursor-not-allowed disabled:opacity-50 data-popup-open:border-indigo-500/30 data-popup-open:text-foreground"
       >
         <ActiveIcon size={12} className="text-indigo-300/80" />
         <span className="hidden sm:inline">{styles[value].label}</span>
         <ChevronDownIcon
           size={11}
-          className="opacity-50 transition-transform group-data-[popup-open]:rotate-180"
+          className="opacity-50 transition-transform group-data-popup-open:rotate-180"
         />
       </DropdownMenuTrigger>
 
