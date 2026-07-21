@@ -30,7 +30,7 @@ Apply schema changes safely using Drizzle in this project and verify the app sti
 2. Generate migration files.
 - Run:
 ```bash
-npx dotenv -e .env.local -- drizzle-kit generate
+pnpm exec dotenv -e .env.local -- drizzle-kit generate
 ```
 - Expected output: new SQL file in ./migrations and updated ./migrations/meta files.
 
@@ -41,13 +41,13 @@ npx dotenv -e .env.local -- drizzle-kit generate
 4. Apply migration.
 - Local/staging/prod command:
 ```bash
-npx dotenv -e .env.local -- drizzle-kit migrate
+pnpm exec dotenv -e .env.local -- drizzle-kit migrate
 ```
 
 5. Validate application health.
 - Build check:
 ```bash
-npm run build
+pnpm run build
 ```
 - If feature-specific API was added, do one smoke request for that API.
 

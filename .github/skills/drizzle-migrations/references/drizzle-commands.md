@@ -4,15 +4,15 @@ Run from rag-chat root.
 
 ## Core
 ```bash
-npx dotenv -e .env.local -- drizzle-kit generate
-npx dotenv -e .env.local -- drizzle-kit migrate
+pnpm exec dotenv -e .env.local -- drizzle-kit generate
+pnpm exec dotenv -e .env.local -- drizzle-kit migrate
 ```
 
 ## Optional
 ```bash
-npx dotenv -e .env.local -- drizzle-kit check
-npx dotenv -e .env.local -- drizzle-kit studio
-npx dotenv -e .env.local -- drizzle-kit push
+pnpm exec dotenv -e .env.local -- drizzle-kit check
+pnpm exec dotenv -e .env.local -- drizzle-kit studio
+pnpm exec dotenv -e .env.local -- drizzle-kit push
 ```
 
 ## Typical Sequence
@@ -20,7 +20,7 @@ npx dotenv -e .env.local -- drizzle-kit push
 2. generate
 3. review SQL in migrations/
 4. migrate
-5. npm run build
+5. pnpm run build
 
 ## Common Failure Modes
 - DATABASE_URL missing: verify .env.local and dotenv command.

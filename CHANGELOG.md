@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.12.42
+
+- **Mobile app: commit to Expo / React Native and scaffold the M1 slice.** Rewrote `docs/MOBILE_APP_PLAN.md`, superseding the Capacitor/WebView draft. A native client feels like ChatGPT's app only if it *is* native, the WebView's "reuse the React UI" saving was illusory (the Next.js Server Components + Route Handlers can't lift into a static SPA), and Expo removes the draft's hardest gate (native `fetch` needs no CORS) while making Clerk auth turnkey. The backend is unchanged: the native client speaks the existing API over a Clerk **bearer** token (`POST /api/conversations` → `POST /api/chat`, AI SDK v6 UI Message Stream). The client lives in the sibling repo `chatlds-mobile/` (Expo SDK 57), scaffolded with a working vertical slice: email/password sign-in + one authenticated streamed chat turn. `PROJECT_INFO.md` mobile-direction notes updated to match.
+
+## 0.12.41
+
+- **Migrate the app from npm to pnpm without changing the Vercel build contract.** The repository now pins pnpm 10.34.5 through `packageManager`, commits a format-9 `pnpm-lock.yaml`, records the dependency build-script allowlist in `pnpm-workspace.yaml`, and removes `package-lock.json` so Vercel auto-detects pnpm 10. Local, agent, test, and runbook commands now use pnpm; CI-style installs use `--frozen-lockfile` to fail on dependency drift.
+
 ## 0.12.40
 
 - **Clear response-style picker states.** Opening the response-style menu no longer makes its first programmatically focused row look hovered when it is not selected. Pointer hover now owns the hover surface and text treatment, keyboard navigation retains a separate visible focus ring, and the active style has a persistent indigo tint and inset border in addition to its check icon.

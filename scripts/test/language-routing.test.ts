@@ -3,7 +3,7 @@
  * (`detectIndexLanguageMatch`). Pure and deterministic — no LLM/network — so it
  * guards the routing short-circuit without the eval harness's cost.
  *
- * Run: `npm run test:routing`
+ * Run: `pnpm run test:routing`
  *
  * Focus: a prompt is only short-circuited when it is confidently, dominantly in
  * the index language. Mixed/quoted-language prompts (an instruction in one

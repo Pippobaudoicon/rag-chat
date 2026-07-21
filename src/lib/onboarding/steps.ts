@@ -3,7 +3,7 @@
  * decides *what* to show lives here so it can be unit-tested without a browser;
  * the component (`OnboardingTour.tsx`) handles the actual DOM/anchoring.
  *
- * Run the tests: `npm run test:onboarding`.
+ * Run the tests: `pnpm run test:onboarding`.
  */
 import type { UiLanguage } from "@/lib/types";
 

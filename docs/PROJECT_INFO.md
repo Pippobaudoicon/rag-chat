@@ -1,6 +1,6 @@
 # ChatLDS Project Knowledge Base
 
-Last updated: 2026-07-18
+Last updated: 2026-07-21
 
 This document is the single source of truth for project context.
 Read this first before deep code exploration.
@@ -16,6 +16,9 @@ Read this first before deep code exploration.
 ## 2) Current stack
 
 - Framework/UI: Next.js 16.2.10, React 19, Tailwind 4.
+- Package manager: pnpm 10.34.5, pinned through `packageManager`; installs are
+  locked by `pnpm-lock.yaml`. The npm lockfile is intentionally absent so Vercel
+  auto-detects pnpm 10 for dependency installation.
 - Auth: Clerk.
 - Billing: Clerk Billing for subscriptions; Stripe is used only for payment processing.
 - DB: Neon Postgres + Drizzle ORM.
@@ -43,11 +46,13 @@ Read this first before deep code exploration.
   (`src/components/pwa/`): Android `beforeinstallprompt`, iOS Add-to-Home-Screen
   instructions. The mobile shell (`AppShell.tsx`) adds a swipe-open sidebar drawer
   and safe-area-aware layout.
-- Native mobile direction: keep this Next.js app as the web PWA and hosted backend.
-  Capacitor 8 is the preferred store-runtime only for a separately built, locally
-  packaged web client; do not point a production native app at the deployment with
-  Capacitor `server.url`. The staged architecture, blockers, and acceptance gates
-  live in `docs/MOBILE_APP_PLAN.md`.
+- Native mobile direction: keep this Next.js app as the web PWA and hosted API
+  backend, unchanged. The native iOS/Android client is a **separate Expo / React
+  Native app** (sibling repo `chatlds-mobile/`) that talks to this API with a
+  Clerk **bearer** token — no backend changes for the happy path, and native
+  `fetch` needs no CORS. The decision, contracts, and milestones live in
+  `docs/MOBILE_APP_PLAN.md`. (The earlier Capacitor/WebView plan was superseded
+  on 2026-07-21.)
 - Inline numeric citations linked to source cards.
 - Sources panel with scripture coverage behavior for chapter/book requests.
 - Conversation CRUD in sidebar (create/list/open/delete) and title updates.
@@ -348,7 +353,7 @@ Notes:
 - In chat, the main model emits corpus-language semantic/conference queries as part of its existing tool call and infers answer language directly from the original prompt. The optional legacy resolver remains behind `RAG_LANGUAGE_ROUTING=true`. `GET /api/search` still uses `routeQueryLanguage()`; with routing disabled it sends the original query unchanged.
 - `RAG_INDEX_LANGUAGE` controls the single-language semantic retrieval target. It defaults to English (`eng`) for `lds-rag-v1` (English-main corpus; scriptures also carry Italian chunks). Set to `ita` only to target the legacy `lds-rag` index.
 - Retrieval preserves source-language metadata. Scriptures are bilingual; the main model selects `"ita"` or `"eng"` for every scripture-producing tool. A per-turn lock forces all tools to the same selection, semantic fan-out queries only that scripture language, and post-expansion filtering removes any opposite-language scripture chunk. Production callers disable cross-language scripture fallback: an empty result is returned instead of showing scriptures in the wrong language. Other namespaces remain in their indexed corpus languages.
-- **Cross-language de-duplication (topical fan-out).** The general `retrieve` path fans each query across every indexed language for recall, so bilingual content (scriptures, translated talks) came back twice — e.g. *Exodus 18* (eng) **and** *Esodo 18* (ita) — since `mergeChunks` only dedupes by exact id (which differs by language segment). After `mergeChunks`, `collapseCrossLanguage()` groups chunks by their **language-invariant id** (namespace + slug/chapter/verse, dropping the language segment) and keeps one per group: the answer-language copy at the group's best score (rank preserved). This runs before rerank/diversify/slice so the top-k holds distinct passages, not translation pairs. Passages present in only one language, or chunked into different verse ranges across languages, have no partner and pass through. (Verse/chapter-selection paths already pick a single language via `retrievePreferredLanguage`, so they are unaffected.) Regression: `npm run test:cross-language`.
+- **Cross-language de-duplication (topical fan-out).** The general `retrieve` path fans each query across every indexed language for recall, so bilingual content (scriptures, translated talks) came back twice — e.g. *Exodus 18* (eng) **and** *Esodo 18* (ita) — since `mergeChunks` only dedupes by exact id (which differs by language segment). After `mergeChunks`, `collapseCrossLanguage()` groups chunks by their **language-invariant id** (namespace + slug/chapter/verse, dropping the language segment) and keeps one per group: the answer-language copy at the group's best score (rank preserved). This runs before rerank/diversify/slice so the top-k holds distinct passages, not translation pairs. Passages present in only one language, or chunked into different verse ranges across languages, have no partner and pass through. (Verse/chapter-selection paths already pick a single language via `retrievePreferredLanguage`, so they are unaffected.) Regression: `pnpm run test:cross-language`.
 - **Single-language direct-passage contract.** `lookup_scripture_passage` returns one language. The cross-reference graph's `related_ids` are stored as English ids, so `expandRelatedContext` **localizes** scripture cross-refs to the passage language: it rewrites the id's language segment (`scriptures:eng:<slug>:… → scriptures:ita:…`, `localizeScriptureId` — pure slug remap, no LLM) and fetches by id; any ref whose exact verse-range chunk doesn't exist in the target language (the languages chunked the same verses differently) is recovered by `fetchLocalizedScriptureRefs` — list that book+chapter in the target language by id prefix, keep chunks whose verse range overlaps (canonical slug+chapter resolution, still no LLM). `filterRelatedToLanguage` then drops anything still cross-language (e.g. English-only study helps). So an Italian `Giovanni 3:16` returns the Italian passage **plus its Italian cross-reference chunks**, never mixed English. Result is re-capped to `RELATED_CONTEXT_CAP` (exact-id matches first). The requested passage stays pinned first; the eval golden set has permanent `Giovanni 3` / `Giovanni 3:16` / `John 3` / `John 3:16` fixtures asserting first-result book/passage and scripture language (`expectFirstRefAnyOf` + `expectScriptureLanguage`).
 - Structured scripture retrieval (verse + chapter, including bare chapter refs like "Alma 32") filters Pinecone on **language-invariant** signals (`language` + `chapter`) and enforces the requested book via its **slug** (chunk id 3rd segment `scriptures:<lang>:<bookSlug>:…` / URL path), NOT the display book name. This is deliberate: `parseScriptureSelection().canonicalBook` is Italian (legacy table — "Giovanni", "Salmi", "2 Nefi") and does not match the English `book` metadata, so a `book: { $eq }` filter would silently return nothing and fall back to Italian or to unfiltered semantic results. (If the canonicalBook table is ever localized to English, the slug-based matching still holds.)
 - Enrichment metadata is consumed (present on enriched namespaces — scriptures + conference): the retriever maps `summary`, `topics`, `entities` (people/places/doctrines), and `references` onto each chunk. These are (a) sent to the model as per-source context via `toToolChunk` (context only — not citable sources), (b) shown as tags/reference chips on source cards, and (c) used for a small, capped topic/entity rerank boost when query terms overlap a chunk's topics/entities.
@@ -628,35 +633,38 @@ Reference template: `.env.example`.
   target-size criterion); `InstallPrompt` copy is hardcoded Italian in a
   six-language UI; and per-message `lang` (WCAG 3.1.2) is unset for answers whose
   language differs from the UI preference.
-- The current Next.js application is not a Capacitor `webDir` artifact. It relies
-  on request-time Clerk auth, server-rendered database reads, dynamic conversation
-  routes, response headers, and POST/streaming Route Handlers, all of which rule
-  out a direct Next.js static export. Native work must follow
-  `docs/MOBILE_APP_PLAN.md` and preserve the hosted backend boundary.
+- This Next.js app is the hosted API + web PWA, not a bundled mobile artifact. It
+  relies on request-time Clerk auth, server-rendered database reads, dynamic
+  conversation routes, response headers, and POST/streaming Route Handlers. The
+  native client (Expo / React Native, sibling repo `chatlds-mobile/`) consumes
+  these as a thin client over Clerk bearer auth — same-origin/cookie for the web,
+  bearer for native. Native work follows `docs/MOBILE_APP_PLAN.md` and preserves
+  the hosted backend boundary.
 - Embedding model must remain compatible with index dimensions.
 - Chat route uses a limited recent history window for context size control.
 - Pinecone search language defaults to English (`lds-rag-v1`). Scriptures retrieve in both English and Italian; all other namespaces are English-only.
 
 ## 11) Operations quick start
 
-- Dev: `npm run dev`
-- Typecheck: `npm run typecheck`
-- Build: `npm run build`
-- Start: `npm run start`
-- Generate migrations: `npm run db:generate`
-- Apply migrations: `npm run db:migrate`
-- Docs guard: `npm run docs:guard`
-- Chat lifecycle test: `npm run test:chat-lifecycle` (pure, network-free coverage
+- Install: `corepack enable && pnpm install --frozen-lockfile`
+- Dev: `pnpm run dev`
+- Typecheck: `pnpm run typecheck`
+- Build: `pnpm run build`
+- Start: `pnpm run start`
+- Generate migrations: `pnpm run db:generate`
+- Apply migrations: `pnpm run db:migrate`
+- Docs guard: `pnpm run docs:guard`
+- Chat lifecycle test: `pnpm run test:chat-lifecycle` (pure, network-free coverage
   for pending/active stale state, resume eligibility, turn ownership, tail-turn
   idempotency, bounded client claim recovery, inline pending state, and sidebar paging)
-- Retrieval eval: `npm run eval` (golden set in `scripts/eval/dataset.ts`; reports
+- Retrieval eval: `pnpm run eval` (golden set in `scripts/eval/dataset.ts`; reports
   MRR/recall/structural checks with the cross-encoder reranker off vs on, writes
   JSON to `scripts/eval/results/`). The harness forces both rerank arms itself, so
   off→on isolates `RAG_RERANK` regardless of the env value (graph rerank is held
   constant across both arms; multi-query/diversity follow their env flags and apply
   to both arms — toggle their env and re-run to measure those). Two retrieval calls
-  per case. Hits live Pinecone + Voyage. Add a filter: `npm run eval -- faith`.
-- Routing fast-path test: `npm run test:routing` (`scripts/test/language-routing.test.ts`)
+  per case. Hits live Pinecone + Voyage. Add a filter: `pnpm run eval -- faith`.
+- Routing fast-path test: `pnpm run test:routing` (`scripts/test/language-routing.test.ts`)
   — pure, network-free assertions that the local same-language short-circuit
   (`detectIndexLanguageMatch`) fires only for confidently, dominantly index-language
   prompts and that mixed/quoted/cross-language prompts fall through to the LLM.
@@ -667,7 +675,7 @@ Reference template: `.env.example`.
   kill-switch.
 - `RAG_RERANK` (default **off**) — Voyage `rerank-2.5` cross-encoder rerank of the
   merged candidate pool (`reranker.ts`). Adds an external API call (cost + latency);
-  validate against `npm run eval` before enabling per-deployment. Applies uniformly
+  validate against `pnpm run eval` before enabling per-deployment. Applies uniformly
   to all languages — in production the query reaching the cross-encoder is already
   translated into the index language by the tool's lazy language routing, so there is no
   per-input-language axis to gate on. Net-positive on the gold set (recall
@@ -703,7 +711,7 @@ When changing architecture, behavior, integrations, API contracts, or major UX f
 
 1. Update this file in the same change.
 2. Update `AGENTS.md` if process instructions changed.
-3. Run `npm run docs:guard`.
+3. Run `pnpm run docs:guard`.
 
 The goal is to make future agent sessions start from this document and avoid repeated
 exploratory searching.

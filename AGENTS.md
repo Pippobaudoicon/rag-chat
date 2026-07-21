@@ -38,7 +38,7 @@ Core tooling files:
 Validation command:
 
 ```bash
-npm run docs:guard
+pnpm run docs:guard
 ```
 
 ## Browser Verification

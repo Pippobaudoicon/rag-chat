@@ -3,7 +3,7 @@
  * path (`collapseCrossLanguage` in `src/lib/rag/retriever.ts`). Pure and
  * deterministic — no LLM/network.
  *
- * Run: `npm run test:cross-language`
+ * Run: `pnpm run test:cross-language`
  *
  * The bilingual index returns each passage in both corpus languages, so a
  * topical fan-out surfaced Exodus 18 (eng) AND Esodo 18 (ita) as two cards.

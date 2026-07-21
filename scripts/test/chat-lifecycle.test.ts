@@ -1,7 +1,7 @@
 /**
  * Pure regression tests for navigation-safe chat generation state.
  *
- * Run: `npm run test:chat-lifecycle`
+ * Run: `pnpm run test:chat-lifecycle`
  */
 import {
   CHAT_GENERATION_PENDING_STALE_AFTER_MS,

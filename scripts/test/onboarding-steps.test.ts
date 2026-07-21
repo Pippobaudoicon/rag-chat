@@ -4,7 +4,7 @@
  * manually; this guards the decisions that determine *what* the tour shows and
  * *when* it starts.
  *
- * Run: `npm run test:onboarding`
+ * Run: `pnpm run test:onboarding`
  */
 import {
   ONBOARDING_STEPS,

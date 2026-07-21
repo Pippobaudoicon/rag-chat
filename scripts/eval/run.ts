@@ -17,12 +17,12 @@
  * the SAME arm's aggregate across the two runs (not the off→on columns).
  *
  * Usage:
- *   npm run eval               # all cases
- *   npm run eval -- faith      # only cases whose id/query contains "faith"
- *   RAG_MULTI_QUERY=on npm run eval   # measure multi-query expansion vs a plain run
+ *   pnpm run eval               # all cases
+ *   pnpm run eval -- faith      # only cases whose id/query contains "faith"
+ *   RAG_MULTI_QUERY=on pnpm run eval   # measure multi-query expansion vs a plain run
  *
  * Requires the same env as the app (PINECONE_*, VOYAGE_*, RAG_INDEX_LANGUAGE).
- * The npm script injects .env / .env.local. NOTE: the off→on arms issue two
+ * The pnpm script injects .env / .env.local. NOTE: the off→on arms issue two
  * retrieval calls per case, so reranker A/B costs two embeds per case.
  */
 import { retrieve } from "@/lib/rag/retriever";

@@ -10,14 +10,15 @@ response source metadata for citations and source cards.
 Install dependencies and create a local env file:
 
 ```bash
-npm install
+corepack enable
+pnpm install --frozen-lockfile
 cp .env.example .env.local
 ```
 
 Fill the required Clerk, Neon, Upstash, Voyage, and Pinecone values, then run:
 
 ```bash
-npm run dev
+pnpm run dev
 ```
 
 Open [http://localhost:3000/chat](http://localhost:3000/chat).
@@ -25,11 +26,11 @@ Open [http://localhost:3000/chat](http://localhost:3000/chat).
 ## Useful Commands
 
 ```bash
-npm run typecheck
-npm run build
-npm run db:generate
-npm run db:migrate
-npm run docs:guard
+pnpm run typecheck
+pnpm run build
+pnpm run db:generate
+pnpm run db:migrate
+pnpm run docs:guard
 ```
 
 ## High-Signal Files

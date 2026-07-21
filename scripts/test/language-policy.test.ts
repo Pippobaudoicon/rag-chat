@@ -1,7 +1,7 @@
 /**
  * Language-policy suite for tool-specific language routing.
  *
- * Run: `npm run test:language-policy`
+ * Run: `pnpm run test:language-policy`
  *
  * Pure and deterministic — no LLM/network. The routing model call and the
  * resolver's router are injected, so these assert the routing *contract*:

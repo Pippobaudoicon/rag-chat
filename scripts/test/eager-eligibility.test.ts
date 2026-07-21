@@ -3,7 +3,7 @@
  * (`src/app/api/chat/route.ts`, section 5b). Pure and deterministic — no
  * LLM/network — so it guards the gate without the eval harness's cost.
  *
- * Run: `npm run test:eager`
+ * Run: `pnpm run test:eager`
  *
  * Eager retrieval uses a conservative positive allowlist (false negatives
  * preferred over false positives). It runs ONLY for genuine topical questions;
