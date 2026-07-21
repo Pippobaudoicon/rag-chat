@@ -1,154 +1,206 @@
 # ChatLDS Mobile App Plan
 
-Status: recommended architecture; proof-of-concept and native projects not yet
-started. Last updated: 2026-07-17.
+Status: **active build**. Architecture decided (Expo / React Native). Thin
+vertical slice scaffolded at `../chatlds-mobile`. Last updated: 2026-07-21.
 
-## Decision
+> Supersedes the 2026-07-17 Capacitor draft. See
+> [Decision & why we flipped](#decision--why-we-flipped-from-capacitor) for the
+> rationale.
 
-Use Capacitor 8 if ChatLDS needs App Store / Play Store distribution or native
-device capabilities, but package a local mobile web client. Keep the existing
-Next.js application deployed as:
+## Goal
 
-- the installable PWA for browser users;
-- the authenticated API, RAG, persistence, billing-entitlement, and streaming
-  backend for mobile;
-- the desktop and mobile-web product surface.
+A **native** ChatLDS client for iOS and Android that feels like ChatGPT's own
+app — native scroll, keyboard, gestures, streaming, and navigation — not a
+website in a shell. The existing Next.js app stays exactly as it is: the hosted
+API, RAG engine, auth, persistence, billing, and the web PWA. Mobile is a thin
+native client over that finished API.
 
-Do **not** ship a native WebView configured with the deployed site as Capacitor
-`server.url`. Capacitor documents that option for live reload, not production,
-and Apple requires apps to provide value beyond a repackaged website.
+## Decision & why we flipped from Capacitor
 
-If store distribution and native capabilities are not near-term requirements,
-the current PWA remains the lower-cost mobile product and Capacitor should wait.
+**Chosen: Expo / React Native.** Ship only a native client; share the HTTP API
+contract and a small copy of domain types. No shared UI, no monorepo tooling.
 
-## Why The Current Next.js Build Cannot Be The Native Bundle
+The earlier draft chose Capacitor (a WebView wrapping a separately-built web
+SPA). Three findings killed that path for a "ChatGPT-grade" bar:
 
-Capacitor copies a static web build from `webDir` into each native project. This
-repository's `next build` is intentionally a server deployment, not a static
-`out/` export. A direct static export would break load-bearing behavior:
+1. **The "reuse the React UI" saving is illusory.** The web UI is Next.js
+   Server Components + Route Handlers (`auth()` per request, DB reads in server
+   components, dynamic `/chat/[id]`). None of that lifts into a static SPA — the
+   draft admitted this. So the client shell gets rebuilt **either way**. Given
+   that, rebuild it natively.
+2. **A WebView can't hit the feel bar cheaply.** Native scroll momentum,
+   keyboard tracking, gestures, and haptics are exactly what makes ChatGPT feel
+   good, and exactly what you spend weeks fighting a WebView for. ChatGPT's own
+   app is React Native.
+3. **Expo deletes the draft's hardest gate.** Native `fetch` is **not** subject
+   to CORS (it's a browser policy), so the entire "narrow authenticated CORS
+   allowlist" milestone disappears. And Clerk ships a first-class Expo SDK, so
+   the auth gate is turnkey rather than a spike.
 
-- `auth()` and Clerk protection depend on each incoming request;
-- `/chat/[id]` loads an owned conversation and messages from Postgres at request
-  time;
-- the chat, search, memory, settings, feedback, billing, conversation, and stream
-  endpoints use dynamic Route Handlers, including POST and SSE responses;
-- `next.config.ts` emits runtime response headers;
-- server components load preferences, subscriptions, and conversation state.
+Net: Expo is **less** total work to reach the target quality, and the backend is
+untouched.
 
-Forcing `output: "export"` or setting Capacitor `webDir` to `.next` / `public`
-would not produce a functional mobile app.
+## What is reused vs rebuilt
 
-## Target Boundary
+| Layer | Disposition |
+| --- | --- |
+| RAG, retrieval, tools, prompting | **Reused as-is** (server) |
+| Auth (Clerk), billing, persistence, streaming, resume | **Reused as-is** (server) |
+| All API Route Handlers | **Reused as-is** — zero backend changes for the happy path |
+| Domain types (`SourceType`, request/response shapes) | **Copied** into `chatlds-mobile/lib/api/types.ts` (a handful of fields; extract to a shared package only if it drifts) |
+| Chat UI, sidebar, source cards, composer, markdown | **Rebuilt natively** in React Native |
+
+## The three contracts the client speaks
+
+These already exist in the deployed API. The mobile client speaks them verbatim.
+
+### 1. Auth — Clerk bearer token (turnkey)
+
+`src/proxy.ts` is `clerkMiddleware` + `auth.protect()`, which already accepts
+`Authorization: Bearer <session-token>`. On the client:
+
+```
+const { getToken } = useAuth()          // @clerk/clerk-expo
+const token = await getToken()          // short-lived; fetch per request
+fetch(url, { headers: { Authorization: `Bearer ${token}` } })
+```
+
+`ClerkProvider` + `tokenCache` (backed by `expo-secure-store`) persists the
+session. **No backend change.** OAuth (Google/Apple) uses `expo-web-browser` +
+app-scheme deep links (`chatldsmobile://`), added in M2.
+
+### 2. Create conversation — `POST /api/conversations`
+
+```
+// request
+{ language: "eng"|"ita"|…, sources: SourceType[], title?, initialMessage? }
+// 201 response
+{ id, title, language, sources, …, initialMessageId }
+```
+
+Called once on the first submit of a new conversation; returns the
+`initialMessageId` the chat turn must reference.
+
+### 3. Streamed turn — `POST /api/chat`
+
+```
+{
+  conversationId,                 // from step 2
+  persistedUserMessageId,         // = initialMessageId from step 2
+  language, sources, topK: 20,
+  messages: [{ role: "user", parts: [{ type: "text", text }] }]
+}
+```
+
+Response is the **AI SDK v6 UI Message Stream** (SSE). `useChat` +
+`DefaultChatTransport({ fetch: expo/fetch })` parses it natively; text deltas,
+tool badges, and `sources`/`details` metadata arrive as message parts.
+Resume-after-background is `GET /api/chat/[id]/stream` (resumable-stream),
+wired in M2.
+
+## Architecture
 
 ```mermaid
 flowchart LR
-  PWA["Next.js PWA"] --> API["Hosted Next.js API"]
-  Mobile["Packaged mobile client\nCapacitor + local web assets"] --> API
-  API --> Clerk["Clerk auth and entitlements"]
-  API --> Data["Neon, Pinecone, Redis, AI Gateway"]
+  subgraph client [chatlds-mobile · Expo/RN]
+    UI["Native chat UI"] --> T["useChat + DefaultChatTransport\n(expo/fetch, Bearer)"]
+    A["Clerk Expo SDK\n(tokenCache → SecureStore)"]
+  end
+  subgraph server [rag-chat · unchanged]
+    MW["proxy.ts · clerkMiddleware"] --> API["Route Handlers\n/api/conversations, /api/chat, …"]
+    API --> RAG["RAG · Pinecone · Voyage · AI Gateway"]
+    API --> DB["Neon · Redis"]
+  end
+  T -->|"Bearer token"| MW
+  A -->|getToken| T
+  PWA["Web PWA\n(same backend)"] --> MW
 ```
 
-The mobile client should be a small SPA build (recommended location:
-`apps/mobile`) that reuses domain types, localization, visual tokens, and pure
-chat lifecycle logic where practical. It should not try to import server
-components or Next-specific navigation/auth code.
+## Milestones
 
-## Proof-Of-Concept Gates
+### M1 — Thin vertical slice ← **in progress**
 
-Complete these gates before treating generated `ios/` and `android/` projects as
-a production foundation:
+Scaffold + prove the two contracts that de-risk everything else.
 
-1. **Authentication contract**
-   - Sign in from a locally packaged origin using the Clerk client SDK.
-   - Send a short-lived Clerk token as `Authorization: Bearer ...`.
-   - Confirm `clerkMiddleware`, `auth()`, and `auth().has()` preserve the existing
-     ownership and plan-entitlement behavior for bearer-authenticated requests.
-   - Complete OAuth through universal/app links; do not depend on third-party
-     cookies in an embedded remote website.
-2. **API and origin contract**
-   - Introduce one explicit mobile API base URL.
-   - Allow only the exact Capacitor development/production origins needed by iOS
-     and Android, and handle preflight requests. Do not add a wildcard authenticated
-     CORS policy.
-   - Keep browser requests same-origin and cookie-authenticated.
-3. **Chat transport**
-   - Prove conversation list/open/create and one complete streamed chat turn on
-     physical iOS and Android devices.
-   - Prove background/foreground recovery, Redis stream resume, source cards,
-     citations, regeneration, and failed-request recovery.
-4. **Billing and store policy**
-   - Do not expose the current Clerk/Stripe checkout inside store builds until a
-     store-compliant purchase decision is implemented.
-   - Choose either a consumption-only mobile app for existing subscribers or
-     native Apple/Google subscription purchases with server-side entitlement
-     reconciliation. Validate regional external-purchase exceptions separately.
-5. **Native value and review readiness**
-   - Select at least one justified native capability (for example native share for
-     answers/citations, push notifications, or app-link handoff) and verify that the
-     store build is more than a website wrapper.
-   - Preserve pinch zoom, rotation, safe areas, 16px mobile input floors, dynamic
-     page language, keyboard behavior, and the navigation-safe generation model.
+- Expo Router app at `../chatlds-mobile` (SDK 57, TypeScript). ✅ scaffolded
+- `ClerkProvider` + `tokenCache`; email/password sign-in; auth-gated routes.
+- One chat screen: create conversation → stream one reply via `useChat`,
+  authenticated with a per-request bearer token.
+- Config: `EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY`, `EXPO_PUBLIC_API_URL`.
 
-## Delivery Milestones
+**Exit:** a physical iPhone and Android device sign in and complete one
+authenticated streamed turn against the live API, without any backend change.
 
-### M0 — Mobile Web Baseline
+### M2 — Product parity + native feel
 
-- Finish physical iPhone validation for keyboard/visual-viewport behavior.
-- Localize the install prompt and address the documented per-message language and
-  touch-target gaps where they affect the native client.
-- Record repeatable iOS and Android smoke-test cases.
+The "ChatGPT clone" work. Rebuild the surfaces natively:
 
-Exit: the current PWA is a trustworthy behavioral reference for the native client.
+- **Chat**: streaming markdown answers (start plain, then match the web's
+  streamdown affordances — code, math, CJK — via an RN markdown renderer),
+  stick-to-bottom autoscroll, Stop button, regenerate, copy.
+- **Citations & sources**: inline numeric citations → tappable native bottom
+  sheet with source cards.
+- **Conversations**: native drawer / list screen (list, open, create, rename,
+  delete) backed by `/api/conversations`.
+- **Lifecycle**: background/foreground recovery via `GET /api/chat/[id]/stream`
+  resume; pending/error states; sidebar activity.
+- **Memory, response styles, search-scope (Standard/Super), feedback,
+  language** — the existing endpoints, native controls.
+- **Native-feel checklist** (the bar): keyboard-tracking composer + safe areas,
+  momentum scroll, pull-to-refresh, haptics, native share of an answer,
+  system light/dark, OAuth sign-in, app-scheme deep links.
 
-### M1 — Thin Vertical Slice
+**Exit:** critical flows match the PWA and feel native on device.
 
-- Add an isolated mobile SPA and Capacitor 8 configuration with a real local
-  `webDir`; no production `server.url`.
-- Implement token auth, narrow CORS, universal/app links, and API-base selection.
-- Support sign-in, conversation list, conversation open, and one streamed reply.
+### M3 — Store & billing readiness
 
-Exit: a physical iPhone and Android device can complete the same authenticated
-turn without weakening browser auth or API ownership checks.
+- **Billing decision** (see below). Server-side entitlement reconciliation
+  through Clerk stays the source of truth.
+- Privacy disclosures, permission copy, icons/splash, store metadata, reviewer
+  credentials, release signing.
+- Test subscription restore, deep links, offline/error states, upgrade paths.
 
-### M2 — Product Parity
+**Exit:** TestFlight and Play internal-track builds pass review.
 
-- Add chat lifecycle recovery, sidebar actions, memory, search, response styles,
-  citations/sources, feedback, and accessibility parity.
-- Gate PWA-only UI (service worker registration and install prompts) out of the
-  native client.
-- Add native share/app-link behavior and lifecycle telemetry.
+## Billing & store policy (decide before M3, not before M1)
 
-Exit: critical user flows match the PWA and pass platform smoke tests.
+Apple/Google require their in-app purchase for digital subscriptions. Two paths:
 
-### M3 — Store And Billing Readiness
+- **A — Companion for existing subscribers (fastest).** No purchase UI in the
+  app at all; Pro is managed on the web. Lowest review friction for TestFlight.
+- **B — Native IAP.** StoreKit / Play Billing subscriptions reconciled to Clerk
+  entitlements server-side. Use RevenueCat as the lazy cross-platform layer if
+  we go here.
 
-- Finalize the purchase model and entitlement reconciliation.
-- Add privacy disclosures, permission copy, icons/splash assets, store metadata,
-  reviewer credentials, and release signing.
-- Test subscription restore, deep links, offline/error states, and upgrade paths.
+Recommendation: ship **A** to TestFlight, decide **B** before public launch.
+Do not surface the web Stripe/Clerk checkout inside a store build.
 
-Exit: TestFlight and Play internal-track builds pass review checklists.
+## Toolchain readiness (2026-07-21)
 
-## Current Toolchain Readiness
+- Node `24.15.0` ✅ (Expo needs ≥18). Run all mobile tooling under Node 24.
+- Expo SDK `57`, React Native `0.86` (New Architecture) ✅ scaffolded.
+- Full Xcode: **not installed** (Command Line Tools only) — needed for iOS
+  simulator/device builds. `npx expo run:ios` blocked until installed.
+- Android Studio / SDK: **not installed** — needed for Android builds.
+- Interim: `npx expo start` + **Expo Go** on a physical device runs the JS
+  bundle with no native toolchain, enough to exercise M1/M2 on real hardware.
 
-Checked on 2026-07-17:
+## Location & repo hygiene
 
-- Capacitor packages: current npm release `8.4.2`.
-- Node.js: `24.15.0` (meets Capacitor CLI 8's Node `>=22` requirement).
-- Full Xcode: not installed (only Command Line Tools are selected).
-- Android Studio / Android SDK: not installed or configured.
+`chatlds-mobile` is a **sibling** of `rag-chat`, its own project/git repo — kept
+out of `rag-chat` so Vercel never bundles RN deps or `ios/`/`android/` into the
+Next deploy. This plan lives with the backend because it is the product plan and
+references the exact API contracts above.
 
-The repository should not add native projects until the M1 auth/CORS spike is
-agreed and the platform toolchains are installed; generated native trees before
-that point would be inert churn rather than a working foundation.
+## Validation
 
-## Validation For This Decision
+- Mobile: `npm run lint` / `tsc` inside `chatlds-mobile` (Node 24); on-device
+  smoke via Expo Go (the user performs device UI verification).
+- Backend: unchanged, so its existing `typecheck` / `build` / `docs:guard` still
+  hold. No backend edits are expected for M1.
 
-- `npm run typecheck`
-- `npm run docs:guard`
-- `npm run build`
-- Physical-device M0 checklist (to be added before M1)
+## Revisit if
 
-Revisit the decision if the product requires strongly native UI/interaction on
-most screens. In that case, Expo/React Native is a better long-term client even
-though it can share only domain logic and API contracts, not the current React UI.
+The bar drops to "a decent mobile web view is enough" — then the PWA already
+covers it and this native client is optional. It does not; ChatGPT-grade feel is
+the stated goal, which is native-on-most-screens.
