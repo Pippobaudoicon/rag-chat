@@ -16,6 +16,10 @@ If you change core architecture, APIs, integrations, environment requirements,
 or major user flows, update `docs/PROJECT_INFO.md` in the same change.
 For each change, update version of the project in `package.json` (by third decimal) and add a changelog entry in `CHANGELOG.md`.
 
+If any change would impact the chatlds-mobile, make sure to update the relevant mobile docs in `docs/MOBILE.md` and add a changelog entry in `CHANGELOG.md, and update the related mobile code in `chatlds-mobile` in the same change if needed. 
+EXAMPLE: `src/lib/types.ts` is a hand-copied subset of `rag-chat/src/lib/types.ts` +
+`src/lib/api/validation.ts`. If the API contract changes server-side, update it.
+
 Also keep the Obsidian project wiki updated in
 `/Users/lopiparo/Documents/Work/LDS/chatlds-wiki`. Treat it as the main narrative
 and operational source of truth for `rag-chat`, `lds-scraper`, corpus contracts,

@@ -118,7 +118,7 @@ function ResultCard({
       <article className="group relative overflow-hidden rounded-lg border border-border/50 bg-card/50 p-3 text-sm transition-colors hover:border-border hover:bg-card/80">
         <div
           className={cn(
-            "absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r opacity-70",
+            "absolute inset-x-0 top-0 h-0.5 bg-linear-to-r opacity-70",
             scoreTone(chunk.score)
           )}
         />

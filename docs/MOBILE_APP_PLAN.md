@@ -122,7 +122,7 @@ flowchart LR
 
 Scaffold + prove the two contracts that de-risk everything else.
 
-- Expo Router app at `../chatlds-mobile` (SDK 57, TypeScript). ✅ scaffolded
+- Expo Router app at `../chatlds-mobile` (SDK 54, TypeScript). ✅ scaffolded
 - `ClerkProvider` + `tokenCache`; email/password sign-in; auth-gated routes.
 - One chat screen: create conversation → stream one reply via `useChat`,
   authenticated with a per-request bearer token.
@@ -178,7 +178,10 @@ Do not surface the web Stripe/Clerk checkout inside a store build.
 ## Toolchain readiness (2026-07-21)
 
 - Node `24.15.0` ✅ (Expo needs ≥18). Run all mobile tooling under Node 24.
-- Expo SDK `57`, React Native `0.86` (New Architecture) ✅ scaffolded.
+- Expo SDK `54`, React Native `0.81`, React `19.1` ✅ scaffolded. **Pinned to 54
+  deliberately:** store Expo Go only supports the latest *released* SDK (54), so
+  `create-expo-app@latest`'s SDK 57 was rejected as "incompatible" and downgraded.
+  Stay on the SDK the target Expo Go supports until moving to development builds.
 - Full Xcode: **not installed** (Command Line Tools only) — needed for iOS
   simulator/device builds. `npx expo run:ios` blocked until installed.
 - Android Studio / SDK: **not installed** — needed for Android builds.
