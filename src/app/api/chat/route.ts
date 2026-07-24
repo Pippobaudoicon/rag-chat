@@ -73,6 +73,20 @@ export const maxDuration = 180;
 const DEFAULT_MAX_OUTPUT_TOKENS = 6000;
 const DEFAULT_MAX_RESPONSE_SOURCES = 50;
 const MAX_RETRIEVAL_CALLS = 2;
+const CACHED_REPLAY_WORDS_PER_CHUNK = 3;
+const CACHED_REPLAY_DELAY_MS = 16;
+
+function chunkCachedText(text: string): string[] {
+  const words = text.match(/\S+\s*/g) ?? [];
+  const chunks: string[] = [];
+  for (let index = 0; index < words.length; index += CACHED_REPLAY_WORDS_PER_CHUNK) {
+    chunks.push(words.slice(index, index + CACHED_REPLAY_WORDS_PER_CHUNK).join(""));
+  }
+  return chunks;
+}
+
+const waitForCachedReplay = (delayMs: number) =>
+  new Promise<void>((resolve) => setTimeout(resolve, delayMs));
 
 const getPositiveInt = (value: string | undefined, fallback: number): number => {
   const parsed = Number(value);
@@ -692,11 +706,21 @@ export async function POST(req: Request) {
         };
 
         const stream = createUIMessageStream({
-          execute: ({ writer }) => {
+          execute: async ({ writer }) => {
             writer.write({ type: "start" });
             writer.write({ type: "start-step" });
             writer.write({ type: "text-start", id: "text-1" });
-            writer.write({ type: "text-delta", id: "text-1", delta: cachedAnswer.text });
+            const cachedChunks = chunkCachedText(cachedAnswer.text);
+            for (let index = 0; index < cachedChunks.length; index += 1) {
+              writer.write({
+                type: "text-delta",
+                id: "text-1",
+                delta: cachedChunks[index],
+              });
+              if (index < cachedChunks.length - 1) {
+                await waitForCachedReplay(CACHED_REPLAY_DELAY_MS);
+              }
+            }
             writer.write({ type: "text-end", id: "text-1" });
             writer.write({ type: "message-metadata", messageMetadata: metadata });
             writer.write({ type: "finish-step" });
@@ -923,7 +947,9 @@ export async function POST(req: Request) {
       // Tool execution is complete and the next model step is reasoning over
       // the result. Without this transition clients remain misleadingly stuck
       // on "using tools" while the answer is actually being drafted.
-      if ((toolCalls ?? []).length > 0) writeProgress?.({ phase: "drafting" });
+      if ((toolCalls ?? []).length > 0) {
+        writeProgress?.({ phase: "drafting", toolCompleted: true });
+      }
     },
 
     onError: async () => {

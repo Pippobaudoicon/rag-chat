@@ -251,6 +251,8 @@ export interface ChatProgressData {
   sourceCount?: number;
   cacheHit?: boolean;
   elapsedMs?: number;
+  /** A tool round finished and the model is preparing its next visible text. */
+  toolCompleted?: boolean;
   // Tool-local language routing, forwarded on a tool's terminal "tools" event so
   // the route can fold it into the persisted RetrievalToolEvent.
   routingMs?: number;

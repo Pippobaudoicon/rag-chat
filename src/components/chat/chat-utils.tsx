@@ -57,6 +57,7 @@ type ActivityLabelKey =
   | "pendingMemory"
   | "pendingSources"
   | "pendingTools"
+  | "pendingAfterTool"
   | "pendingDrafting";
 
 const ACTIVITY_LABEL_KEYS: Partial<Record<PendingPhase, ActivityLabelKey>> = {
@@ -67,21 +68,28 @@ const ACTIVITY_LABEL_KEYS: Partial<Record<PendingPhase, ActivityLabelKey>> = {
   drafting: "pendingDrafting",
 };
 
-function getPendingLabel(language: UiLanguage, phase: PendingPhase): string {
+function getPendingLabel(
+  language: UiLanguage,
+  phase: PendingPhase,
+  afterTool: boolean
+): string {
   const text = uiText(language);
+  if (afterTool) return text.chat.pendingAfterTool;
   return text.chat[ACTIVITY_LABEL_KEYS[phase] ?? "pendingDrafting"];
 }
 
 export function AssistantActivityIndicator({
   language,
   phase,
+  afterTool = false,
   className,
 }: {
   language: UiLanguage;
   phase: PendingPhase;
+  afterTool?: boolean;
   className?: string;
 }) {
-  const label = getPendingLabel(language, phase);
+  const label = getPendingLabel(language, phase, afterTool);
 
   return (
     <div

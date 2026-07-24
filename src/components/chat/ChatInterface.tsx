@@ -941,6 +941,7 @@ export function ChatInterface({
                 <MessageContent>
                   <AssistantActivityIndicator
                     language={language}
+                    afterTool={chatProgress?.toolCompleted === true}
                     phase={
                       chatProgress && chatProgress.phase !== "complete"
                         ? chatProgress.phase

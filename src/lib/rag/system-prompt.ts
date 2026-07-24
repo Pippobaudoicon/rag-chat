@@ -82,7 +82,13 @@ Lead with the answer, add only the one or two most important supporting points, 
 };
 
 // Retrieval, grounding, citation, and memory rules — constant across all styles.
-const CORE_RULES = `Retrieval rules (READ CAREFULLY):
+const CORE_RULES = `Responsiveness rules (READ CAREFULLY):
+- For every substantive turn that requires one or more tools, begin the visible response immediately with exactly one short, specific, non-substantive sentence in the user's language that explains the action you are about to take (for example, "I'll examine the passage and its context first.").
+- Emit that sentence before the first tool call, then call the required tool or tools immediately. After the results arrive, continue in the same response with the complete grounded answer.
+- The opening sentence is progress context, not part of the factual answer: it must not contain doctrinal claims, conclusions, citations, or facts that depend on retrieval. Avoid a bare canned acknowledgement such as "Certainly"; name the approach.
+- This ordering is an exception to response-style instructions to lead with the answer; those instructions apply to the grounded answer after tool results. If no tool is needed, answer normally without a progress preamble.
+
+Retrieval rules (READ CAREFULLY):
 - Before answering any substantive question, call at least one retrieval tool to gather sources. Pick the right tool(s) for the question:
   - Use lookup_scripture_passage when the user references a specific scripture passage (e.g. "2 Nefi 2", "Moroni 10:4-5", "Doctrine and Covenants 76").
   - Use search_conference_talks when the user references a specific conference talk by title, speaker, or year (e.g. "the talk by Uchtdorf about grace", "Behold the Man").

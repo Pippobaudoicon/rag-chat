@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type MutableRefObject } from "react";
+import { useEffect, useRef, useState, type MutableRefObject } from "react";
 import type { UIMessage } from "ai";
 import {
   CheckIcon,
@@ -120,6 +120,10 @@ export function ChatMessage({
     isStreaming &&
     status !== "submitted";
   const [streamHasPaused, setStreamHasPaused] = useState(false);
+  const [toolStatusVisible, setToolStatusVisible] = useState(false);
+  const toolCompletionTextRef = useRef("");
+  const latestMessageTextRef = useRef(messageText);
+  latestMessageTextRef.current = messageText;
 
   useEffect(() => {
     if (!isAssistantActive) {
@@ -138,6 +142,25 @@ export function ChatMessage({
     );
     return () => window.clearTimeout(timeout);
   }, [hasText, isAssistantActive, messageText]);
+
+  useEffect(() => {
+    if (!isAssistantActive || chatProgress?.toolCompleted !== true) {
+      setToolStatusVisible(false);
+      return;
+    }
+
+    toolCompletionTextRef.current = latestMessageTextRef.current;
+    setToolStatusVisible(true);
+  }, [chatProgress, isAssistantActive]);
+
+  useEffect(() => {
+    if (
+      toolStatusVisible &&
+      toolCompletionTextRef.current !== messageText
+    ) {
+      setToolStatusVisible(false);
+    }
+  }, [messageText, toolStatusVisible]);
   const selectedFeedback = feedback.feedbackByMessageId[message.id];
   const isComposerOpenForMessage = feedback.feedbackComposer?.messageId === message.id;
   const isFollowUpOpenForMessage =
@@ -158,7 +181,8 @@ export function ChatMessage({
         : "drafting";
   const phaseNeedsAttention = pendingPhase === "sources" || pendingPhase === "tools";
   const showActivity =
-    isAssistantActive && (!hasText || phaseNeedsAttention || streamHasPaused);
+    isAssistantActive &&
+    (!hasText || phaseNeedsAttention || toolStatusVisible || streamHasPaused);
 
   return (
     <Message from={message.role}>
@@ -176,6 +200,7 @@ export function ChatMessage({
           <AssistantActivityIndicator
             language={language}
             phase={pendingPhase}
+            afterTool={toolStatusVisible}
             className="mt-1"
           />
         )}
