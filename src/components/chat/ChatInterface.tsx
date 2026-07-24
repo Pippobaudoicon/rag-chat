@@ -26,8 +26,7 @@ import { ResponseStylePicker } from "./ResponseStylePicker";
 import { EmptyState } from "./EmptyState";
 import { ChatMessage } from "./ChatMessage";
 import {
-  PendingIndicator,
-  ToolActivityIndicator,
+  AssistantActivityIndicator,
   getPlainText,
   getPreviousUserQuery,
 } from "./chat-utils";
@@ -74,8 +73,6 @@ interface ChatInterfaceProps {
 
 type EnsuredConversation = { id: string; initialMessageId?: number };
 
-const WAITING_PHRASE_INTERVAL_MS = 3400;
-
 function deriveConversationTitle(question: string): string {
   const normalized = question.trim();
   let title = normalized.slice(0, 60);
@@ -86,11 +83,6 @@ function deriveConversationTitle(question: string): string {
   }
 
   return title;
-}
-
-function randomIndex(length: number): number {
-  if (length <= 1) return 0;
-  return Math.floor(Math.random() * length);
 }
 
 function getLastAssistantMessageIndex(messages: UIMessage[]): number {
@@ -267,7 +259,6 @@ export function ChatInterface({
     useState<ChatGenerationStatus>(initialGenerationStatus);
   const [resolvedConversationId, setResolvedConversationId] =
     useState<string | undefined>(initialConversationId);
-  const [waitingPhraseIndex, setWaitingPhraseIndex] = useState(0);
   const [messageVersions, setMessageVersions] = useState<Record<string, AssistantVersion[]>>(
     initialMessageVersions
   );
@@ -401,18 +392,12 @@ export function ChatInterface({
   const chatStatusRef = useRef(status);
   chatStatusRef.current = status;
   const showPendingAssistant = shouldShowPendingAssistant(messages, isStreaming);
-  const lastAssistantMessageIndex = getLastAssistantMessageIndex(messages);
   const userDisplayName =
     user?.firstName ||
     user?.fullName ||
     user?.username ||
     user?.primaryEmailAddress?.emailAddress ||
     null;
-  const waitingPhrases = text.chat.waitingPhrases;
-  const waitingPhrase =
-    isStreaming && waitingPhrases.length > 0
-      ? waitingPhrases[waitingPhraseIndex % waitingPhrases.length]
-      : undefined;
   const chatUsage = billingOverview?.usage.chat;
   const shouldShowUsageWarning =
     billingOverview?.plan === "free" &&
@@ -484,19 +469,6 @@ export function ChatInterface({
   useEffect(() => {
     localStorage.setItem("chat:search-scope", searchScope);
   }, [searchScope]);
-
-  useEffect(() => {
-    if (!isStreaming || waitingPhrases.length <= 1) return;
-
-    const interval = window.setInterval(() => {
-      setWaitingPhraseIndex((current) => {
-        const next = randomIndex(waitingPhrases.length);
-        return next === current ? (next + 1) % waitingPhrases.length : next;
-      });
-    }, WAITING_PHRASE_INTERVAL_MS);
-
-    return () => window.clearInterval(interval);
-  }, [isStreaming, waitingPhrases.length]);
 
   useEffect(() => {
     if (!resolvedConversationId || persistedGenerationStatus !== "streaming") return;
@@ -633,7 +605,6 @@ export function ChatInterface({
           generationClaimPendingRef.current = true;
           generationClaimStartedAtRef.current = Date.now();
           clientTransportErrorRef.current = false;
-          setWaitingPhraseIndex(randomIndex(uiText(language).chat.waitingPhrases.length));
           setChatProgress({ phase: "queued", conversationId: convId, title });
           setPersistedGenerationStatus("streaming");
         }
@@ -722,7 +693,6 @@ export function ChatInterface({
       generationClaimStartedAtRef.current = Date.now();
       clientTransportErrorRef.current = false;
       setPersistedGenerationStatus("streaming");
-      setWaitingPhraseIndex(randomIndex(uiText(language).chat.waitingPhrases.length));
       setChatProgress({ phase: "queued", conversationId: convId });
 
       pendingRegenerationRef.current = {
@@ -825,7 +795,6 @@ export function ChatInterface({
         setActiveVersionIndex({});
         setChatProgress(null);
         setPersistedGenerationStatus("idle");
-        setWaitingPhraseIndex(0);
       });
 
       if (window.location.pathname !== "/chat") {
@@ -901,7 +870,6 @@ export function ChatInterface({
   useEffect(() => {
     if (status !== "ready") return;
     setChatProgress(null);
-    setWaitingPhraseIndex(0);
   }, [status]);
 
   return (
@@ -946,12 +914,13 @@ export function ChatInterface({
                   key={message.id}
                   message={message}
                   previousUserQuery={getPreviousUserQuery(messages, messageIndex)}
-                  isLastAssistantMessage={messageIndex === lastAssistantMessageIndex}
+                  isActiveAssistantMessage={
+                    messageIndex === messages.length - 1 && message.role === "assistant"
+                  }
                   language={language}
                   isStreaming={isStreaming}
                   status={status}
                   chatProgress={chatProgress}
-                  waitingPhrase={waitingPhrase}
                   copiedId={copiedId}
                   expandedDetailsId={expandedDetailsId}
                   conversationIdRef={conversationIdRef}
@@ -970,27 +939,16 @@ export function ChatInterface({
             {showPendingAssistant && (
               <Message from="assistant">
                 <MessageContent>
-                  {chatProgress?.phase === "sources" || chatProgress?.phase === "tools" ? (
-                    <ToolActivityIndicator
-                      language={language}
-                      progress={chatProgress}
-                      waitingPhrase={waitingPhrase}
-                    />
-                  ) : (
-                    <PendingIndicator
-                      language={language}
-                      phase={
-                        chatProgress && chatProgress.phase !== "complete"
-                          ? chatProgress.phase
-                          : status === "submitted"
-                            ? "queued"
-                            : "drafting"
-                      }
-                      progress={chatProgress}
-                      waitingPhrase={waitingPhrase}
-                      className="px-0 py-0 text-xs"
-                    />
-                  )}
+                  <AssistantActivityIndicator
+                    language={language}
+                    phase={
+                      chatProgress && chatProgress.phase !== "complete"
+                        ? chatProgress.phase
+                        : status === "submitted"
+                          ? "queued"
+                          : "drafting"
+                    }
+                  />
                 </MessageContent>
               </Message>
             )}

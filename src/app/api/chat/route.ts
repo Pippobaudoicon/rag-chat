@@ -892,7 +892,10 @@ export async function POST(req: Request) {
       // cut); firstToolCallMs → serverFirstTextMs is retrieval + later
       // model/verifier work, not the decision itself.
       latency.milestone("firstModelChunkMs");
-      if (chunk.type === "tool-call") latency.milestone("firstToolCallMs");
+      if (chunk.type === "tool-call") {
+        latency.milestone("firstToolCallMs");
+        writeProgress?.({ phase: "tools", toolName: chunk.toolName });
+      }
       if (chunk.type === "text-delta") latency.milestone("serverFirstTextMs");
     },
 
@@ -916,6 +919,11 @@ export async function POST(req: Request) {
           }
         }
       });
+
+      // Tool execution is complete and the next model step is reasoning over
+      // the result. Without this transition clients remain misleadingly stuck
+      // on "using tools" while the answer is actually being drafted.
+      if ((toolCalls ?? []).length > 0) writeProgress?.({ phase: "drafting" });
     },
 
     onError: async () => {

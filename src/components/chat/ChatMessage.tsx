@@ -1,6 +1,6 @@
 "use client";
 
-import type { MutableRefObject } from "react";
+import { useEffect, useState, type MutableRefObject } from "react";
 import type { UIMessage } from "ai";
 import {
   CheckIcon,
@@ -34,8 +34,7 @@ import type {
   UiLanguage,
 } from "@/lib/types";
 import {
-  PendingIndicator,
-  ToolActivityIndicator,
+  AssistantActivityIndicator,
   getToolUsage,
   isTextPart,
 } from "./chat-utils";
@@ -45,15 +44,16 @@ import {
   type MessageFeedback,
 } from "./useMessageFeedback";
 
+const STREAM_IDLE_INDICATOR_DELAY_MS = 900;
+
 interface ChatMessageProps {
   message: UIMessage;
   previousUserQuery: string | null;
-  isLastAssistantMessage: boolean;
+  isActiveAssistantMessage: boolean;
   language: UiLanguage;
   isStreaming: boolean;
   status: ChatStatus;
   chatProgress: ChatProgressData | null;
-  waitingPhrase?: string;
   copiedId: string | null;
   expandedDetailsId: string | null;
   conversationIdRef: MutableRefObject<string | undefined>;
@@ -76,12 +76,11 @@ interface ChatMessageProps {
 export function ChatMessage({
   message,
   previousUserQuery,
-  isLastAssistantMessage,
+  isActiveAssistantMessage,
   language,
   isStreaming,
   status,
   chatProgress,
-  waitingPhrase,
   copiedId,
   expandedDetailsId,
   conversationIdRef,
@@ -98,8 +97,7 @@ export function ChatMessage({
   const textParts = message.parts.filter(isTextPart);
   const messageText = textParts.map((part) => part.text).join("\n\n");
   const hasText = messageText.trim().length > 0;
-  const toolUsage = getToolUsage(message);
-  const hasToolUsage = toolUsage.length > 0;
+  const hasToolUsage = getToolUsage(message).length > 0;
   // Extract sources from message metadata if available
   const metadata = message.metadata as MessageMetadata | undefined;
   const messageSources = metadata?.sources;
@@ -116,9 +114,30 @@ export function ChatMessage({
     message.role === "assistant" &&
     !!previousUserQuery &&
     !!parseScriptureSelection(previousUserQuery, language === "ita" ? "ita" : "eng");
-  const toolRunInProgress = isLastAssistantMessage && isStreaming && hasToolUsage;
-  const isAssistantPending =
-    message.role === "assistant" && isLastAssistantMessage && isStreaming && !hasText;
+  const isAssistantActive =
+    message.role === "assistant" &&
+    isActiveAssistantMessage &&
+    isStreaming &&
+    status !== "submitted";
+  const [streamHasPaused, setStreamHasPaused] = useState(false);
+
+  useEffect(() => {
+    if (!isAssistantActive) {
+      setStreamHasPaused(false);
+      return;
+    }
+    if (!hasText) {
+      setStreamHasPaused(true);
+      return;
+    }
+
+    setStreamHasPaused(false);
+    const timeout = window.setTimeout(
+      () => setStreamHasPaused(true),
+      STREAM_IDLE_INDICATOR_DELAY_MS
+    );
+    return () => window.clearTimeout(timeout);
+  }, [hasText, isAssistantActive, messageText]);
   const selectedFeedback = feedback.feedbackByMessageId[message.id];
   const isComposerOpenForMessage = feedback.feedbackComposer?.messageId === message.id;
   const isFollowUpOpenForMessage =
@@ -134,9 +153,12 @@ export function ChatMessage({
       ? chatProgress.phase
       : status === "submitted"
       ? "queued"
-      : toolRunInProgress
+      : hasToolUsage
         ? "tools"
         : "drafting";
+  const phaseNeedsAttention = pendingPhase === "sources" || pendingPhase === "tools";
+  const showActivity =
+    isAssistantActive && (!hasText || phaseNeedsAttention || streamHasPaused);
 
   return (
     <Message from={message.role}>
@@ -150,26 +172,15 @@ export function ChatMessage({
             </MessageResponse>
           ))
         )}
-        {isAssistantPending && (
-          pendingPhase === "sources" || pendingPhase === "tools" ? (
-            <ToolActivityIndicator
-              language={language}
-              progress={chatProgress}
-              waitingPhrase={waitingPhrase}
-              className="mt-1"
-            />
-          ) : (
-            <PendingIndicator
-              language={language}
-              phase={pendingPhase}
-              progress={chatProgress}
-              waitingPhrase={waitingPhrase}
-              className="mt-1"
-            />
-          )
+        {showActivity && (
+          <AssistantActivityIndicator
+            language={language}
+            phase={pendingPhase}
+            className="mt-1"
+          />
         )}
         {/* Action toolbar under response */}
-        {hasText && message.role === "assistant" && (
+        {hasText && message.role === "assistant" && !isAssistantActive && (
           <MessageToolbar className="justify-start gap-1.5">
             {hasVersions && (
               <>

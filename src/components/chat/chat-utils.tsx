@@ -1,9 +1,7 @@
 "use client";
 
-import { WrenchIcon } from "lucide-react";
 import type { UIMessage } from "ai";
 import type {
-  ChatProgressData,
   ChatProgressPhase,
   MessageMetadata,
   UiLanguage,
@@ -54,117 +52,50 @@ export function getPreviousUserQuery(messages: UIMessage[], fromIndex: number): 
   return null;
 }
 
-function formatToolName(toolName: string): string {
-  return toolName.replace(/_/g, " ");
-}
+type ActivityLabelKey =
+  | "pendingQueued"
+  | "pendingMemory"
+  | "pendingSources"
+  | "pendingTools"
+  | "pendingDrafting";
 
-function formatElapsedMs(elapsedMs: number | undefined): string | null {
-  if (typeof elapsedMs !== "number" || elapsedMs < 1000) return null;
-  return `${Math.max(1, Math.round(elapsedMs / 1000))}s`;
-}
+const ACTIVITY_LABEL_KEYS: Partial<Record<PendingPhase, ActivityLabelKey>> = {
+  queued: "pendingQueued",
+  memory: "pendingMemory",
+  sources: "pendingSources",
+  tools: "pendingTools",
+  drafting: "pendingDrafting",
+};
 
-function getPendingLabel(
-  language: UiLanguage,
-  phase: PendingPhase,
-  progress?: ChatProgressData | null
-): string {
+function getPendingLabel(language: UiLanguage, phase: PendingPhase): string {
   const text = uiText(language);
-  if (phase === "queued") return text.chat.pendingQueued;
-  if (phase === "memory") return text.chat.pendingMemory;
-  if (phase === "sources") {
-    return progress?.toolName
-      ? `${text.chat.pendingSources} ${formatToolName(progress.toolName)}`
-      : text.chat.pendingSources;
-  }
-  if (phase === "tools") {
-    if (typeof progress?.sourceCount === "number") {
-      return `${text.chat.pendingTools} ${progress.sourceCount}`;
-    }
-    return text.chat.pendingTools;
-  }
-  return text.chat.pendingDrafting;
+  return text.chat[ACTIVITY_LABEL_KEYS[phase] ?? "pendingDrafting"];
 }
 
-export function ToolActivityIndicator({
-  language,
-  progress,
-  waitingPhrase,
-  className,
-}: {
-  language: UiLanguage;
-  progress?: ChatProgressData | null;
-  waitingPhrase?: string;
-  className?: string;
-}) {
-  const text = uiText(language);
-  const toolName = progress?.toolName ? formatToolName(progress.toolName) : text.chat.pendingSources;
-  const elapsed = formatElapsedMs(progress?.elapsedMs);
-  const sourceCount =
-    typeof progress?.sourceCount === "number"
-      ? `${progress.sourceCount} ${text.chat.toolSourcesFound}`
-      : null;
-
-  return (
-    <div
-      className={`inline-flex max-w-sm flex-col gap-1 px-0 py-0 text-xs text-muted-foreground ${className ?? ""}`}
-    >
-      <div className="flex min-w-0 items-center gap-2">
-        <span className="relative flex size-2 shrink-0">
-          <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400/50 opacity-70 animate-ping" />
-          <span className="relative inline-flex size-2 rounded-full bg-emerald-400" />
-        </span>
-        <WrenchIcon size={13} className="shrink-0 text-muted-foreground/70" />
-        <span className="truncate font-medium text-foreground/85">
-          {text.chat.toolWorking}
-        </span>
-        <span className="truncate text-muted-foreground/75">
-          {toolName}
-        </span>
-        {(sourceCount || progress?.cacheHit || elapsed) && (
-          <span className="ml-auto hidden shrink-0 items-center gap-1.5 text-[10px] text-muted-foreground/65 sm:flex">
-            {sourceCount && <span>{sourceCount}</span>}
-            {progress?.cacheHit && <span>{text.chat.toolCacheHit}</span>}
-            {elapsed && <span>{elapsed}</span>}
-          </span>
-        )}
-      </div>
-      {waitingPhrase && (
-        <div className="truncate pl-7 text-[11px] text-muted-foreground/70">
-          {waitingPhrase}
-        </div>
-      )}
-    </div>
-  );
-}
-
-export function PendingIndicator({
+export function AssistantActivityIndicator({
   language,
   phase,
-  progress,
-  waitingPhrase,
   className,
 }: {
   language: UiLanguage;
   phase: PendingPhase;
-  progress?: ChatProgressData | null;
-  waitingPhrase?: string;
   className?: string;
 }) {
+  const label = getPendingLabel(language, phase);
+
   return (
     <div
-      className={`inline-flex flex-col gap-1 px-0 py-0 text-xs text-muted-foreground ${className ?? ""}`}
+      role="status"
+      aria-live="polite"
+      aria-label={label}
+      className={`inline-flex min-h-6 items-center gap-2 text-xs text-muted-foreground/80 ${className ?? ""}`}
     >
-      <span className="inline-flex items-center gap-2">
-        <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/70 animate-bounce [animation-delay:0ms]" />
-        <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/70 animate-bounce [animation-delay:120ms]" />
-        <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/70 animate-bounce [animation-delay:240ms]" />
-        <span>{getPendingLabel(language, phase, progress)}</span>
+      <span className="inline-flex items-center gap-0.5" aria-hidden="true">
+        <span className="size-1 animate-pulse rounded-full bg-current [animation-delay:-240ms] motion-reduce:animate-none" />
+        <span className="size-1 animate-pulse rounded-full bg-current [animation-delay:-120ms] motion-reduce:animate-none" />
+        <span className="size-1 animate-pulse rounded-full bg-current motion-reduce:animate-none" />
       </span>
-      {waitingPhrase && (
-        <span className="max-w-xs truncate text-[11px] text-muted-foreground/70">
-          {waitingPhrase}
-        </span>
-      )}
+      <span className="font-medium">{label}</span>
     </div>
   );
 }
