@@ -16,6 +16,7 @@ import {
   CreditCardIcon,
   EllipsisVerticalIcon,
   LoaderCircleIcon,
+  PanelLeftCloseIcon,
   PencilIcon,
   SearchIcon,
   Trash2Icon,
@@ -61,7 +62,6 @@ import {
 import { version } from '../../../package.json';
 import { uiText } from './i18n';
 import { useLanguage } from './language-context';
-import { LanguageToggle } from './LanguageToggle';
 
 const CONVERSATION_PAGE_SIZE = 20;
 const CONVERSATION_CACHE_TTL_MS = 2 * 60 * 1000;
@@ -97,6 +97,7 @@ interface ConversationUpdatedDetail {
 
 interface ChatSidebarProps {
   onClose?: () => void;
+  onCollapse?: () => void;
   showMobileClose?: boolean;
   subscriptionPlan: SubscriptionPlan | null;
 }
@@ -228,6 +229,7 @@ function writeConversationCache(key: string, cache: ConversationCache) {
 
 export function ChatSidebar({
   onClose,
+  onCollapse,
   showMobileClose = false,
   subscriptionPlan,
 }: ChatSidebarProps) {
@@ -258,7 +260,8 @@ export function ChatSidebar({
   });
   // Optimistic active ID — set immediately on click, before the route resolves
   const [pendingId, setPendingId] = useState<string | null>(null);
-  const cacheKey = user?.id ? `chat:conversations:${user.id}` : null;
+  // Signed-out visitors chat as a guest (cookie-identified server-side).
+  const cacheKey = `chat:conversations:${user?.id ?? "guest"}`;
   const hasActiveGeneration = conversations.some(
     (conversation) => conversation.generationStatus === "streaming"
   );
@@ -606,6 +609,17 @@ export function ChatSidebar({
             <span className="text-sm font-semibold tracking-tight truncate">ChatLDS</span>
         </div>
         <span className="text-[9px] text-muted-foreground/50">v{version}</span>
+        {onCollapse && (
+          <button
+            type="button"
+            onClick={onCollapse}
+            aria-label={text.app.closeSidebar}
+            title={text.app.closeSidebar}
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          >
+            <PanelLeftCloseIcon className="h-[18px] w-[18px]" />
+          </button>
+        )}
         {showMobileClose && onClose && (
           <button
             type="button"
@@ -765,47 +779,57 @@ export function ChatSidebar({
       {/* Footer — account + language + memory + billing */}
       <div className="pb-safe border-t border-border/40 px-3 py-3">
         <div className="flex min-w-0 items-center gap-2 rounded-lg px-2 py-1">
-          <span className="shrink-0">
-            <UserButton>
-              <UserButton.MenuItems>
-                <UserButton.Action
-                  label={text.onboarding.replayLabel}
-                  labelIcon={<CircleHelpIcon className="h-4 w-4" />}
-                  onClick={replayTutorial}
-                />
-              </UserButton.MenuItems>
-            </UserButton>
-          </span>
-          {subscriptionPlan ? (
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <button
-                    type="button"
-                    aria-label={`${text.billing.currentPlan}: ${subscriptionPlanLabel}`}
-                    className={cn(
-                      "inline-flex shrink-0 items-center gap-1 rounded-full transition-colors",
-                      subscriptionPlan === "pro"
-                        ? "text-indigo-400 hover:bg-indigo-500/20"
-                        : "bg-muted/50 text-muted-foreground hover:bg-accent hover:text-foreground"
-                    )}
-                  >
-                    {subscriptionPlan === "pro" ? (
-                      <BadgeCheckIcon className="h-4 w-4 text-indigo-400" aria-hidden="true" />
-                    ) : null}
-                  </button>
-                }
-              />
-              <TooltipContent side="top" className="text-xs">
-                {`${text.billing.currentPlan}: ${subscriptionPlanLabel}`}
-              </TooltipContent>
-            </Tooltip>
+          {isLoaded && !user ? (
+            // Sign up lives only in the chat guest banner; here, as in the top bar, just Log in.
+            <a
+              href="/sign-in"
+              className="shrink-0 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent"
+            >
+              {text.app.logIn}
+            </a>
           ) : (
-            <Skeleton className="h-6 w-11 rounded-full" />
+            <>
+              <span className="shrink-0">
+                <UserButton>
+                  <UserButton.MenuItems>
+                    <UserButton.Action
+                      label={text.onboarding.replayLabel}
+                      labelIcon={<CircleHelpIcon className="h-4 w-4" />}
+                      onClick={replayTutorial}
+                    />
+                  </UserButton.MenuItems>
+                </UserButton>
+              </span>
+              {subscriptionPlan ? (
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <button
+                        type="button"
+                        aria-label={`${text.billing.currentPlan}: ${subscriptionPlanLabel}`}
+                        className={cn(
+                          "inline-flex shrink-0 items-center gap-1 rounded-full transition-colors",
+                          subscriptionPlan === "pro"
+                            ? "text-indigo-400 hover:bg-indigo-500/20"
+                            : "bg-muted/50 text-muted-foreground hover:bg-accent hover:text-foreground"
+                        )}
+                      >
+                        {subscriptionPlan === "pro" ? (
+                          <BadgeCheckIcon className="h-4 w-4 text-indigo-400" aria-hidden="true" />
+                        ) : null}
+                      </button>
+                    }
+                  />
+                  <TooltipContent side="top" className="text-xs">
+                    {`${text.billing.currentPlan}: ${subscriptionPlanLabel}`}
+                  </TooltipContent>
+                </Tooltip>
+              ) : (
+                <Skeleton className="h-6 w-11 rounded-full" />
+              )}
+            </>
           )}
           <div className="ml-auto flex min-w-0 items-center gap-2">
-            {/* Language — desktop only; on mobile it lives in the top bar. */}
-            <LanguageToggle iconOnly className="hidden md:inline-flex" />
             <span
               data-tour="memory"
               className="-m-1 flex shrink-0 rounded-xl border border-transparent p-1"

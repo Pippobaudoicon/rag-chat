@@ -213,7 +213,7 @@ export function ChatMessage({
                   tooltip={text.chat.previousVersion}
                   size="sm"
                   disabled={currentVersionIndex === 0}
-                  className="cursor-pointer px-2 text-xs text-muted-foreground"
+                  className="h-9 min-w-9 md:h-7 md:min-w-0 cursor-pointer px-2 text-xs text-muted-foreground"
                   onClick={() => {
                     onSelectVersion(message.id, Math.max(0, currentVersionIndex - 1));
                   }}
@@ -227,7 +227,7 @@ export function ChatMessage({
                   tooltip={text.chat.nextVersion}
                   size="sm"
                   disabled={currentVersionIndex >= versions.length - 1}
-                  className="cursor-pointer px-2 text-xs text-muted-foreground"
+                  className="h-9 min-w-9 md:h-7 md:min-w-0 cursor-pointer px-2 text-xs text-muted-foreground"
                   onClick={() => {
                     onSelectVersion(message.id, Math.min(versions.length - 1, currentVersionIndex + 1));
                   }}
@@ -240,7 +240,7 @@ export function ChatMessage({
               tooltip={text.chat.helpful}
               size="sm"
               disabled={isSubmittingFeedback || !conversationIdRef.current}
-              className={`cursor-pointer gap-1.5 px-2 text-xs ${
+              className={`h-9 min-w-9 md:h-7 md:min-w-0 cursor-pointer gap-1.5 px-2 text-xs ${
                 selectedFeedback?.value === "up"
                   ? "text-emerald-400"
                   : "text-muted-foreground"
@@ -265,7 +265,7 @@ export function ChatMessage({
               tooltip={text.chat.unhelpful}
               size="sm"
               disabled={isSubmittingFeedback || !conversationIdRef.current}
-              className={`cursor-pointer gap-1.5 px-2 text-xs ${
+              className={`h-9 min-w-9 md:h-7 md:min-w-0 cursor-pointer gap-1.5 px-2 text-xs ${
                 selectedFeedback?.value === "down"
                   ? "text-rose-400"
                   : "text-muted-foreground"
@@ -289,7 +289,7 @@ export function ChatMessage({
             <MessageAction
               tooltip={text.chat.copyMessage}
               size="sm"
-              className="cursor-pointer gap-1.5 px-2 text-xs text-muted-foreground"
+              className="h-9 min-w-9 md:h-7 md:min-w-0 cursor-pointer gap-1.5 px-2 text-xs text-muted-foreground"
               onClick={() => {
                 void onCopy(message.id, displayedText);
               }}
@@ -309,7 +309,7 @@ export function ChatMessage({
               disabled={
                 isStreaming || !previousUserQuery || !displayedSources || displayedSources.length === 0
               }
-              className="cursor-pointer gap-1.5 px-2 text-xs text-muted-foreground"
+              className="h-9 min-w-9 md:h-7 md:min-w-0 cursor-pointer gap-1.5 px-2 text-xs text-muted-foreground"
               onClick={() => {
                 if (!previousUserQuery || !displayedSources || displayedSources.length === 0) {
                   return;
@@ -323,7 +323,7 @@ export function ChatMessage({
               <MessageAction
                 tooltip={text.chat.details}
                 size="sm"
-                className={`cursor-pointer gap-1.5 px-2 text-xs ${
+                className={`h-9 min-w-9 md:h-7 md:min-w-0 cursor-pointer gap-1.5 px-2 text-xs ${
                   expandedDetailsId === message.id
                     ? "text-indigo-400"
                     : "text-muted-foreground"
@@ -369,7 +369,7 @@ export function ChatMessage({
                 type="button"
                 size="xs"
                 variant="ghost"
-                className="h-5 px-1.5 text-[10px]"
+                className="h-8 px-2.5 text-xs md:h-5 md:px-1.5 md:text-[10px]"
                 onClick={() => {
                   if (!feedback.feedbackFollowUp) return;
                   feedback.setFeedbackComposer({
@@ -386,7 +386,7 @@ export function ChatMessage({
                 type="button"
                 size="xs"
                 variant="ghost"
-                className="h-5 px-1.5 text-[10px]"
+                className="h-8 px-2.5 text-xs md:h-5 md:px-1.5 md:text-[10px]"
                 onClick={() => {
                   feedback.setFeedbackFollowUp(null);
                 }}

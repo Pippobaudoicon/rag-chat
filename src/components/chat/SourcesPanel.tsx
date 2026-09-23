@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from "react";
 import { SourceCard } from "./SourceCard";
 import type { SourceChunk, UiLanguage } from "@/lib/types";
 import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { uiText } from "./i18n";
 
 interface SourcesPanelProps {
@@ -92,6 +91,7 @@ export function SourcesPanel({
   showScriptureCoverage = true,
 }: SourcesPanelProps) {
   const [expanded, setExpanded] = useState(false);
+  const [coverageExpanded, setCoverageExpanded] = useState(false);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
   const railRef = useRef<HTMLDivElement | null>(null);
@@ -146,7 +146,7 @@ export function SourcesPanel({
       <button
         data-tour="sources"
         onClick={() => setExpanded((v) => !v)}
-        className="flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+        className="flex min-h-9 cursor-pointer items-center gap-1.5 text-xs md:min-h-0 text-muted-foreground transition-colors hover:text-foreground"
       >
         <svg
           className={`w-3 h-3 transition-transform ${expanded ? "rotate-90" : ""}`}
@@ -160,18 +160,15 @@ export function SourcesPanel({
       </button>
 
       {scriptureCoverage && (
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <div className="inline-flex cursor-help items-center rounded-md border border-blue-500/30 bg-blue-500/10 px-2 py-1 text-[11px] text-blue-300">
-                {scriptureCoverage.compact}
-              </div>
-            }
-          />
-          <TooltipContent side="top" align="start" className="max-w-md">
-            <p className="text-xs leading-relaxed">{scriptureCoverage.full}</p>
-          </TooltipContent>
-        </Tooltip>
+        // Tap to expand instead of a hover tooltip, which never opens on touch.
+        <button
+          type="button"
+          aria-expanded={coverageExpanded}
+          onClick={() => setCoverageExpanded((v) => !v)}
+          className="inline-flex cursor-pointer items-center rounded-md border border-blue-500/30 bg-blue-500/10 px-2 py-1 text-left text-[11px] leading-relaxed text-blue-300"
+        >
+          {coverageExpanded ? scriptureCoverage.full : scriptureCoverage.compact}
+        </button>
       )}
 
       {expanded && (
@@ -181,14 +178,13 @@ export function SourcesPanel({
             <span>
               {text.sources.scrollHint}
             </span>
-            <span className="text-muted-foreground/60">&lt;- -&gt;</span>
           </div>
 
           <div className="group/rail relative">
             <div className="pointer-events-none absolute inset-y-0 left-0 z-10 w-5 bg-gradient-to-r from-background to-transparent" />
             <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-5 bg-gradient-to-l from-background to-transparent" />
 
-            <div className="pointer-events-none absolute inset-y-0 left-1 z-20 flex items-center">
+            <div className="pointer-events-none absolute inset-y-0 left-1 z-20 flex items-center pointer-coarse:hidden">
               <button
                 type="button"
                 aria-label={text.sources.scrollLeft}
@@ -200,7 +196,7 @@ export function SourcesPanel({
               </button>
             </div>
 
-            <div className="pointer-events-none absolute inset-y-0 right-1 z-20 flex items-center">
+            <div className="pointer-events-none absolute inset-y-0 right-1 z-20 flex items-center pointer-coarse:hidden">
               <button
                 type="button"
                 aria-label={text.sources.scrollRight}

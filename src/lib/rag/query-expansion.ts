@@ -5,7 +5,7 @@
 import { generateText, gateway, Output } from "ai";
 import { z } from "zod";
 
-const DEFAULT_CHAT_MODEL = "deepseek/deepseek-v4-flash";
+const DEFAULT_CHAT_MODEL = "deepseek/deepseek-v4.1-flash";
 
 // Number of ALTERNATIVE phrasings requested (the original query is always kept,
 // so total fan-out is at most MAX_VARIANTS + 1).

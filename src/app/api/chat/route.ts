@@ -1,4 +1,4 @@
-import { auth } from "@clerk/nextjs/server";
+import { getViewer, isGuestId } from "@/lib/auth/guest";
 import { after } from "next/server";
 import {
   createUIMessageStream,
@@ -59,6 +59,7 @@ import {
 import {
   getChatStreamContext,
 } from "@/lib/chat/resumable-stream";
+import { ALL_SOURCES } from "@/lib/types";
 import type {
   AssistantVersion,
   ChatProgressData,
@@ -75,6 +76,7 @@ const DEFAULT_MAX_RESPONSE_SOURCES = 50;
 const MAX_RETRIEVAL_CALLS = 2;
 const CACHED_REPLAY_WORDS_PER_CHUNK = 3;
 const CACHED_REPLAY_DELAY_MS = 16;
+const GUEST_IP_LIMIT_MULTIPLIER = 4;
 
 function chunkCachedText(text: string): string[] {
   const words = text.match(/\S+\s*/g) ?? [];
@@ -93,7 +95,7 @@ const getPositiveInt = (value: string | undefined, fallback: number): number => 
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 };
 
-const CHAT_MODEL = process.env.CHAT_MODEL ?? "deepseek/deepseek-v4-flash";
+const CHAT_MODEL = process.env.CHAT_MODEL ?? "deepseek/deepseek-v4.1-flash";
 const MAX_OUTPUT_TOKENS = getPositiveInt(
   process.env.CHAT_MAX_OUTPUT_TOKENS,
   DEFAULT_MAX_OUTPUT_TOKENS
@@ -109,7 +111,7 @@ export async function POST(req: Request) {
   // milestones). `startTime` (wall clock) is kept for the legacy latencyMs field.
   const latency = createLatencyTrace(performance.now());
   // ── 1. Auth ──────────────────────────────────────────────────────────────
-  const { userId, has } = await latency.phase("auth", () => auth());
+  const { userId, has } = await latency.phase("auth", () => getViewer());
   if (!userId) {
     return new Response("Unauthorized", { status: 401 });
   }
@@ -124,7 +126,7 @@ export async function POST(req: Request) {
     messages: uiMessages = [],
     conversationId,
     language: uiLanguage,
-    sources,
+    sources: requestedSources,
     responseStyle: requestedResponseStyle,
     topK,
     fixedChunks,
@@ -175,6 +177,11 @@ export async function POST(req: Request) {
       throw error;
     });
   const effectiveTopK = Math.min(topK, entitlements.limits.maxTopK);
+  // "Super" (every namespace) is a signed-in feature; guests stay on the standard set.
+  const sources =
+    entitlements.plan === "guest"
+      ? requestedSources.filter((source) => ALL_SOURCES.includes(source))
+      : requestedSources;
 
   const rateLimit = getSlidingWindowRateLimit(
     `chat:${entitlements.plan}`,
@@ -183,9 +190,19 @@ export async function POST(req: Request) {
   );
   if (rateLimit) {
     const rateLimitResult = await latency
-      .phase("ratelimit", () =>
-        rateLimit.limit(`chat:${entitlements.plan}:${userId}`)
-      )
+      .phase("ratelimit", async () => {
+        const result = await rateLimit.limit(`chat:${entitlements.plan}:${userId}`);
+        // Clearing the guest cookie mints a fresh quota, so guests are also
+        // capped per IP (loose, to tolerate shared/NAT networks).
+        const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
+        if (!result.success || entitlements.plan !== "guest" || !ip) return result;
+        const ipResult = await getSlidingWindowRateLimit(
+          "chat:guest-ip",
+          entitlements.limits.chatRequests * GUEST_IP_LIMIT_MULTIPLIER,
+          entitlements.limits.window
+        )!.limit(ip);
+        return ipResult.success ? result : ipResult;
+      })
       .catch(async (error) => {
         await releasePendingInitialTurn();
         throw error;
@@ -197,7 +214,8 @@ export async function POST(req: Request) {
           error: "Rate limit exceeded",
           plan: entitlements.plan,
           reset: rateLimitResult.reset,
-          upgradeUrl: entitlements.isPro ? null : "/billing",
+          upgradeUrl:
+            entitlements.plan === "guest" ? "/sign-up" : entitlements.isPro ? null : "/billing",
         },
         {
           status: 429,
@@ -867,7 +885,7 @@ export async function POST(req: Request) {
           writeProgress?.(progress);
         },
       }),
-      ...(conversation
+      ...(conversation && !isGuestId(userId)
         ? createMemoryTools({
             clerkUserId: userId,
           })

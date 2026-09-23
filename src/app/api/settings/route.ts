@@ -1,4 +1,4 @@
-import { auth } from "@clerk/nextjs/server";
+import { getViewer } from "@/lib/auth/guest";
 import {
   getUserPreferences,
   setDefaultResponseStyle,
@@ -10,7 +10,7 @@ export const runtime = "nodejs";
 
 // GET /api/settings — the current user's persistent preferences.
 export async function GET() {
-  const { userId } = await auth();
+  const { userId } = await getViewer();
   if (!userId) return new Response("Unauthorized", { status: 401 });
 
   const prefs = await getUserPreferences(userId);
@@ -22,7 +22,7 @@ export async function GET() {
 // PUT /api/settings — update whichever persistent preferences are present
 // (default response style and/or onboarding tour state).
 export async function PUT(req: Request) {
-  const { userId } = await auth();
+  const { userId } = await getViewer();
   if (!userId) return new Response("Unauthorized", { status: 401 });
 
   const parsed = userSettingsSchema.safeParse(await req.json().catch(() => null));

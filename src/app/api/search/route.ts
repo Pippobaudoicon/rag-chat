@@ -19,7 +19,7 @@ import { getSlidingWindowRateLimit } from "@/lib/rag/cache";
 
 export const runtime = "nodejs";
 
-const CHAT_MODEL = process.env.CHAT_MODEL ?? "deepseek/deepseek-v4-flash";
+const CHAT_MODEL = process.env.CHAT_MODEL ?? "deepseek/deepseek-v4.1-flash";
 
 // GET /api/search?q=...&language=ita&sources=scriptures,conference&topK=10
 // Semantic search only — no LLM generation
