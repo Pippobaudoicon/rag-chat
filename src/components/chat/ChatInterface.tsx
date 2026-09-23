@@ -7,7 +7,7 @@ import { useUser } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
 import { DefaultChatTransport } from "ai";
 import type { UIMessage } from "ai";
-import { AlertTriangleIcon, ZapIcon } from "lucide-react";
+import { AlertTriangleIcon, RotateCcwIcon, ZapIcon } from "lucide-react";
 import {
   Conversation,
   ConversationContent,
@@ -317,6 +317,7 @@ export function ChatInterface({
     regenerate,
     resumeStream,
     status,
+    error: chatError,
     setMessages,
     stop,
   } = useChat({
@@ -413,6 +414,23 @@ export function ChatInterface({
       (billingOverview?.plan === "free" &&
         (chatUsage.percentUsed >= 75 || chatUsage.remaining <= 5)));
   const composerStatus = isStreaming ? "submitted" : status;
+  // A failed turn: the SDK's transport/stream error, or the server-side claim
+  // check (polling) that marked the generation failed.
+  const failedTurn =
+    !isStreaming && (!!chatError || persistedGenerationStatus === "error");
+  const lastMessage = messages.at(-1);
+  // HTTP errors carry the response body as the message (e.g. the 429 JSON);
+  // stream errors arrive already masked, so they fall through to "generic".
+  const errorText = chatError?.message ?? "";
+  const errorKind = /rate limit/i.test(errorText)
+    ? "quota"
+    : /already being generated/i.test(errorText)
+      ? "busy"
+      : chatError && (!navigator.onLine || /failed to fetch|network/i.test(errorText))
+        ? "network"
+        : "generic";
+  const failedQuestion =
+    failedTurn && lastMessage?.role === "user" ? getPlainText(lastMessage) : null;
 
   const ensureConversation = useCallback(async (initialTurn?: {
     title: string;
@@ -692,6 +710,15 @@ export function ChatInterface({
       sources,
     ]
   );
+
+  // ponytail: retry = drop the unanswered question locally and send it again.
+  // If the server already saved it, history shows the question twice after a
+  // reload; a server-side "retry this turn" would avoid that if it matters.
+  const handleRetry = useCallback(() => {
+    if (!failedQuestion) return;
+    setMessages((current) => current.slice(0, -1));
+    void handleSubmit(failedQuestion);
+  }, [failedQuestion, handleSubmit, setMessages]);
 
   const handleRegenerate = useCallback(
     async (messageId: string, question: string, currentText: string, fixedChunks: SourceChunk[]) => {
@@ -1015,6 +1042,47 @@ export function ChatInterface({
                     />
                   </MessageContent>
                 </Message>
+              )}
+              {failedTurn && (
+                <div
+                  role="alert"
+                  className="flex items-start gap-3 rounded-2xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm"
+                >
+                  <AlertTriangleIcon className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+                  <div className="min-w-0 flex-1">
+                    <p className="font-medium text-foreground">{text.chat.errorTitle}</p>
+                    <p className="mt-0.5 text-muted-foreground">
+                      {errorKind === "quota"
+                        ? isGuest
+                          ? text.chat.errorQuotaGuest
+                          : text.chat.errorQuota
+                        : errorKind === "busy"
+                          ? text.chat.errorBusy
+                          : errorKind === "network"
+                            ? text.chat.errorNetwork
+                            : text.chat.errorGeneric}
+                    </p>
+                  </div>
+                  {errorKind === "quota" ? (
+                    <a
+                      href={isGuest ? "/sign-up" : "/billing"}
+                      className="shrink-0 self-center rounded-full bg-foreground px-3 py-1.5 text-xs font-medium text-background transition-opacity hover:opacity-85"
+                    >
+                      {isGuest ? text.chat.guestUsageAction : text.chat.usageWarningAction}
+                    </a>
+                  ) : (
+                    failedQuestion && (
+                      <button
+                        type="button"
+                        onClick={handleRetry}
+                        className="inline-flex shrink-0 items-center gap-1.5 self-center rounded-full border border-border px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent"
+                      >
+                        <RotateCcwIcon className="h-3.5 w-3.5" />
+                        {text.chat.errorRetry}
+                      </button>
+                    )
+                  )}
+                </div>
               )}
             </ConversationContent>
             <ConversationScrollButton />

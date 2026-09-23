@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.12.45
+
+- **Visible, friendly chat errors.** A failed answer no longer fails silently. An inline card under the last message says what happened in plain words: a temporary problem on our side, offline, a reply already in progress, or out of messages. It offers the matching action: "Try again", which resends the unanswered question, or Sign up / View Pro when the quota is used up. The card shows for transport and stream errors and for generations the server-claim check marks as failed. Italian, English, and Spanish copy.
+
 ## 0.12.44
 
 - **ChatGPT-style chat layout and a clearer response-style picker.** A new chat now centers the composer, with the greeting above it and three suggestion cards below it (a swipeable row on mobile). The composer is a single rounded card. It holds the response-style pill, the Super pill (amber when active, locked with a sign-up tooltip for guests), and a round send button. The desktop sidebar starts collapsed each visit. A unified top bar on every viewport has a sidebar toggle, new chat, the wordmark, and language, plus Log in / Sign up for guests. The sidebar header has a collapse button, and its language toggle moved to the top bar. The response-style picker is rebuilt as an icon + label pill. It opens a titled menu that explains what the setting does, each style has an icon and a plain-language description, and an explicit "Use for new chats" checkbox replaces the per-row star. The onboarding tour opens the sidebar for its sidebar steps on desktop too.
