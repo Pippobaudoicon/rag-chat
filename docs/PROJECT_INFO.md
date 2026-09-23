@@ -47,6 +47,13 @@ Read this first before deep code exploration.
   (`src/components/pwa/`): Android `beforeinstallprompt`, iOS Add-to-Home-Screen
   instructions. The mobile shell (`AppShell.tsx`) adds a swipe-open sidebar drawer
   and safe-area-aware layout.
+- Chat layout is ChatGPT-style: one top bar on all viewports (`AppShell.tsx`:
+  sidebar toggle, new chat, wordmark, language, and Log in / Sign up for guests),
+  the desktop sidebar starts collapsed each visit (not persisted; the onboarding
+  tour opens it for sidebar steps), and an empty chat centers the composer with
+  the greeting above it and three suggestion cards below it. The composer shows
+  the response-style picker (icon + label pill that opens an upward menu of
+  described styles with a "Use for new chats" checkbox) and the Super toggle.
 - Native mobile direction: keep this Next.js app as the web PWA and hosted API
   backend, unchanged. The native iOS/Android client is a **separate Expo / React
   Native app** (sibling repo `chatlds-mobile/`) that talks to this API with a

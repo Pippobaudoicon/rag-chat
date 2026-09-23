@@ -16,6 +16,7 @@ import {
   CreditCardIcon,
   EllipsisVerticalIcon,
   LoaderCircleIcon,
+  PanelLeftCloseIcon,
   PencilIcon,
   SearchIcon,
   Trash2Icon,
@@ -61,7 +62,6 @@ import {
 import { version } from '../../../package.json';
 import { uiText } from './i18n';
 import { useLanguage } from './language-context';
-import { LanguageToggle } from './LanguageToggle';
 
 const CONVERSATION_PAGE_SIZE = 20;
 const CONVERSATION_CACHE_TTL_MS = 2 * 60 * 1000;
@@ -97,6 +97,7 @@ interface ConversationUpdatedDetail {
 
 interface ChatSidebarProps {
   onClose?: () => void;
+  onCollapse?: () => void;
   showMobileClose?: boolean;
   subscriptionPlan: SubscriptionPlan | null;
 }
@@ -228,6 +229,7 @@ function writeConversationCache(key: string, cache: ConversationCache) {
 
 export function ChatSidebar({
   onClose,
+  onCollapse,
   showMobileClose = false,
   subscriptionPlan,
 }: ChatSidebarProps) {
@@ -607,6 +609,17 @@ export function ChatSidebar({
             <span className="text-sm font-semibold tracking-tight truncate">ChatLDS</span>
         </div>
         <span className="text-[9px] text-muted-foreground/50">v{version}</span>
+        {onCollapse && (
+          <button
+            type="button"
+            onClick={onCollapse}
+            aria-label={text.app.closeSidebar}
+            title={text.app.closeSidebar}
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          >
+            <PanelLeftCloseIcon className="h-[18px] w-[18px]" />
+          </button>
+        )}
         {showMobileClose && onClose && (
           <button
             type="button"
@@ -816,8 +829,6 @@ export function ChatSidebar({
             </>
           )}
           <div className="ml-auto flex min-w-0 items-center gap-2">
-            {/* Language — desktop only; on mobile it lives in the top bar. */}
-            <LanguageToggle iconOnly className="hidden md:inline-flex" />
             <span
               data-tour="memory"
               className="-m-1 flex shrink-0 rounded-xl border border-transparent p-1"

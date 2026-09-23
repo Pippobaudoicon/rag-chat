@@ -21,7 +21,6 @@ const ANCHOR_RETRY_FRAMES = 12; // ~200ms; covers the lazy-mounted mobile drawer
 const SIDEBAR_SETTLE_FRAMES = 14; // wait for the 200ms drawer slide transition
 const SPOTLIGHT_PADDING = 8;
 const MEMORY_SPOTLIGHT_PADDING = 14;
-const DESKTOP_BREAKPOINT_PX = 768;
 const REPLAY_READY_MAX_FRAMES = 180; // ~3s at 60fps for route/client hydration
 const REPLAY_READY_SELECTORS = [
   '[data-tour="composer"]',
@@ -63,7 +62,6 @@ function setSidebar(open: boolean) {
 }
 
 const nextFrame = () => new Promise<void>((r) => requestAnimationFrame(() => r()));
-const isMobileViewport = () => window.innerWidth < DESKTOP_BREAKPOINT_PX;
 const isReplayRequestedAfterNavigation = () =>
   sessionStorage.getItem("onboarding:replay-after-navigation") === "1";
 
@@ -152,13 +150,13 @@ export function OnboardingTour() {
       const step = visibleRef.current[stepIndex];
       if (!step) return;
       const token = ++showToken.current;
-      const mobileSidebarStep = step.inSidebar && isMobileViewport();
+      const sidebarStep = !!step.inSidebar;
 
-      // Desktop has a permanent sidebar, so leave it untouched. Mobile opens
-      // the drawer only for the sidebar-specific steps.
-      setSidebar(mobileSidebarStep);
+      // The sidebar starts collapsed on every viewport (drawer on mobile,
+      // width-animated panel on desktop), so open it only for sidebar steps.
+      setSidebar(sidebarStep);
       let el: HTMLElement | null = null;
-      for (let i = 0; i < (mobileSidebarStep ? ANCHOR_RETRY_FRAMES : 2); i++) {
+      for (let i = 0; i < (sidebarStep ? ANCHOR_RETRY_FRAMES : 2); i++) {
         await nextFrame();
         if (token !== showToken.current) return; // superseded by a newer step
         el = findVisibleAnchor(step.anchor);
@@ -166,10 +164,10 @@ export function OnboardingTour() {
       }
       if (token !== showToken.current) return;
 
-      // The mobile drawer's target exists as soon as its opening animation
-      // starts, but its bounding box keeps moving for ~200ms. Measure only
-      // after that transition settles so the final sidebar steps line up.
-      if (el && mobileSidebarStep) {
+      // The sidebar's target exists as soon as its opening animation starts,
+      // but its bounding box keeps moving for ~200ms. Measure only after that
+      // transition settles so the final sidebar steps line up.
+      if (el && sidebarStep) {
         for (let i = 0; i < SIDEBAR_SETTLE_FRAMES; i++) {
           await nextFrame();
           if (token !== showToken.current) return;
@@ -210,11 +208,9 @@ export function OnboardingTour() {
   const start = useCallback(
     (fromIndex: number, isReplay: boolean) => {
       // A step is droppable only if its anchor is genuinely absent and it has no
-      // fallback. Sidebar anchors mount with the drawer, so treat them present.
+      // fallback. Sidebar anchors appear once the sidebar opens, so treat them present.
       const vis = eligibleSteps(ONBOARDING_STEPS, (step) =>
-        step.inSidebar && isMobileViewport()
-          ? true
-          : !!findVisibleAnchor(step.anchor)
+        step.inSidebar ? true : !!findVisibleAnchor(step.anchor)
       );
       if (vis.length === 0) return;
       visibleRef.current = vis;

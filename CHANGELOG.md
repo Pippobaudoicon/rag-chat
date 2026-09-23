@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.12.44
+
+- **ChatGPT-style chat layout and a clearer response-style picker.** A new chat now centers the composer, with the greeting above it and three suggestion cards below it (a swipeable row on mobile). The composer is a single rounded card. It holds the response-style pill, the Super pill (amber when active, locked with a sign-up tooltip for guests), and a round send button. The desktop sidebar starts collapsed each visit. A unified top bar on every viewport has a sidebar toggle, new chat, the wordmark, and language, plus Log in / Sign up for guests. The sidebar header has a collapse button, and its language toggle moved to the top bar. The response-style picker is rebuilt as an icon + label pill. It opens a titled menu that explains what the setting does, each style has an icon and a plain-language description, and an explicit "Use for new chats" checkbox replaces the per-row star. The onboarding tour opens the sidebar for its sidebar steps on desktop too.
+
 ## 0.12.43
 
 - **Guest access without login.** Signed-out visitors can now chat at `/chat` instead of hitting the sign-in wall. The proxy issues a random httpOnly `chatlds_guest` cookie and guests are stored as `guest:<uuid>` owners, so the existing conversation, cache, and ownership code works unchanged. A new `guest` plan allows 5 chat requests per rolling 30 days (plus a 4× per-IP cap). The chat banner tracks "N of 5 free messages left" with a Sign-up CTA, and the sidebar shows Sign up in place of the account button. Guests can't use the Super search scope: the toggle is locked with a sign-up tooltip, and the chat route clamps guest sources to the standard set. Guests get no long-term memory. After sign-in/up, their guest conversations and feedback move to the real account. Search, Memory, Billing, and voice still require sign-in. The mobile app is unaffected (it always authenticates with a bearer token). New check: `pnpm run test:guest`.

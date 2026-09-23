@@ -28,6 +28,8 @@ export const UI_TEXT = {
   ita: {
     app: {
       openMenu: "Apri menu",
+      openSidebar: "Apri barra laterale",
+      logIn: "Accedi",
       closeSidebar: "Chiudi barra laterale",
       account: "Account",
     },
@@ -71,24 +73,24 @@ export const UI_TEXT = {
       },
       responseStyle: "Stile di risposta",
       responseStyleAria: "Scegli lo stile di risposta",
-      setAsDefault: "Imposta come predefinito",
-      isDefault: "Stile predefinito",
+      responseStyleHint: "Come deve scrivere le risposte ChatLDS?",
+      useForNewChats: "Usa per le nuove chat",
       styles: {
         balanced: {
           label: "Equilibrato",
-          description: "Profondità da studioso spiegata con parole semplici, comprensibili a tutti (predefinito).",
+          description: "Chiaro e completo: idee profonde in parole semplici.",
         },
         scholar: {
-          label: "Studioso",
-          description: "Più approfondito, per un lettore adulto; sono ammessi termini dottrinali e accademici.",
+          label: "Approfondito",
+          description: "Studio dettagliato, con termini dottrinali e contesto.",
         },
         simple: {
-          label: "Semplice",
-          description: "Per un bambino della Primaria: frasi brevissime, parole semplici, una sola idea.",
+          label: "Per bambini",
+          description: "Frasi brevissime che un bambino della Primaria può seguire.",
         },
         concise: {
-          label: "Conciso",
-          description: "Una risposta breve e diretta in parole semplici, al massimo poche frasi.",
+          label: "Breve",
+          description: "Dritto al punto, in poche frasi.",
         },
       },
     },
@@ -336,6 +338,8 @@ export const UI_TEXT = {
   eng: {
     app: {
       openMenu: "Open menu",
+      openSidebar: "Open sidebar",
+      logIn: "Log in",
       closeSidebar: "Close sidebar",
       account: "Account",
     },
@@ -379,24 +383,24 @@ export const UI_TEXT = {
       },
       responseStyle: "Response style",
       responseStyleAria: "Choose response style",
-      setAsDefault: "Set as default",
-      isDefault: "Default style",
+      responseStyleHint: "How should ChatLDS write its answers?",
+      useForNewChats: "Use for new chats",
       styles: {
         balanced: {
           label: "Balanced",
-          description: "Scholar-level depth explained in plain words anyone can follow (default).",
+          description: "Clear and complete: deep ideas in plain words.",
         },
         scholar: {
-          label: "Scholar",
-          description: "Deeper, for a serious adult reader; doctrinal and academic terms allowed.",
+          label: "In depth",
+          description: "Detailed study, with doctrinal terms and context.",
         },
         simple: {
-          label: "Simple",
-          description: "For a young child in Primary: very short, very plain, one idea.",
+          label: "For children",
+          description: "Very short sentences a Primary child can follow.",
         },
         concise: {
-          label: "Concise",
-          description: "A short, direct answer in plain words — a few sentences at most.",
+          label: "Brief",
+          description: "Straight to the point, in a few sentences.",
         },
       },
     },
@@ -644,6 +648,8 @@ export const UI_TEXT = {
   spa: {
     app: {
       openMenu: "Abrir menú",
+      openSidebar: "Abrir barra lateral",
+      logIn: "Iniciar sesión",
       closeSidebar: "Cerrar barra lateral",
       account: "Cuenta",
     },
@@ -687,24 +693,24 @@ export const UI_TEXT = {
       },
       responseStyle: "Estilo de respuesta",
       responseStyleAria: "Elegir el estilo de respuesta",
-      setAsDefault: "Establecer como predeterminado",
-      isDefault: "Estilo predeterminado",
+      responseStyleHint: "¿Cómo debe escribir ChatLDS sus respuestas?",
+      useForNewChats: "Usar en chats nuevos",
       styles: {
         balanced: {
           label: "Equilibrado",
-          description: "Profundidad de estudio explicada con palabras sencillas que cualquiera puede entender (predeterminado).",
+          description: "Claro y completo: ideas profundas en palabras sencillas.",
         },
         scholar: {
-          label: "Erudito",
-          description: "Más profundo, para un lector adulto; permite términos doctrinales y académicos.",
+          label: "A fondo",
+          description: "Estudio detallado, con términos doctrinales y contexto.",
         },
         simple: {
-          label: "Sencillo",
-          description: "Para un niño pequeño de la Primaria: frases muy cortas, palabras sencillas y una sola idea.",
+          label: "Para niños",
+          description: "Frases muy cortas que un niño de la Primaria puede seguir.",
         },
         concise: {
-          label: "Conciso",
-          description: "Una respuesta breve y directa con palabras sencillas; como máximo, unas pocas frases.",
+          label: "Breve",
+          description: "Directo al grano, en pocas frases.",
         },
       },
     },

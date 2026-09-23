@@ -23,7 +23,7 @@ import {
 } from "@/components/ai-elements/prompt-input";
 import type { PromptInputMessage } from "@/components/ai-elements/prompt-input";
 import { ResponseStylePicker } from "./ResponseStylePicker";
-import { EmptyState } from "./EmptyState";
+import { EmptyGreeting, EmptySuggestions } from "./EmptyState";
 import { ChatMessage } from "./ChatMessage";
 import {
   AssistantActivityIndicator,
@@ -117,14 +117,14 @@ function SearchScopeToggle({
         disabled={disabled}
         aria-disabled={locked || undefined}
         aria-pressed={isSuper}
-        className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs font-medium transition-all disabled:opacity-50 aria-disabled:cursor-not-allowed aria-disabled:opacity-50 ${
+        className={`inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition-colors disabled:opacity-50 aria-disabled:cursor-not-allowed aria-disabled:opacity-50 ${
           isSuper
-            ? "border-amber-500/40 bg-amber-500/15 text-amber-300"
-            : "border-border/50 bg-transparent text-muted-foreground hover:border-border hover:text-foreground"
+            ? "border-amber-400/40 bg-amber-400/10 text-amber-200"
+            : "border-border text-muted-foreground hover:bg-accent hover:text-foreground"
         }`}
       >
-        <ZapIcon size={13} className={isSuper ? "text-amber-400" : ""} />
-        <span className="hidden sm:inline">{scope.super}</span>
+        <ZapIcon size={14} className={isSuper ? "fill-amber-400 text-amber-400" : ""} />
+        <span>{scope.super}</span>
       </TooltipTrigger>
       <TooltipContent side="top" className="max-w-xs text-xs leading-relaxed">
         <p className="mb-0.5 font-medium">{isSuper || locked ? scope.super : scope.standard}</p>
@@ -881,27 +881,79 @@ export function ChatInterface({
     setChatProgress(null);
   }, [status]);
 
+  const isEmptyChat = messages.length === 0;
+
+  const composer = (
+    <PromptInput
+      data-tour="composer"
+      onSubmit={handlePromptSubmit}
+      className="**:data-[slot=input-group]:h-auto **:data-[slot=input-group]:rounded-3xl **:data-[slot=input-group]:border **:data-[slot=input-group]:border-border **:data-[slot=input-group]:bg-card **:data-[slot=input-group]:shadow-[0_8px_30px_-12px_rgb(0_0_0/0.5)] **:data-[slot=input-group]:transition-colors focus-within:**:data-[slot=input-group]:border-foreground/25"
+    >
+      {/* text-base md:* is the codebase-wide input convention (see
+          ui/textarea.tsx): iOS Safari zooms the viewport when focusing an
+          input under 16px, so mobile keeps 16px and only desktop drops. */}
+      <PromptInputTextarea
+        ref={composerRef}
+        className="min-h-14 max-h-52 px-4 pt-4 pb-1 text-base md:text-[15px] leading-6 placeholder:text-muted-foreground/70"
+        enterKeyHint="send"
+        placeholder={text.chat.placeholder}
+      />
+      <PromptInputFooter className="px-2.5 pt-1 pb-2.5">
+        <PromptInputTools className="gap-1.5">
+          <ResponseStylePicker
+            language={language}
+            value={activeResponseStyle}
+            defaultStyle={defaultResponseStyle}
+            onChange={handleResponseStyleChange}
+            onSetDefault={handleSetDefaultResponseStyle}
+            disabled={isStreaming}
+          />
+          <SearchScopeToggle
+            language={language}
+            isSuper={isSuperScope}
+            locked={isGuest}
+            onToggle={() =>
+              setSearchScope((current) =>
+                current === "super" ? "standard" : "super"
+              )
+            }
+            disabled={isStreaming}
+          />
+        </PromptInputTools>
+        <PromptInputSubmit
+          status={composerStatus}
+          disabled={isStreaming}
+          {...(isStreaming
+            ? {
+                "aria-label": text.chat.pendingDrafting,
+                title: text.chat.pendingDrafting,
+              }
+            : {})}
+          className="size-8 rounded-full bg-foreground text-background transition-opacity hover:bg-foreground hover:opacity-85 disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100"
+        />
+      </PromptInputFooter>
+    </PromptInput>
+  );
+
   return (
     <div className="flex flex-col h-full min-h-0">
       {shouldShowUsageWarning && chatUsage && (
-        <div className="border-b border-primary/20 bg-primary/10 px-4 py-2">
-          <div className="mx-auto flex max-w-3xl flex-col gap-2 text-sm sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex min-w-0 items-start gap-2">
-              <AlertTriangleIcon className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-              <div className="min-w-0">
-                <p className="font-medium text-primary">
-                  {isGuest ? text.chat.guestUsageTitle : text.chat.usageWarningTitle}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  {(isGuest ? text.chat.guestUsageDescription : text.chat.usageWarningDescription)
-                    .replace("{remaining}", String(chatUsage.remaining))
-                    .replace("{limit}", String(chatUsage.limit))}
-                </p>
-              </div>
+        <div className="px-4 pt-2">
+          <div className="mx-auto flex max-w-3xl items-center gap-3 rounded-2xl border border-border bg-card/60 px-3.5 py-2.5 text-sm">
+            <AlertTriangleIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <div className="min-w-0 flex-1">
+              <p className="font-medium text-foreground">
+                {isGuest ? text.chat.guestUsageTitle : text.chat.usageWarningTitle}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {(isGuest ? text.chat.guestUsageDescription : text.chat.usageWarningDescription)
+                  .replace("{remaining}", String(chatUsage.remaining))
+                  .replace("{limit}", String(chatUsage.limit))}
+              </p>
             </div>
             <a
               href={isGuest ? "/sign-up" : "/billing"}
-              className="w-fit rounded-md border border-primary/30 bg-background px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-accent"
+              className="shrink-0 rounded-full bg-foreground px-3 py-1.5 text-xs font-medium text-background transition-opacity hover:opacity-85"
             >
               {isGuest ? text.chat.guestUsageAction : text.chat.usageWarningAction}
             </a>
@@ -909,17 +961,19 @@ export function ChatInterface({
         </div>
       )}
 
-      {/* Message list */}
-      <div className="flex-1 min-h-0 overflow-hidden">
-        <Conversation className="h-full px-4 py-6 max-w-3xl mx-auto">
-          <ConversationContent
-            className={messages.length === 0 ? "h-full gap-0 p-0" : undefined}
-            scrollClassName={messages.length === 0 ? "[scrollbar-gutter:auto!important]" : undefined}
-          >
-            {messages.length === 0 ? (
-              <EmptyState language={language} onSelect={handleSubmit} userName={userDisplayName} />
-            ) : (
-              messages.map((message, messageIndex) => (
+      {/* One tree for both layouts so the composer never remounts (keeps focus
+          and draft): an empty chat centers greeting + composer + suggestions
+          (on mobile the composer stays docked at the bottom, suggestions sit
+          above it); once there are messages the list fills and the composer docks. */}
+      {isEmptyChat ? (
+        <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-4 pb-6 md:justify-end md:pb-8">
+          <EmptyGreeting language={language} userName={userDisplayName} />
+        </div>
+      ) : (
+        <div className="flex-1 min-h-0 overflow-hidden">
+          <Conversation className="h-full px-4 py-6 max-w-3xl mx-auto">
+            <ConversationContent>
+              {messages.map((message, messageIndex) => (
                 <ChatMessage
                   key={message.id}
                   message={message}
@@ -942,89 +996,58 @@ export function ChatInterface({
                   onCopy={handleCopyMessage}
                   onRegenerate={handleRegenerate}
                 />
-              ))
-            )}
+              ))}
 
-            {/* Pending assistant after the newest user turn, even with older answers in history. */}
-            {showPendingAssistant && (
-              <Message from="assistant">
-                <MessageContent>
-                  <AssistantActivityIndicator
-                    language={language}
-                    afterTool={chatProgress?.toolCompleted === true}
-                    phase={
-                      chatProgress && chatProgress.phase !== "complete"
-                        ? chatProgress.phase
-                        : status === "submitted"
-                          ? "queued"
-                          : "drafting"
-                    }
-                  />
-                </MessageContent>
-              </Message>
-            )}
-          </ConversationContent>
-          <ConversationScrollButton />
-        </Conversation>
-      </div>
+              {/* Pending assistant after the newest user turn, even with older answers in history. */}
+              {showPendingAssistant && (
+                <Message from="assistant">
+                  <MessageContent>
+                    <AssistantActivityIndicator
+                      language={language}
+                      afterTool={chatProgress?.toolCompleted === true}
+                      phase={
+                        chatProgress && chatProgress.phase !== "complete"
+                          ? chatProgress.phase
+                          : status === "submitted"
+                            ? "queued"
+                            : "drafting"
+                      }
+                    />
+                  </MessageContent>
+                </Message>
+              )}
+            </ConversationContent>
+            <ConversationScrollButton />
+          </Conversation>
+        </div>
+      )}
 
-      {/* Input area */}
-      <div className="pb-safe-compact border-t border-border/50 bg-linear-to-b from-background to-muted/20 backdrop-blur-sm px-4 py-4">
-        <div className="max-w-3xl mx-auto">
-          <PromptInput
-            data-tour="composer"
-            onSubmit={handlePromptSubmit}
-            className="rounded-[2rem] transition-all duration-200 **:data-[slot=input-group]:h-auto **:data-[slot=input-group]:rounded-[2rem] **:data-[slot=input-group]:border **:data-[slot=input-group]:border-border/70 **:data-[slot=input-group]:bg-background/95 **:data-[slot=input-group]:px-2.5 **:data-[slot=input-group]:shadow-[inset_0_1px_0_hsl(var(--background)),0_8px_20px_-14px_hsl(var(--foreground)/0.45)] focus-within:**:data-[slot=input-group]:border-primary/50 focus-within:**:data-[slot=input-group]:shadow-[inset_0_1px_0_hsl(var(--background)),0_12px_28px_-14px_hsl(var(--foreground)/0.55)]"
+      <div
+        className={
+          isEmptyChat
+            ? "order-3 px-4 pb-safe-compact md:order-none md:pb-0"
+            : "pb-safe-compact px-4 pt-1"
+        }
+      >
+        <div className="mx-auto max-w-3xl">
+          {composer}
+          <p
+            className={`mt-2 text-center text-[11px] text-muted-foreground/60 ${
+              isEmptyChat ? "hidden" : ""
+            }`}
           >
-            {/* text-base md:* is the codebase-wide input convention (see
-                ui/textarea.tsx): iOS Safari zooms the viewport when focusing an
-                input under 16px, so mobile keeps 16px and only desktop drops. */}
-            <PromptInputTextarea
-              ref={composerRef}
-              className="min-h-14 max-h-44 px-4 pt-4 pb-2 text-base md:text-[15px] leading-6 placeholder:text-muted-foreground/80"
-              enterKeyHint="send"
-              placeholder={text.chat.placeholder}
-            />
-            <PromptInputFooter className="px-3 pt-0 pb-2">
-              <PromptInputTools className="gap-1.5">
-                <ResponseStylePicker
-                  language={language}
-                  value={activeResponseStyle}
-                  defaultStyle={defaultResponseStyle}
-                  onChange={handleResponseStyleChange}
-                  onSetDefault={handleSetDefaultResponseStyle}
-                  disabled={isStreaming}
-                />
-                <SearchScopeToggle
-                  language={language}
-                  isSuper={isSuperScope}
-                  locked={isGuest}
-                  onToggle={() =>
-                    setSearchScope((current) =>
-                      current === "super" ? "standard" : "super"
-                    )
-                  }
-                  disabled={isStreaming}
-                />
-              </PromptInputTools>
-              <PromptInputSubmit
-                status={composerStatus}
-                disabled={isStreaming}
-                {...(isStreaming
-                  ? {
-                      "aria-label": text.chat.pendingDrafting,
-                      title: text.chat.pendingDrafting,
-                    }
-                  : {})}
-                className="size-9 rounded-full border border-primary/20 bg-primary text-primary-foreground shadow-[0_10px_20px_-10px_hsl(var(--primary)/0.85)] transition-all hover:scale-[1.03] hover:bg-primary/90 active:scale-100 disabled:opacity-60"
-              />
-            </PromptInputFooter>
-          </PromptInput>
-          <p className="mt-2 text-center text-[9px] text-muted-foreground/50">
             {text.chat.disclaimer}
           </p>
         </div>
       </div>
+
+      {isEmptyChat && (
+        <div className="px-4 pb-3 md:flex-[1.15] md:pb-0 md:pt-2">
+          <div className="mx-auto max-w-3xl">
+            <EmptySuggestions language={language} onSelect={handleSubmit} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

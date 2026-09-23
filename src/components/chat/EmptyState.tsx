@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import Image from "next/image";
+import { ArrowUpRightIcon } from "lucide-react";
 import type { UiLanguage } from "@/lib/types";
 import { uiText } from "./i18n";
 
@@ -19,21 +19,40 @@ function pickRandomSuggestions(options: string[], count: number) {
   return shuffled.slice(0, count);
 }
 
-interface EmptyStateProps {
+// The empty chat is split around the centered composer (ChatGPT-style):
+// greeting above it, suggestions below it.
+
+export function EmptyGreeting({
+  language,
+  userName,
+}: {
   language: UiLanguage;
-  onSelect: (question: string) => void;
   userName?: string | null;
+}) {
+  const text = uiText(language);
+  const greeting = userName
+    ? text.empty.title.replace(/\?$/, ` ${userName}?`)
+    : text.empty.title;
+
+  return (
+    <h1 className="text-balance text-center text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
+      {greeting}
+    </h1>
+  );
 }
 
-export function EmptyState({ language, onSelect, userName }: EmptyStateProps) {
+export function EmptySuggestions({
+  language,
+  onSelect,
+}: {
+  language: UiLanguage;
+  onSelect: (question: string) => void;
+}) {
   const text = uiText(language);
   const options = useMemo(
     () => [...text.empty.suggestions],
     [text.empty.suggestions]
   );
-  const greeting = userName
-    ? text.empty.title.replace(/\?$/, ` ${userName}?`)
-    : text.empty.title;
 
   // Keep the first server/client render deterministic, then randomize on mount.
   const [suggestions, setSuggestions] = useState<string[]>(() =>
@@ -45,44 +64,18 @@ export function EmptyState({ language, onSelect, userName }: EmptyStateProps) {
   }, [options]);
 
   return (
-    <div className="flex min-h-full flex-col items-center justify-center px-4 py-8 text-center sm:py-16">
-      {/* Logo / icon */}
-      {/* <div className="mb-6">
-        <Image src="/icons/logo-no-bg.png" alt="ChatLDS" width={48} height={48} />
-      </div> */}
-      
-      {/* LOGO TEMP */}
-      <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-indigo-500/10 border border-indigo-500/20">
-        <svg
-          className="h-6 w-6 text-indigo-400"
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
+    <div className="-mx-4 flex snap-x gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] md:mx-0 md:grid md:grid-cols-3 md:overflow-visible md:px-0">
+      {suggestions.map((suggestion) => (
+        <button
+          key={suggestion}
+          type="button"
+          onClick={() => onSelect(suggestion)}
+          className="group flex w-64 shrink-0 snap-start items-start justify-between gap-2 rounded-2xl border border-border bg-card/40 px-3.5 py-3 text-left text-sm leading-snug text-muted-foreground transition-colors hover:bg-accent hover:text-foreground md:w-auto"
         >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={1.5}
-            d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25"
-          />
-        </svg>
-      </div>
-
-      <h2 className="text-4xl font-semibold tracking-tight mb-8">{greeting}</h2>
-      {/* <p className="text-sm text-muted-foreground max-w-sm mb-8">{text.empty.subtitle}</p> */}
-
-      {/* Suggested prompts */}
-      <div className="grid gap-2 w-full max-w-lg">
-        {suggestions.map((suggestion) => (
-          <button
-            key={suggestion}
-            onClick={() => onSelect(suggestion)}
-            className="text-left px-4 py-3 rounded-lg border border-border/60 bg-card/40 text-sm text-muted-foreground hover:text-foreground hover:border-border hover:bg-card transition-all duration-150"
-          >
-            {suggestion}
-          </button>
-        ))}
-      </div>
+          <span className="line-clamp-2">{suggestion}</span>
+          <ArrowUpRightIcon className="mt-0.5 size-3.5 shrink-0 opacity-0 transition-opacity group-hover:opacity-60" />
+        </button>
+      ))}
     </div>
   );
 }

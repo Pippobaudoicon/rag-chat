@@ -1,8 +1,9 @@
 "use client";
 
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
-import { LoaderCircleIcon } from "lucide-react";
+import { LoaderCircleIcon, PanelLeftIcon, SquarePenIcon } from "lucide-react";
 import Image from "next/image";
+import { useUser } from "@clerk/nextjs";
 import { usePathname, useRouter } from "next/navigation";
 import { ChatSidebar } from "@/components/chat/ChatSidebar";
 import { LanguageProvider } from "@/components/chat/language-context";
@@ -29,6 +30,8 @@ interface AppShellProps {
 const MOBILE_BREAKPOINT_PX = 768;
 const OPEN_SWIPE_MIN_DISTANCE = 70;
 const OPEN_SWIPE_HORIZONTAL_RATIO = 1.5; // |dx| must dominate |dy| by this factor
+const TOP_BAR_ICON_BUTTON =
+  "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground";
 
 export function AppShell({ children }: AppShellProps) {
   return (
@@ -42,6 +45,10 @@ export function AppShell({ children }: AppShellProps) {
 
 function AppShellContent({ children }: AppShellProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
+  // Desktop sidebar starts collapsed so the chat gets the full width.
+  const [desktopOpen, setDesktopOpen] = useState(false);
+  const { isLoaded: userLoaded, user } = useUser();
+  const isSignedOut = userLoaded && !user;
   const [tourOwnsSidebar, setTourOwnsSidebar] = useState(false);
   const [navigationPending, setNavigationPending] = useState(false);
   const router = useRouter();
@@ -158,10 +165,13 @@ function AppShellContent({ children }: AppShellProps) {
   useEffect(() => {
     const onSetSidebar = (event: Event) => {
       const open = (event as CustomEvent<{ open?: boolean }>).detail?.open;
-      if (typeof open === "boolean") {
-        setTourOwnsSidebar(open);
-        setMobileOpen(open);
+      if (typeof open !== "boolean") return;
+      if (window.innerWidth >= MOBILE_BREAKPOINT_PX) {
+        setDesktopOpen(open);
+        return;
       }
+      setTourOwnsSidebar(open);
+      setMobileOpen(open);
     };
     window.addEventListener("onboarding:set-sidebar", onSetSidebar);
     return () => window.removeEventListener("onboarding:set-sidebar", onSetSidebar);
@@ -175,52 +185,87 @@ function AppShellContent({ children }: AppShellProps) {
 
   return (
     <div className="app-shell-height flex w-full overflow-hidden bg-background overscroll-none">
-      {/* Desktop sidebar — fixed, always visible */}
-      <aside className="hidden md:flex w-64 shrink-0 flex-col">
-        <ChatSidebar subscriptionPlan={subscriptionPlan} />
+      {/* Desktop sidebar — collapsible, closed at start. The inner fixed width
+          keeps content from reflowing while the outer width animates. */}
+      <aside
+        inert={!desktopOpen}
+        className={`hidden shrink-0 overflow-hidden transition-[width] duration-200 ease-out md:block ${
+          desktopOpen ? "w-64" : "w-0"
+        }`}
+      >
+        <div className="flex h-full w-64 flex-col">
+          <ChatSidebar
+            subscriptionPlan={subscriptionPlan}
+            onCollapse={() => setDesktopOpen(false)}
+          />
+        </div>
       </aside>
 
-      {/* Main column: mobile top bar + page content */}
+      {/* Main column: top bar + page content */}
       <main className="relative flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
-        {/* Mobile top bar — participates in flex layout (no absolute) so it
-            cannot overlap the language selector or the notch. */}
+        {/* Top bar — participates in flex layout (no absolute) so it cannot
+            overlap the page content or the notch. */}
         <header
-          className="md:hidden flex items-center gap-3 border-b border-border/40 bg-background/95 backdrop-blur-sm
-                     pl-[max(0.75rem,env(safe-area-inset-left))]
+          className="flex h-14 shrink-0 items-center gap-1 box-content
+                     pl-[max(0.5rem,env(safe-area-inset-left))]
                      pr-[max(0.75rem,env(safe-area-inset-right))]
-                     pt-[max(0.5rem,env(safe-area-inset-top))]
-                     pb-2"
+                     pt-[env(safe-area-inset-top)]"
         >
           <button
             type="button"
             onClick={() => setMobileOpen(true)}
             aria-label={text.app.openMenu}
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-border/50 bg-card text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+            className={`${TOP_BAR_ICON_BUTTON} md:hidden`}
           >
-            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-            </svg>
+            <PanelLeftIcon className="h-5 w-5" />
           </button>
-          <div
-            role="link"
-            tabIndex={0}
+          {!desktopOpen && (
+            <button
+              type="button"
+              onClick={() => setDesktopOpen(true)}
+              aria-label={text.app.openSidebar}
+              title={text.app.openSidebar}
+              className={`${TOP_BAR_ICON_BUTTON} hidden md:flex`}
+            >
+              <PanelLeftIcon className="h-5 w-5" />
+            </button>
+          )}
+          <button
+            type="button"
             onClick={handleNewChatFromLogo}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" || event.key === " ") {
-                event.preventDefault();
-                handleNewChatFromLogo();
-              }
-            }}
-            className="flex cursor-pointer items-center gap-2 min-w-0 px-1 py-0.5"
             aria-label={text.sidebar.newChat}
             title={text.sidebar.newChat}
+            className={`${TOP_BAR_ICON_BUTTON} ${desktopOpen ? "md:hidden" : ""}`}
+          >
+            <SquarePenIcon className="h-[18px] w-[18px]" />
+          </button>
+          <button
+            type="button"
+            onClick={handleNewChatFromLogo}
+            className="ml-1 rounded-lg px-1.5 py-1 text-[15px] font-semibold tracking-tight text-foreground transition-colors hover:bg-accent"
           >
             {/* FUTURE LOGO (still ugly) */}
             {/* <Image src="/icons/logo-no-bg.png" alt="ChatLDS" width={24} height={24} className="shrink-0" /> */}
-            <span className="text-sm font-semibold tracking-tight truncate">ChatLDS</span>
-          </div>
-          <div className="ml-auto shrink-0">
+            ChatLDS
+          </button>
+          <div className="ml-auto flex shrink-0 items-center gap-2">
             <LanguageToggle />
+            {isSignedOut && (
+              <>
+                <a
+                  href="/sign-in"
+                  className="hidden h-8 items-center rounded-full border border-border px-3.5 text-sm font-medium text-foreground transition-colors hover:bg-accent sm:inline-flex"
+                >
+                  {text.app.logIn}
+                </a>
+                <a
+                  href="/sign-up"
+                  className="inline-flex h-8 items-center rounded-full bg-foreground px-3.5 text-sm font-medium text-background transition-opacity hover:opacity-85"
+                >
+                  {text.sidebar.signUp}
+                </a>
+              </>
+            )}
           </div>
         </header>
 
