@@ -95,7 +95,7 @@ const getPositiveInt = (value: string | undefined, fallback: number): number => 
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 };
 
-const CHAT_MODEL = process.env.CHAT_MODEL ?? "deepseek/deepseek-v4-flash";
+const CHAT_MODEL = process.env.CHAT_MODEL ?? "deepseek/deepseek-v4.1-flash";
 const MAX_OUTPUT_TOKENS = getPositiveInt(
   process.env.CHAT_MAX_OUTPUT_TOKENS,
   DEFAULT_MAX_OUTPUT_TOKENS

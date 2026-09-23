@@ -31,7 +31,7 @@ interface RecordFeedbackMemoryInput {
   answerText: string | null;
 }
 
-const DEFAULT_MEMORY_MODEL = "deepseek/deepseek-v4-flash";
+const DEFAULT_MEMORY_MODEL = "deepseek/deepseek-v4.1-flash";
 const MEMORY_MODEL = process.env.MEMORY_MODEL ?? process.env.CHAT_MODEL ?? DEFAULT_MEMORY_MODEL;
 const MEMORY_ENABLED = process.env.CHAT_MEMORY_ENABLED !== "false";
 const MEMORY_PERIOD_REFRESH_HOURS = getPositiveInt(
