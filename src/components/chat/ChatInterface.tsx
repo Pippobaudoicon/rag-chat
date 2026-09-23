@@ -962,12 +962,11 @@ export function ChatInterface({
 
   const isEmptyChat = messages.length === 0;
 
-  // Focus: soft border + faint halo instead of the input-group's 3px ring.
   const composer = (
     <PromptInput
       data-tour="composer"
       onSubmit={handlePromptSubmit}
-      className="**:data-[slot=input-group]:h-auto **:data-[slot=input-group]:rounded-3xl **:data-[slot=input-group]:border **:data-[slot=input-group]:border-border **:data-[slot=input-group]:bg-card **:data-[slot=input-group]:shadow-[0_8px_30px_-12px_rgb(0_0_0/0.5)] **:data-[slot=input-group]:transition-[border-color,box-shadow] **:data-[slot=input-group]:ring-0! focus-within:**:data-[slot=input-group]:border-foreground/20! focus-within:**:data-[slot=input-group]:shadow-[0_8px_30px_-12px_rgb(0_0_0/0.5),0_0_0_3px_color-mix(in_oklab,var(--foreground)_6%,transparent)]"
+      className="**:data-[slot=input-group]:h-auto **:data-[slot=input-group]:rounded-3xl **:data-[slot=input-group]:border **:data-[slot=input-group]:border-border **:data-[slot=input-group]:bg-card **:data-[slot=input-group]:shadow-[0_8px_30px_-12px_rgb(0_0_0/0.5)]"
     >
       {/* text-base md:* is the codebase-wide input convention (see
           ui/textarea.tsx): iOS Safari zooms the viewport when focusing an

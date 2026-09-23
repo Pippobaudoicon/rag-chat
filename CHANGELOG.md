@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.12.48
+
+- **Soft focus state is now the default for text fields.** `ui/input`, `ui/textarea`, `ui/select`, and `ui/input-group` swap the 3px `ring-ring/50` + `border-ring` focus treatment for a slightly lighter border (`border-foreground/20`) and a faint 3px halo (`ring-foreground/6`). The composer drops its one-off override. Buttons and badges keep the stronger keyboard-focus ring for accessibility.
+
 ## 0.12.47
 
 - **Softer composer focus state.** The chat input no longer shows the input-group's thick 3px focus ring. On focus, the rounded card's border lightens slightly and a faint 3px halo appears, with a smooth border/shadow transition.
