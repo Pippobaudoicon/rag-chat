@@ -1,5 +1,46 @@
 # Changelog
 
+## 0.12.50
+
+- **ChatLDS sign-in and sign-up pages.** `/sign-in` and `/sign-up` no longer show Clerk's default card. The new layout is a full-height split: on the left, the logo in white over animated lines in the logo's teal-to-purple (adapted from 21st.dev's hirael login-03, in plain CSS) and D&C 88:118; on the right, the form. Below `lg`, only the form shows, with the logo on top. The form is still Clerk's `<SignIn/>`/`<SignUp/>`, so every flow keeps working (Google, password, email code, reset, sign-up verification, captcha). `appearance.elements` restyles each piece to match the app's Input and Button: serif step titles, and no Clerk card, logo, gradient, or grey footer. To make those classes win, `ClerkProvider` sets `cssLayerName: "clerk"` and `globals.css` declares `@layer theme, base, clerk, components, utilities`. This also applies to other Clerk components. New start-screen copy comes via `localization` ("Welcome back." / "Create your account."). Both pages add "Continue as a guest" (to `/chat`) and a Privacy Policy note. English only for now.
+- **Sign-out lands on `/sign-in`.** `ClerkProvider` sets `afterSignOutUrl="/sign-in"`. Previously sign-out went to `/`, which could hang on a blank screen.
+- **Privacy Policy is public.** `/privacy-policy` is now on the proxy's public routes. Signed-out visitors, including from the new auth pages' link, see it instead of being sent to `/sign-in`.
+- **`/` is a config redirect.** Two pages (`src/app/page.tsx` and `src/app/(app)/page.tsx`) both claimed `/` and only called `redirect("/chat")`. Both are deleted. `next.config.ts` now redirects `/` → `/chat` (307) before anything renders.
+
+## 0.12.49
+
+- **More room for the answer on phones.** The disclaimer under the composer is now one line ("AI can make mistakes. Always check official LDS sources."), down from three. Below `sm`, the guest/usage banner collapses to one row (e.g. "Ancora 4 messaggi senza account"). For guests the banner's "Sign up free" is now the only Sign-up CTA. The top bar drops its Sign up button and shows only Log in, now on every viewport (it was hidden below `sm`). The sidebar footer swaps its Sign up button for Log in too. Desktop keeps the full two-line banner.
+- **Bigger touch targets on mobile.** Below `md`: answer toolbar buttons grow from 28px to 36px, the send button from 32px to 36px, and the "N sources" toggle to 36px tall. Feedback follow-up buttons grow from 20px/10px text to 32px/12px text. The onboarding tour's close, skip, back, and next buttons get larger hit areas. Desktop sizes are unchanged.
+- **No more hover-only info on touch.** Tapping the locked Super pill now opens its sign-up explanation instead of doing nothing. The scripture-coverage chip expands to the full book list on tap, replacing a hover tooltip. The source rail's scroll arrows are hidden on touch screens, where they covered card content and swiping already works. The ASCII `<- ->` hint is gone.
+- **Clearer guest copy.** Guest banners and the quota error no longer say "free messages", which made signing up sound paid. They now say the messages are what you get *without an account*, and that a free account unlocks many more messages and saves chats (Italian, English, Spanish).
+- **Mobile reading and first-visit polish.** Chat messages are 16px below `md` (14px on desktop). The first suggestion card no longer sits flush against the screen edge (`scroll-px-4`). The PWA install prompt moved from `bottom-20`, where it covered the composer, to just under the top bar, and its close button has a larger hit area. It is also localized (Italian, English, Spanish) from the stored UI language instead of hardcoded Italian.
+- **Balanced answers are shorter; long study answers moved to In depth.** The `balanced` style now asks for a direct answer plus the two or three key points (about 2–4 short paragraphs), with no extended history, cross-source analysis, or open questions. `scholar` ("Approfondito" / "In depth" / "A fondo") now explicitly welcomes length and absorbs the scriptural-reasoning, historical-context, and cross-source guidance. Picker descriptions are updated (Italian, English, Spanish).
+- **Guest banner disappears right after login.** `BillingProvider` fetched the plan only on mount, and Clerk signs in without a reload, so the "Registrati" banner stayed until a refresh. It now refetches whenever the Clerk `userId` changes (sign-in or sign-out).
+
+## 0.12.48
+
+- **Soft focus state is now the default for text fields.** `ui/input`, `ui/textarea`, `ui/select`, and `ui/input-group` swap the 3px `ring-ring/50` + `border-ring` focus treatment for a slightly lighter border (`border-foreground/20`) and a faint 3px halo (`ring-foreground/6`). The composer drops its one-off override. Buttons and badges keep the stronger keyboard-focus ring for accessibility.
+
+## 0.12.47
+
+- **Softer composer focus state.** The chat input no longer shows the input-group's thick 3px focus ring. On focus, the rounded card's border lightens slightly and a faint 3px halo appears, with a smooth border/shadow transition.
+
+## 0.12.46
+
+- **Retry without duplicate questions.** "Try again" on a failed answer no longer drops the question locally and resends it as a new message. It reads the conversation's tail. If the unanswered question is already stored, it resends with that row's `persistedUserMessageId` so `/api/chat` reuses the row, the same retry contract the mobile app uses. Otherwise it resubmits and the server stores it once. No API change.
+
+## 0.12.45
+
+- **Visible, friendly chat errors.** A failed answer no longer fails silently. An inline card under the last message says what happened in plain words: a temporary problem on our side, offline, a reply already in progress, or out of messages. It offers the matching action: "Try again", which resends the unanswered question, or Sign up / View Pro when the quota is used up. The card shows for transport and stream errors and for generations the server-claim check marks as failed. Italian, English, and Spanish copy.
+
+## 0.12.44
+
+- **ChatGPT-style chat layout and a clearer response-style picker.** A new chat now centers the composer, with the greeting above it and three suggestion cards below it (a swipeable row on mobile). The composer is a single rounded card. It holds the response-style pill, the Super pill (amber when active, locked with a sign-up tooltip for guests), and a round send button. The desktop sidebar starts collapsed each visit. A unified top bar on every viewport has a sidebar toggle, new chat, the wordmark, and language, plus Log in / Sign up for guests. The sidebar header has a collapse button, and its language toggle moved to the top bar. The response-style picker is rebuilt as an icon + label pill. It opens a titled menu that explains what the setting does, each style has an icon and a plain-language description, and an explicit "Use for new chats" checkbox replaces the per-row star. The onboarding tour opens the sidebar for its sidebar steps on desktop too.
+
+## 0.12.43
+
+- **Guest access without login.** Signed-out visitors can now chat at `/chat` instead of hitting the sign-in wall. The proxy issues a random httpOnly `chatlds_guest` cookie and guests are stored as `guest:<uuid>` owners, so the existing conversation, cache, and ownership code works unchanged. A new `guest` plan allows 5 chat requests per rolling 30 days (plus a 4× per-IP cap). The chat banner tracks "N of 5 free messages left" with a Sign-up CTA, and the sidebar shows Sign up in place of the account button. Guests can't use the Super search scope: the toggle is locked with a sign-up tooltip, and the chat route clamps guest sources to the standard set. Guests get no long-term memory. After sign-in/up, their guest conversations and feedback move to the real account. Search, Memory, Billing, and voice still require sign-in. The mobile app is unaffected (it always authenticates with a bearer token). New check: `pnpm run test:guest`.
+
 ## 0.12.42
 
 - **Mobile app: commit to Expo / React Native and scaffold the M1 slice.** Rewrote `docs/MOBILE_APP_PLAN.md`, superseding the Capacitor/WebView draft. A native client feels like ChatGPT's app only if it *is* native, the WebView's "reuse the React UI" saving was illusory (the Next.js Server Components + Route Handlers can't lift into a static SPA), and Expo removes the draft's hardest gate (native `fetch` needs no CORS) while making Clerk auth turnkey. The backend is unchanged: the native client speaks the existing API over a Clerk **bearer** token (`POST /api/conversations` → `POST /api/chat`, AI SDK v6 UI Message Stream). The client lives in the sibling repo `chatlds-mobile/` (Expo SDK 54, pinned to match store Expo Go), scaffolded with a working vertical slice: email/password sign-in + one authenticated streamed chat turn. `PROJECT_INFO.md` mobile-direction notes updated to match.

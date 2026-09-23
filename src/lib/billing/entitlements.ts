@@ -1,6 +1,7 @@
 import { clerkClient } from "@clerk/nextjs/server";
+import { isGuestId } from "@/lib/auth/guest";
 
-export type SubscriptionPlan = "free" | "pro";
+export type SubscriptionPlan = "guest" | "free" | "pro";
 
 export type BillingEntitlements = {
   plan: SubscriptionPlan;
@@ -43,6 +44,9 @@ const DEFAULT_FREE_SEARCH_LIMIT = 60;
 const DEFAULT_PRO_SEARCH_LIMIT = 600;
 const DEFAULT_RATE_LIMIT_WINDOW = "1h";
 const DEFAULT_FREE_MAX_TOP_K = 10;
+// ponytail: rolling 30-day window ~= "lifetime" for a guest; env knobs when tuning is needed.
+const GUEST_CHAT_LIMIT = 5;
+const GUEST_RATE_LIMIT_WINDOW = "30d";
 const DEFAULT_PRO_MAX_TOP_K = 20;
 
 function getPositiveInt(value: string | undefined, fallback: number): number {
@@ -146,6 +150,19 @@ export async function getBillingEntitlements(
   userId: string,
   options: BillingEntitlementOptions = {}
 ): Promise<BillingEntitlements> {
+  if (isGuestId(userId)) {
+    const free = freeEntitlements();
+    return {
+      ...free,
+      plan: "guest",
+      limits: {
+        ...free.limits,
+        chatRequests: GUEST_CHAT_LIMIT,
+        window: GUEST_RATE_LIMIT_WINDOW,
+      },
+    };
+  }
+
   const cached = entitlementCache.get(userId);
   if (cached && cached.expiresAt > Date.now()) {
     return cached.value;

@@ -1,4 +1,4 @@
-import { auth } from "@clerk/nextjs/server";
+import { getViewer } from "@/lib/auth/guest";
 import { and, asc, eq, isNull } from "drizzle-orm";
 import { getDb } from "@/lib/db";
 import { conversations, messages } from "@/lib/db/schema";
@@ -36,7 +36,7 @@ async function getOwnedConversation(id: string, userId: string) {
 
 // GET /api/conversations/[id] — full conversation with all messages
 export async function GET(req: Request, { params }: Params) {
-  const { userId } = await auth();
+  const { userId } = await getViewer();
   if (!userId) return new Response("Unauthorized", { status: 401 });
 
   const { id } = await params;
@@ -115,7 +115,7 @@ export async function GET(req: Request, { params }: Params) {
 // PATCH /api/conversations/[id] — rename and/or change the response-style
 // override.
 export async function PATCH(req: Request, { params }: Params) {
-  const { userId } = await auth();
+  const { userId } = await getViewer();
   if (!userId) return new Response("Unauthorized", { status: 401 });
 
   const { id } = await params;
@@ -157,7 +157,7 @@ export async function PATCH(req: Request, { params }: Params) {
 
 // DELETE /api/conversations/[id] — delete conversation + messages (cascade)
 export async function DELETE(_: Request, { params }: Params) {
-  const { userId } = await auth();
+  const { userId } = await getViewer();
   if (!userId) return new Response("Unauthorized", { status: 401 });
 
   const { id } = await params;

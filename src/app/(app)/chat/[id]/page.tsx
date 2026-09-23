@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { auth } from "@clerk/nextjs/server";
+import { getViewer } from "@/lib/auth/guest";
 import { and, asc, eq } from "drizzle-orm";
 import { getDb } from "@/lib/db";
 import { conversations, messageFeedback, messages } from "@/lib/db/schema";
@@ -17,7 +17,7 @@ interface Props {
 
 export default async function ConversationPage({ params }: Props) {
   const { id } = await params;
-  const { userId } = await auth();
+  const { userId } = await getViewer();
 
   if (!userId) notFound();
   if (!uuidSchema.safeParse(id).success) notFound();

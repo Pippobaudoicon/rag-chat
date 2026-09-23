@@ -1,3 +1,6 @@
+/* Clerk's styles go in their own layer (cssLayerName on ClerkProvider) so
+ * Tailwind utilities passed via `appearance.elements` win over them. */
+@layer theme, base, clerk, components, utilities;
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
@@ -156,6 +159,13 @@
   button:disabled,
   [role="button"][aria-disabled="true"] {
     cursor: not-allowed;
+  }
+}
+
+/* Auth page aside: brand lines drifting along their length (AuthShell). */
+@keyframes auth-line-flow {
+  to {
+    stroke-dashoffset: -1;
   }
 }
 

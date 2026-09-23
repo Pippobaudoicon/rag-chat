@@ -8,7 +8,8 @@ Read this first before deep code exploration.
 ## 1) What this app is
 
 - A Next.js app that provides LDS-focused RAG chat.
-- It is authenticated (Clerk), stores conversation history (Postgres via Drizzle),
+- It is authenticated (Clerk) with a quota-limited guest mode for signed-out
+  visitors, stores conversation history (Postgres via Drizzle),
   retrieves context from Pinecone, and generates responses via AI SDK.
 - It is independent from the Python backend in `hymns/`, but intentionally mirrors
   key behavior (prompting and retrieval conventions) for consistency.
@@ -46,6 +47,13 @@ Read this first before deep code exploration.
   (`src/components/pwa/`): Android `beforeinstallprompt`, iOS Add-to-Home-Screen
   instructions. The mobile shell (`AppShell.tsx`) adds a swipe-open sidebar drawer
   and safe-area-aware layout.
+- Chat layout is ChatGPT-style: one top bar on all viewports (`AppShell.tsx`:
+  sidebar toggle, new chat, wordmark, language, and Log in for guests (the sidebar footer too); Sign up is only in the chat guest banner),
+  the desktop sidebar starts collapsed each visit (not persisted; the onboarding
+  tour opens it for sidebar steps), and an empty chat centers the composer with
+  the greeting above it and three suggestion cards below it. The composer shows
+  the response-style picker (icon + label pill that opens an upward menu of
+  described styles with a "Use for new chats" checkbox) and the Super toggle.
 - Native mobile direction: keep this Next.js app as the web PWA and hosted API
   backend, unchanged. The native iOS/Android client is a **separate Expo / React
   Native app** (sibling repo `chatlds-mobile/`) that talks to this API with a
@@ -54,12 +62,39 @@ Read this first before deep code exploration.
   `docs/MOBILE_APP_PLAN.md`. (The earlier Capacitor/WebView plan was superseded
   on 2026-07-21.)
 - Inline numeric citations linked to source cards.
-- Sources panel with scripture coverage behavior for chapter/book requests.
+- Sources panel with scripture coverage behavior for chapter/book requests. The
+  coverage chip expands to the full book list on tap (no hover tooltip), and the
+  source rail's scroll arrows are hidden on touch screens (`pointer-coarse:hidden`).
 - Conversation CRUD in sidebar (create/list/open/delete) and title updates.
 - UUID conversation URLs and API identifiers.
 - Semantic search endpoint (`/api/search`) for retrieval-only use cases.
 - Dedicated semantic search page (`/search`) for authenticated retrieval-only source inspection.
 - Subscription-aware Free/Pro entitlements through Clerk Billing.
+- **Guest access** (`src/lib/auth/guest.ts`): signed-out visitors can use
+  `/chat` without logging in. `src/proxy.ts` gives them a random-UUID httpOnly
+  `chatlds_guest` cookie; `getViewer()` resolves it to the id `guest:<uuid>`,
+  which is stored as `clerk_user_id`, so conversations/caches/ownership checks
+  are unchanged. The `guest` plan allows 5 chat requests per rolling 30 days,
+  plus a looser per-IP cap (4×) so clearing cookies doesn't reset it; the chat
+  banner shows "N of 5 left" with a Sign-up CTA, and a `429` returns
+  `upgradeUrl: "/sign-up"`. Super search scope is signed-in only (UI toggle
+  locked with a sign-up tooltip that also opens on tap; `/api/chat` clamps guest sources to
+  `ALL_SOURCES`). Guests get no long-term memory (memory writers and the
+  cron skip `guest:` ids). On the first request after sign-in/up, the proxy moves
+  the guest's conversations and feedback to the Clerk user and clears the
+  cookie. Guest-reachable routes: `/`, `/chat*`, `/api/chat*`,
+  `/api/conversations*`, `/api/feedback`, `/api/settings`,
+  `/api/billing/subscription`; `/privacy-policy` is fully public (no guest
+  cookie); everything else (Search, Memory, Billing, voice) still requires
+  sign-in.
+- Auth pages (`/sign-in`, `/sign-up`) render `src/components/auth/AuthShell.tsx`:
+  a ChatLDS split layout around Clerk's `<SignIn/>`/`<SignUp/>` components.
+  There are no custom auth hooks: styling is `appearance.elements` Tailwind
+  classes (effective because of `cssLayerName: "clerk"` + the layer order at
+  the top of `globals.css`), and copy is `localization` on `ClerkProvider`.
+  Both pages offer "Continue as a guest" (`/chat`). Sign-out redirects to
+  `/sign-in` (`afterSignOutUrl`). `/` has no page; `next.config.ts` redirects
+  it to `/chat`.
 - The sidebar account row always shows the confirmed subscription tier beside
   the account avatar: a gold Pro badge or a neutral, explicit Free badge. The
   account, plan, language, memory, and billing controls remain on one line
@@ -91,7 +126,7 @@ Read this first before deep code exploration.
 2. The client immediately exposes that conversation in the sidebar, switches the
    URL to `/chat/[id]`, and calls `POST /api/chat` with the same user content,
    `conversationId`, and `persistedUserMessageId`.
-3. The chat route verifies auth, extracts the latest user question, loads Clerk
+3. The chat route verifies auth (Clerk user or guest cookie), extracts the latest user question, loads Clerk
    Billing entitlements, checks Clerk plan access via `auth().has({ plan })`, and
    applies plan-aware chat rate limits plus a `topK` cap. These auth/ratelimit gates
    resolve first so a rejected request never pays for model/retrieval work; a rejected
@@ -152,7 +187,7 @@ Read this first before deep code exploration.
 ## 5) API surface (internal app API)
 
 - `POST /api/chat`
-  - Auth required.
+  - Auth or guest cookie required.
   - Retrieval + generation + streaming.
   - Per-user, plan-aware Upstash Redis rate limiting.
   - Accepts an owned `conversationId` and optional `persistedUserMessageId`.
@@ -475,7 +510,7 @@ Notes:
 - `PINECONE_API_KEY`
 - `PINECONE_INDEX` (optional; defaults to `lds-rag-v1`; set to `lds-rag` for the legacy index)
 - `RAG_INDEX_LANGUAGE` (optional; defaults to `eng` for `lds-rag-v1`; set to `ita` for the legacy index)
-- `CHAT_MODEL` (optional; defaults to `deepseek/deepseek-v4-flash`)
+- `CHAT_MODEL` (optional; defaults to `deepseek/deepseek-v4.1-flash`)
 - `RAG_ROUTING_MODEL` (optional; defaults to `openai/gpt-oss-120b`) — dedicated retrieval-query routing/translation model, independent from `CHAT_MODEL` (`reasoningEffort: low`, 600-token ceiling)
 - `RAG_ROUTING_FALLBACK_MODEL` (optional; defaults to `openai/gpt-5.4-mini`) — one-shot fallback used once if the primary routing model returns no structured output
 - `RAG_LANGUAGE_ROUTING` (optional; defaults to `false`) — set to `true` only to restore the legacy dedicated routing-model path
@@ -578,7 +613,7 @@ Reference template: `.env.example`.
 
 ## 10) Known constraints and non-features
 
-- Current generation model defaults to `deepseek/deepseek-v4-flash` and can be overridden with `CHAT_MODEL`.
+- Current generation model defaults to `deepseek/deepseek-v4.1-flash` and can be overridden with `CHAT_MODEL`.
 - Clerk Billing is the subscription source of truth. Clerk Billing Plans and Subscriptions are not synced to Stripe; Stripe is only the payment processor. The default Pro plan key is `pro_user`.
 - Clerk Billing is beta/experimental, so `@clerk/nextjs` is pinned in `package.json` instead of using a semver range.
 - Clerk's subscription detail API is best-effort. If user billing is not enabled in the Clerk instance, the app falls back to Free entitlements without logging noisy expected 403 errors.
@@ -628,10 +663,12 @@ Reference template: `.env.example`.
   composers get buried there. So whether `visualViewport` handling is needed remains
   **open on iOS**, and no Android result can close it. Test on an iPhone before
   concluding either way.
-- Known mobile a11y gaps, not yet addressed: the composer submit control is 36px,
-  under the 44pt touch guidance (still clears WCAG 2.1 AA, which has no
-  target-size criterion); `InstallPrompt` copy is hardcoded Italian in a
-  six-language UI; and per-message `lang` (WCAG 3.1.2) is unset for answers whose
+- Mobile vertical budget: below `sm` the usage/guest banner is a single row and
+  the composer disclaimer is one line, so the answer keeps most of a phone screen.
+- Known mobile a11y gaps, not yet addressed: touch targets below `md` are 36px
+  (composer submit, answer toolbar, sources toggle, top-bar buttons), under the
+  44pt touch guidance (still clears WCAG 2.1 AA, which has no target-size
+  criterion); and per-message `lang` (WCAG 3.1.2) is unset for answers whose
   language differs from the UI preference.
 - This Next.js app is the hosted API + web PWA, not a bundled mobile artifact. It
   relies on request-time Clerk auth, server-rendered database reads, dynamic

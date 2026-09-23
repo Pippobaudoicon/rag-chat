@@ -1,4 +1,4 @@
-import { auth } from "@clerk/nextjs/server";
+import { getViewer } from "@/lib/auth/guest";
 import {
   getBillingEntitlements,
   getConfiguredProPlanIds,
@@ -10,7 +10,7 @@ import { getBillingUsageSummary } from "@/lib/billing/usage";
 export const runtime = "nodejs";
 
 export async function GET(request: Request) {
-  const { userId, has } = await auth();
+  const { userId, has } = await getViewer();
   if (!userId) return new Response("Unauthorized", { status: 401 });
 
   if (new URL(request.url).searchParams.get("refresh") === "1") {
