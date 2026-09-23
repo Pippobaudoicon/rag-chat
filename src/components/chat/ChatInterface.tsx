@@ -108,12 +108,16 @@ function SearchScopeToggle({
   locked?: boolean;
 }) {
   const scope = uiText(language).settings.searchScope;
+  // Controlled so a tap can open it: touch never fires hover, and a locked
+  // guest would otherwise get no feedback at all.
+  const [open, setOpen] = useState(false);
   return (
-    <Tooltip>
+    <Tooltip open={open} onOpenChange={setOpen}>
       <TooltipTrigger
         type="button"
         data-tour="super-toggle"
-        onClick={locked ? undefined : onToggle}
+        closeOnClick={!locked}
+        onClick={locked ? () => setOpen((current) => !current) : onToggle}
         disabled={disabled}
         aria-disabled={locked || undefined}
         aria-pressed={isSuper}
@@ -1008,7 +1012,7 @@ export function ChatInterface({
                 title: text.chat.pendingDrafting,
               }
             : {})}
-          className="size-8 rounded-full bg-foreground text-background transition-opacity hover:bg-foreground hover:opacity-85 disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100"
+          className="size-9 md:size-8 rounded-full bg-foreground text-background transition-opacity hover:bg-foreground hover:opacity-85 disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100"
         />
       </PromptInputFooter>
     </PromptInput>
@@ -1018,18 +1022,25 @@ export function ChatInterface({
     <div className="flex flex-col h-full min-h-0">
       {shouldShowUsageWarning && chatUsage && (
         <div className="px-4 pt-2">
-          <div className="mx-auto flex max-w-3xl items-center gap-3 rounded-2xl border border-border bg-card/60 px-3.5 py-2.5 text-sm">
-            <AlertTriangleIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <div className="mx-auto flex max-w-3xl items-center gap-3 rounded-2xl border border-border bg-card/60 px-3.5 py-1.5 text-sm sm:py-2.5">
+            <AlertTriangleIcon className="hidden h-4 w-4 shrink-0 text-muted-foreground sm:block" />
             <div className="min-w-0 flex-1">
-              <p className="font-medium text-foreground">
+              {/* Phones get one line: every pixel here comes out of the answer. */}
+              <p className="truncate text-xs text-muted-foreground sm:hidden">
+                {(isGuest ? text.chat.guestUsageShort : text.chat.usageWarningShort)
+                  .replace("{remaining}", String(chatUsage.remaining))
+                  .replace("{limit}", String(chatUsage.limit))}
+              </p>
+              <p className="hidden font-medium text-foreground sm:block">
                 {isGuest ? text.chat.guestUsageTitle : text.chat.usageWarningTitle}
               </p>
-              <p className="text-xs text-muted-foreground">
+              <p className="hidden text-xs text-muted-foreground sm:block">
                 {(isGuest ? text.chat.guestUsageDescription : text.chat.usageWarningDescription)
                   .replace("{remaining}", String(chatUsage.remaining))
                   .replace("{limit}", String(chatUsage.limit))}
               </p>
             </div>
+            {/* The only Sign-up CTA for guests: the top bar offers just Log in. */}
             <a
               href={isGuest ? "/sign-up" : "/billing"}
               className="shrink-0 rounded-full bg-foreground px-3 py-1.5 text-xs font-medium text-background transition-opacity hover:opacity-85"
@@ -1152,7 +1163,7 @@ export function ChatInterface({
         <div className="mx-auto max-w-3xl">
           {composer}
           <p
-            className={`mt-2 text-center text-[11px] text-muted-foreground/60 ${
+            className={`mt-1.5 text-center text-[11px] text-muted-foreground/60 ${
               isEmptyChat ? "hidden" : ""
             }`}
           >

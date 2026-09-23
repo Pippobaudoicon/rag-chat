@@ -250,21 +250,15 @@ function AppShellContent({ children }: AppShellProps) {
           </button>
           <div className="ml-auto flex shrink-0 items-center gap-2">
             <LanguageToggle />
+            {/* Sign up lives in the chat guest banner; the top bar keeps only
+                Log in so returning users can reach it on every viewport. */}
             {isSignedOut && (
-              <>
-                <a
-                  href="/sign-in"
-                  className="hidden h-8 items-center rounded-full border border-border px-3.5 text-sm font-medium text-foreground transition-colors hover:bg-accent sm:inline-flex"
-                >
-                  {text.app.logIn}
-                </a>
-                <a
-                  href="/sign-up"
-                  className="inline-flex h-8 items-center rounded-full bg-foreground px-3.5 text-sm font-medium text-background transition-opacity hover:opacity-85"
-                >
-                  {text.sidebar.signUp}
-                </a>
-              </>
+              <a
+                href="/sign-in"
+                className="inline-flex h-8 items-center rounded-full border border-border px-3.5 text-sm font-medium text-foreground transition-colors hover:bg-accent"
+              >
+                {text.app.logIn}
+              </a>
             )}
           </div>
         </header>

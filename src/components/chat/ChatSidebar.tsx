@@ -780,11 +780,12 @@ export function ChatSidebar({
       <div className="pb-safe border-t border-border/40 px-3 py-3">
         <div className="flex min-w-0 items-center gap-2 rounded-lg px-2 py-1">
           {isLoaded && !user ? (
+            // Sign up lives only in the chat guest banner; here, as in the top bar, just Log in.
             <a
-              href="/sign-up"
-              className="shrink-0 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+              href="/sign-in"
+              className="shrink-0 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent"
             >
-              {text.sidebar.signUp}
+              {text.app.logIn}
             </a>
           ) : (
             <>

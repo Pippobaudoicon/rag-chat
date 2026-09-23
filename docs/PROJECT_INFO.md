@@ -48,7 +48,7 @@ Read this first before deep code exploration.
   instructions. The mobile shell (`AppShell.tsx`) adds a swipe-open sidebar drawer
   and safe-area-aware layout.
 - Chat layout is ChatGPT-style: one top bar on all viewports (`AppShell.tsx`:
-  sidebar toggle, new chat, wordmark, language, and Log in / Sign up for guests),
+  sidebar toggle, new chat, wordmark, language, and Log in for guests (the sidebar footer too); Sign up is only in the chat guest banner),
   the desktop sidebar starts collapsed each visit (not persisted; the onboarding
   tour opens it for sidebar steps), and an empty chat centers the composer with
   the greeting above it and three suggestion cards below it. The composer shows
@@ -62,7 +62,9 @@ Read this first before deep code exploration.
   `docs/MOBILE_APP_PLAN.md`. (The earlier Capacitor/WebView plan was superseded
   on 2026-07-21.)
 - Inline numeric citations linked to source cards.
-- Sources panel with scripture coverage behavior for chapter/book requests.
+- Sources panel with scripture coverage behavior for chapter/book requests. The
+  coverage chip expands to the full book list on tap (no hover tooltip), and the
+  source rail's scroll arrows are hidden on touch screens (`pointer-coarse:hidden`).
 - Conversation CRUD in sidebar (create/list/open/delete) and title updates.
 - UUID conversation URLs and API identifiers.
 - Semantic search endpoint (`/api/search`) for retrieval-only use cases.
@@ -76,7 +78,7 @@ Read this first before deep code exploration.
   plus a looser per-IP cap (4×) so clearing cookies doesn't reset it; the chat
   banner shows "N of 5 left" with a Sign-up CTA, and a `429` returns
   `upgradeUrl: "/sign-up"`. Super search scope is signed-in only (UI toggle
-  locked with a sign-up tooltip; `/api/chat` clamps guest sources to
+  locked with a sign-up tooltip that also opens on tap; `/api/chat` clamps guest sources to
   `ALL_SOURCES`). Guests get no long-term memory (memory writers and the
   cron skip `guest:` ids). On the first request after sign-in/up, the proxy moves
   the guest's conversations and feedback to the Clerk user and clears the
@@ -652,10 +654,12 @@ Reference template: `.env.example`.
   composers get buried there. So whether `visualViewport` handling is needed remains
   **open on iOS**, and no Android result can close it. Test on an iPhone before
   concluding either way.
-- Known mobile a11y gaps, not yet addressed: the composer submit control is 36px,
-  under the 44pt touch guidance (still clears WCAG 2.1 AA, which has no
-  target-size criterion); `InstallPrompt` copy is hardcoded Italian in a
-  six-language UI; and per-message `lang` (WCAG 3.1.2) is unset for answers whose
+- Mobile vertical budget: below `sm` the usage/guest banner is a single row and
+  the composer disclaimer is one line, so the answer keeps most of a phone screen.
+- Known mobile a11y gaps, not yet addressed: touch targets below `md` are 36px
+  (composer submit, answer toolbar, sources toggle, top-bar buttons), under the
+  44pt touch guidance (still clears WCAG 2.1 AA, which has no target-size
+  criterion); and per-message `lang` (WCAG 3.1.2) is unset for answers whose
   language differs from the UI preference.
 - This Next.js app is the hosted API + web PWA, not a bundled mobile artifact. It
   relies on request-time Clerk auth, server-rendered database reads, dynamic

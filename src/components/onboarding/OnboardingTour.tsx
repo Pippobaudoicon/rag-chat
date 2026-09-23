@@ -524,7 +524,7 @@ function TourCard({
           type="button"
           onClick={onSkip}
           aria-label={text.closeAria}
-          className="rounded p-0.5 text-muted-foreground transition-colors hover:text-foreground"
+          className="-m-2 rounded p-2 text-muted-foreground transition-colors hover:text-foreground"
         >
           <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -546,7 +546,7 @@ function TourCard({
         <button
           type="button"
           onClick={onSkip}
-          className="text-xs text-muted-foreground transition-colors hover:text-foreground"
+          className="-my-2 py-2 text-xs text-muted-foreground transition-colors hover:text-foreground"
         >
           {text.skip}
         </button>
@@ -555,7 +555,7 @@ function TourCard({
             <button
               type="button"
               onClick={onBack}
-              className="rounded-md border border-border/60 px-3 py-1 text-xs font-medium transition-colors hover:bg-accent"
+              className="rounded-md border border-border/60 px-3 py-2 text-xs font-medium md:py-1 transition-colors hover:bg-accent"
             >
               {text.back}
             </button>
@@ -565,7 +565,7 @@ function TourCard({
             type="button"
             onClick={onNext}
             disabled={saving}
-            className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60"
+            className="rounded-md bg-primary px-3 py-2 text-xs font-medium md:py-1 text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60"
           >
             {isLast ? text.finish : text.next}
           </button>

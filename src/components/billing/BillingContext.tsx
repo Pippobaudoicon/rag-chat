@@ -1,5 +1,6 @@
 "use client";
 
+import { useAuth } from "@clerk/nextjs";
 import {
   createContext,
   useCallback,
@@ -22,6 +23,7 @@ interface BillingContextValue {
 const BillingContext = createContext<BillingContextValue | null>(null);
 
 export function BillingProvider({ children }: { children: React.ReactNode }) {
+  const { isLoaded, userId } = useAuth();
   const [billingOverview, setBillingOverview] = useState<BillingOverview | null>(null);
   const inFlightRef = useRef<Promise<void> | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -68,7 +70,10 @@ export function BillingProvider({ children }: { children: React.ReactNode }) {
     return request;
   }, []);
 
+  // Refetch whenever the signed-in user changes: Clerk signs in/out without a
+  // reload, so a guest overview would otherwise stick until refresh.
   useEffect(() => {
+    if (!isLoaded) return;
     void refreshBillingOverview();
 
     return () => {
@@ -77,7 +82,7 @@ export function BillingProvider({ children }: { children: React.ReactNode }) {
       abortControllerRef.current = null;
       inFlightRef.current = null;
     };
-  }, [refreshBillingOverview]);
+  }, [isLoaded, userId, refreshBillingOverview]);
 
   const value = useMemo(
     () => ({ billingOverview, refreshBillingOverview }),
