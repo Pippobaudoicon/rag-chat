@@ -711,14 +711,66 @@ export function ChatInterface({
     ]
   );
 
-  // ponytail: retry = drop the unanswered question locally and send it again.
-  // If the server already saved it, history shows the question twice after a
-  // reload; a server-side "retry this turn" would avoid that if it matters.
-  const handleRetry = useCallback(() => {
-    if (!failedQuestion) return;
-    setMessages((current) => current.slice(0, -1));
-    void handleSubmit(failedQuestion);
-  }, [failedQuestion, handleSubmit, setMessages]);
+  // Retry the unanswered turn in place. If the server already saved the
+  // question (it is the conversation's unanswered tail row), resend with its id
+  // so /api/chat reuses that row instead of inserting a duplicate; otherwise
+  // the plain resend lets the server insert it. Same contract as mobile.
+  const retryInFlightRef = useRef(false);
+  const handleRetry = useCallback(async () => {
+    if (!failedQuestion || isStreaming || retryInFlightRef.current) return;
+    retryInFlightRef.current = true;
+    const convId = conversationIdRef.current;
+    if (!convId) {
+      // The conversation was never created, so nothing is stored yet.
+      setMessages((current) => current.slice(0, -1));
+      retryInFlightRef.current = false;
+      void handleSubmit(failedQuestion);
+      return;
+    }
+
+    let persistedUserMessageId: number | undefined;
+    try {
+      const response = await fetch(`/api/conversations/${convId}`, { cache: "no-store" });
+      if (response.ok) {
+        const payload = (await response.json()) as {
+          messages?: { id: number; role: string; content: string }[];
+        };
+        const tail = payload.messages?.at(-1);
+        if (tail?.role === "user" && tail.content === failedQuestion) {
+          persistedUserMessageId = tail.id;
+        }
+      }
+    } catch {
+      // Offline: sending below fails too and the error card comes back.
+    }
+
+    generationClaimPendingRef.current = true;
+    generationClaimStartedAtRef.current = Date.now();
+    clientTransportErrorRef.current = false;
+    setChatProgress({ phase: "queued", conversationId: convId });
+    setPersistedGenerationStatus("streaming");
+    retryInFlightRef.current = false; // isStreaming guards from here on
+    // No new message: resubmit the existing history, whose tail is the question.
+    void sendMessage(undefined, {
+      body: {
+        conversationId: convId,
+        language,
+        sources,
+        responseStyle: conversationStyle ?? undefined,
+        topK: 20,
+        persistedUserMessageId,
+      },
+    });
+  }, [
+    conversationStyle,
+    failedQuestion,
+    handleSubmit,
+    isStreaming,
+    language,
+    sendMessage,
+    setMessages,
+    sources,
+  ]);
 
   const handleRegenerate = useCallback(
     async (messageId: string, question: string, currentText: string, fixedChunks: SourceChunk[]) => {
@@ -1074,7 +1126,7 @@ export function ChatInterface({
                     failedQuestion && (
                       <button
                         type="button"
-                        onClick={handleRetry}
+                        onClick={() => void handleRetry()}
                         className="inline-flex shrink-0 items-center gap-1.5 self-center rounded-full border border-border px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent"
                       >
                         <RotateCcwIcon className="h-3.5 w-3.5" />

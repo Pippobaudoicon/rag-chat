@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.12.46
+
+- **Retry without duplicate questions.** "Try again" on a failed answer no longer drops the question locally and resends it as a new message. It reads the conversation's tail. If the unanswered question is already stored, it resends with that row's `persistedUserMessageId` so `/api/chat` reuses the row, the same retry contract the mobile app uses. Otherwise it resubmits and the server stores it once. No API change.
+
 ## 0.12.45
 
 - **Visible, friendly chat errors.** A failed answer no longer fails silently. An inline card under the last message says what happened in plain words: a temporary problem on our side, offline, a reply already in progress, or out of messages. It offers the matching action: "Try again", which resends the unanswered question, or Sign up / View Pro when the quota is used up. The card shows for transport and stream errors and for generations the server-claim check marks as failed. Italian, English, and Spanish copy.
