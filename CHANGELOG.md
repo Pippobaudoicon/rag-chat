@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.12.47
+
+- **Softer composer focus state.** The chat input no longer shows the input-group's thick 3px focus ring. On focus, the rounded card's border lightens slightly and a faint 3px halo appears, with a smooth border/shadow transition.
+
 ## 0.12.46
 
 - **Retry without duplicate questions.** "Try again" on a failed answer no longer drops the question locally and resends it as a new message. It reads the conversation's tail. If the unanswered question is already stored, it resends with that row's `persistedUserMessageId` so `/api/chat` reuses the row, the same retry contract the mobile app uses. Otherwise it resubmits and the server stores it once. No API change.
