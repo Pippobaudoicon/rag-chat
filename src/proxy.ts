@@ -10,6 +10,7 @@ import {
 const isPublicRoute = createRouteMatcher([
   "/sign-in(.*)",
   "/sign-up(.*)",
+  "/privacy-policy",
   "/api/cron/memory",
 ]);
 

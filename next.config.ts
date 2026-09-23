@@ -7,6 +7,11 @@ const nextConfig: NextConfig = {
     optimizeServerReact: true,
   },
   allowedDevOrigins: ["localhost", "192.168.1.11", "10.1.4.28"],
+  // "/" has no page of its own: redirect before anything renders (an in-app
+  // navigation to a page that only calls redirect() could stall on a blank screen).
+  async redirects() {
+    return [{ source: "/", destination: "/chat", permanent: false }];
+  },
   async headers() {
     return [
       {

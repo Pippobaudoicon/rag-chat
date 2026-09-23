@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { ClerkProvider } from "@clerk/nextjs";
+import { authLocalization } from "@/components/auth/AuthShell";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Analytics } from "@vercel/analytics/next";
 import { SpeedInsights } from "@vercel/speed-insights/next";
@@ -57,7 +58,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <ClerkProvider>
+    <ClerkProvider
+      appearance={{ cssLayerName: "clerk" }}
+      afterSignOutUrl="/sign-in"
+      localization={authLocalization}
+    >
       <html
         lang="it"
         className={`${geistSans.variable} ${geistMono.variable} dark h-full antialiased`}

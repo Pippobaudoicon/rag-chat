@@ -84,8 +84,17 @@ Read this first before deep code exploration.
   the guest's conversations and feedback to the Clerk user and clears the
   cookie. Guest-reachable routes: `/`, `/chat*`, `/api/chat*`,
   `/api/conversations*`, `/api/feedback`, `/api/settings`,
-  `/api/billing/subscription`; everything else (Search, Memory, Billing, voice)
-  still requires sign-in.
+  `/api/billing/subscription`; `/privacy-policy` is fully public (no guest
+  cookie); everything else (Search, Memory, Billing, voice) still requires
+  sign-in.
+- Auth pages (`/sign-in`, `/sign-up`) render `src/components/auth/AuthShell.tsx`:
+  a ChatLDS split layout around Clerk's `<SignIn/>`/`<SignUp/>` components.
+  There are no custom auth hooks: styling is `appearance.elements` Tailwind
+  classes (effective because of `cssLayerName: "clerk"` + the layer order at
+  the top of `globals.css`), and copy is `localization` on `ClerkProvider`.
+  Both pages offer "Continue as a guest" (`/chat`). Sign-out redirects to
+  `/sign-in` (`afterSignOutUrl`). `/` has no page; `next.config.ts` redirects
+  it to `/chat`.
 - The sidebar account row always shows the confirmed subscription tier beside
   the account avatar: a gold Pro badge or a neutral, explicit Free badge. The
   account, plan, language, memory, and billing controls remain on one line

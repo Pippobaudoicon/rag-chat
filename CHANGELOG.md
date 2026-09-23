@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.12.50
+
+- **ChatLDS sign-in and sign-up pages.** `/sign-in` and `/sign-up` no longer show Clerk's default card. The new layout is a full-height split: on the left, the logo in white over animated lines in the logo's teal-to-purple (adapted from 21st.dev's hirael login-03, in plain CSS) and D&C 88:118; on the right, the form. Below `lg`, only the form shows, with the logo on top. The form is still Clerk's `<SignIn/>`/`<SignUp/>`, so every flow keeps working (Google, password, email code, reset, sign-up verification, captcha). `appearance.elements` restyles each piece to match the app's Input and Button: serif step titles, and no Clerk card, logo, gradient, or grey footer. To make those classes win, `ClerkProvider` sets `cssLayerName: "clerk"` and `globals.css` declares `@layer theme, base, clerk, components, utilities`. This also applies to other Clerk components. New start-screen copy comes via `localization` ("Welcome back." / "Create your account."). Both pages add "Continue as a guest" (to `/chat`) and a Privacy Policy note. English only for now.
+- **Sign-out lands on `/sign-in`.** `ClerkProvider` sets `afterSignOutUrl="/sign-in"`. Previously sign-out went to `/`, which could hang on a blank screen.
+- **Privacy Policy is public.** `/privacy-policy` is now on the proxy's public routes. Signed-out visitors, including from the new auth pages' link, see it instead of being sent to `/sign-in`.
+- **`/` is a config redirect.** Two pages (`src/app/page.tsx` and `src/app/(app)/page.tsx`) both claimed `/` and only called `redirect("/chat")`. Both are deleted. `next.config.ts` now redirects `/` → `/chat` (307) before anything renders.
+
 ## 0.12.49
 
 - **More room for the answer on phones.** The disclaimer under the composer is now one line ("AI can make mistakes. Always check official LDS sources."), down from three. Below `sm`, the guest/usage banner collapses to one row (e.g. "Ancora 4 messaggi senza account"). For guests the banner's "Sign up free" is now the only Sign-up CTA. The top bar drops its Sign up button and shows only Log in, now on every viewport (it was hidden below `sm`). The sidebar footer swaps its Sign up button for Log in too. Desktop keeps the full two-line banner.
