@@ -1,4 +1,4 @@
-import { auth } from "@clerk/nextjs/server";
+import { getViewer } from "@/lib/auth/guest";
 import { UI_MESSAGE_STREAM_HEADERS } from "ai";
 import { and, eq, isNull } from "drizzle-orm";
 import { getDb } from "@/lib/db";
@@ -23,7 +23,7 @@ const wait = (milliseconds: number) =>
   new Promise((resolve) => setTimeout(resolve, milliseconds));
 
 export async function GET(_: Request, { params }: Params) {
-  const { userId } = await auth();
+  const { userId } = await getViewer();
   if (!userId) return new Response("Unauthorized", { status: 401 });
 
   const { id } = await params;

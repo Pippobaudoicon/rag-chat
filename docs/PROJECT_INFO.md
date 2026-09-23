@@ -8,7 +8,8 @@ Read this first before deep code exploration.
 ## 1) What this app is
 
 - A Next.js app that provides LDS-focused RAG chat.
-- It is authenticated (Clerk), stores conversation history (Postgres via Drizzle),
+- It is authenticated (Clerk) with a quota-limited guest mode for signed-out
+  visitors, stores conversation history (Postgres via Drizzle),
   retrieves context from Pinecone, and generates responses via AI SDK.
 - It is independent from the Python backend in `hymns/`, but intentionally mirrors
   key behavior (prompting and retrieval conventions) for consistency.
@@ -60,6 +61,22 @@ Read this first before deep code exploration.
 - Semantic search endpoint (`/api/search`) for retrieval-only use cases.
 - Dedicated semantic search page (`/search`) for authenticated retrieval-only source inspection.
 - Subscription-aware Free/Pro entitlements through Clerk Billing.
+- **Guest access** (`src/lib/auth/guest.ts`): signed-out visitors can use
+  `/chat` without logging in. `src/proxy.ts` gives them a random-UUID httpOnly
+  `chatlds_guest` cookie; `getViewer()` resolves it to the id `guest:<uuid>`,
+  which is stored as `clerk_user_id`, so conversations/caches/ownership checks
+  are unchanged. The `guest` plan allows 5 chat requests per rolling 30 days,
+  plus a looser per-IP cap (4×) so clearing cookies doesn't reset it; the chat
+  banner shows "N of 5 left" with a Sign-up CTA, and a `429` returns
+  `upgradeUrl: "/sign-up"`. Super search scope is signed-in only (UI toggle
+  locked with a sign-up tooltip; `/api/chat` clamps guest sources to
+  `ALL_SOURCES`). Guests get no long-term memory (memory writers and the
+  cron skip `guest:` ids). On the first request after sign-in/up, the proxy moves
+  the guest's conversations and feedback to the Clerk user and clears the
+  cookie. Guest-reachable routes: `/`, `/chat*`, `/api/chat*`,
+  `/api/conversations*`, `/api/feedback`, `/api/settings`,
+  `/api/billing/subscription`; everything else (Search, Memory, Billing, voice)
+  still requires sign-in.
 - The sidebar account row always shows the confirmed subscription tier beside
   the account avatar: a gold Pro badge or a neutral, explicit Free badge. The
   account, plan, language, memory, and billing controls remain on one line
@@ -91,7 +108,7 @@ Read this first before deep code exploration.
 2. The client immediately exposes that conversation in the sidebar, switches the
    URL to `/chat/[id]`, and calls `POST /api/chat` with the same user content,
    `conversationId`, and `persistedUserMessageId`.
-3. The chat route verifies auth, extracts the latest user question, loads Clerk
+3. The chat route verifies auth (Clerk user or guest cookie), extracts the latest user question, loads Clerk
    Billing entitlements, checks Clerk plan access via `auth().has({ plan })`, and
    applies plan-aware chat rate limits plus a `topK` cap. These auth/ratelimit gates
    resolve first so a rejected request never pays for model/retrieval work; a rejected
@@ -152,7 +169,7 @@ Read this first before deep code exploration.
 ## 5) API surface (internal app API)
 
 - `POST /api/chat`
-  - Auth required.
+  - Auth or guest cookie required.
   - Retrieval + generation + streaming.
   - Per-user, plan-aware Upstash Redis rate limiting.
   - Accepts an owned `conversationId` and optional `persistedUserMessageId`.

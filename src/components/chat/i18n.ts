@@ -33,6 +33,7 @@ export const UI_TEXT = {
     },
     sidebar: {
       newChat: "Nuova chat",
+      signUp: "Registrati",
       search: "Cerca fonti",
       noConversations: "Nessuna conversazione ancora",
       untitledChat: "Nuova chat",
@@ -66,6 +67,7 @@ export const UI_TEXT = {
           "Ricerca standard: cerca nel corpus principale e lascia che l'assistente restringa le fonti al suo interno.",
         superTooltip:
           "Super: cerca in tutte le fonti disponibili. Utile per domande ampie o trasversali; può essere più lenta.",
+        superGuestTooltip: "Registrati gratis per usare Super e cercare in tutte le fonti.",
       },
       responseStyle: "Stile di risposta",
       responseStyleAria: "Scegli lo stile di risposta",
@@ -200,6 +202,9 @@ export const UI_TEXT = {
       usageWarningTitle: "Ti stai avvicinando al limite gratuito",
       usageWarningDescription: "{remaining} richieste chat rimaste in questa finestra. Pro aumenta i limiti e riduce le interruzioni.",
       usageWarningAction: "Vedi Pro",
+      guestUsageTitle: "Stai provando ChatLDS come ospite",
+      guestUsageDescription: "{remaining} di {limit} messaggi gratuiti rimasti. Registrati gratis per continuare e salvare le tue chat.",
+      guestUsageAction: "Registrati gratis",
     },
     billing: {
       title: "Piano e utilizzo",
@@ -336,6 +341,7 @@ export const UI_TEXT = {
     },
     sidebar: {
       newChat: "New Chat",
+      signUp: "Sign up",
       search: "Search sources",
       noConversations: "No conversations yet",
       untitledChat: "New chat",
@@ -369,6 +375,7 @@ export const UI_TEXT = {
           "Standard search: searches the core corpus and lets the assistant narrow sources within it.",
         superTooltip:
           "Super: searches every available source. Useful for broad or cross-cutting questions; may be slower.",
+        superGuestTooltip: "Sign up free to use Super and search every source.",
       },
       responseStyle: "Response style",
       responseStyleAria: "Choose response style",
@@ -503,6 +510,9 @@ export const UI_TEXT = {
       usageWarningTitle: "You are close to the free limit",
       usageWarningDescription: "{remaining} chat requests left in this window. Pro raises your limits and reduces interruptions.",
       usageWarningAction: "View Pro",
+      guestUsageTitle: "You're trying ChatLDS as a guest",
+      guestUsageDescription: "{remaining} of {limit} free messages left. Sign up free to keep chatting and save your chats.",
+      guestUsageAction: "Sign up free",
     },
     billing: {
       title: "Plan and usage",
@@ -639,6 +649,7 @@ export const UI_TEXT = {
     },
     sidebar: {
       newChat: "Nueva chat",
+      signUp: "Regístrate",
       search: "Buscar fuentes",
       noConversations: "Aún no hay conversaciones",
       untitledChat: "Nueva chat",
@@ -672,6 +683,7 @@ export const UI_TEXT = {
           "Búsqueda estándar: busca en el corpus principal y permite que el asistente limite las fuentes dentro de él.",
         superTooltip:
           "Super: busca en todas las fuentes disponibles. Es útil para preguntas amplias o transversales, pero puede tardar más.",
+        superGuestTooltip: "Regístrate gratis para usar Super y buscar en todas las fuentes.",
       },
       responseStyle: "Estilo de respuesta",
       responseStyleAria: "Elegir el estilo de respuesta",
@@ -805,6 +817,9 @@ export const UI_TEXT = {
       usageWarningTitle: "Te estás acercando al límite gratuito",
       usageWarningDescription: "Quedan {remaining} solicitudes de chat en este periodo. Pro aumenta los límites y reduce las interrupciones.",
       usageWarningAction: "Ver Pro",
+      guestUsageTitle: "Estás probando ChatLDS como invitado",
+      guestUsageDescription: "Te quedan {remaining} de {limit} mensajes gratuitos. Regístrate gratis para seguir conversando y guardar tus chats.",
+      guestUsageAction: "Regístrate gratis",
     },
     billing: {
       title: "Plan y uso",

@@ -258,7 +258,8 @@ export function ChatSidebar({
   });
   // Optimistic active ID — set immediately on click, before the route resolves
   const [pendingId, setPendingId] = useState<string | null>(null);
-  const cacheKey = user?.id ? `chat:conversations:${user.id}` : null;
+  // Signed-out visitors chat as a guest (cookie-identified server-side).
+  const cacheKey = `chat:conversations:${user?.id ?? "guest"}`;
   const hasActiveGeneration = conversations.some(
     (conversation) => conversation.generationStatus === "streaming"
   );
@@ -765,43 +766,54 @@ export function ChatSidebar({
       {/* Footer — account + language + memory + billing */}
       <div className="pb-safe border-t border-border/40 px-3 py-3">
         <div className="flex min-w-0 items-center gap-2 rounded-lg px-2 py-1">
-          <span className="shrink-0">
-            <UserButton>
-              <UserButton.MenuItems>
-                <UserButton.Action
-                  label={text.onboarding.replayLabel}
-                  labelIcon={<CircleHelpIcon className="h-4 w-4" />}
-                  onClick={replayTutorial}
-                />
-              </UserButton.MenuItems>
-            </UserButton>
-          </span>
-          {subscriptionPlan ? (
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <button
-                    type="button"
-                    aria-label={`${text.billing.currentPlan}: ${subscriptionPlanLabel}`}
-                    className={cn(
-                      "inline-flex shrink-0 items-center gap-1 rounded-full transition-colors",
-                      subscriptionPlan === "pro"
-                        ? "text-indigo-400 hover:bg-indigo-500/20"
-                        : "bg-muted/50 text-muted-foreground hover:bg-accent hover:text-foreground"
-                    )}
-                  >
-                    {subscriptionPlan === "pro" ? (
-                      <BadgeCheckIcon className="h-4 w-4 text-indigo-400" aria-hidden="true" />
-                    ) : null}
-                  </button>
-                }
-              />
-              <TooltipContent side="top" className="text-xs">
-                {`${text.billing.currentPlan}: ${subscriptionPlanLabel}`}
-              </TooltipContent>
-            </Tooltip>
+          {isLoaded && !user ? (
+            <a
+              href="/sign-up"
+              className="shrink-0 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+            >
+              {text.sidebar.signUp}
+            </a>
           ) : (
-            <Skeleton className="h-6 w-11 rounded-full" />
+            <>
+              <span className="shrink-0">
+                <UserButton>
+                  <UserButton.MenuItems>
+                    <UserButton.Action
+                      label={text.onboarding.replayLabel}
+                      labelIcon={<CircleHelpIcon className="h-4 w-4" />}
+                      onClick={replayTutorial}
+                    />
+                  </UserButton.MenuItems>
+                </UserButton>
+              </span>
+              {subscriptionPlan ? (
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <button
+                        type="button"
+                        aria-label={`${text.billing.currentPlan}: ${subscriptionPlanLabel}`}
+                        className={cn(
+                          "inline-flex shrink-0 items-center gap-1 rounded-full transition-colors",
+                          subscriptionPlan === "pro"
+                            ? "text-indigo-400 hover:bg-indigo-500/20"
+                            : "bg-muted/50 text-muted-foreground hover:bg-accent hover:text-foreground"
+                        )}
+                      >
+                        {subscriptionPlan === "pro" ? (
+                          <BadgeCheckIcon className="h-4 w-4 text-indigo-400" aria-hidden="true" />
+                        ) : null}
+                      </button>
+                    }
+                  />
+                  <TooltipContent side="top" className="text-xs">
+                    {`${text.billing.currentPlan}: ${subscriptionPlanLabel}`}
+                  </TooltipContent>
+                </Tooltip>
+              ) : (
+                <Skeleton className="h-6 w-11 rounded-full" />
+              )}
+            </>
           )}
           <div className="ml-auto flex min-w-0 items-center gap-2">
             {/* Language — desktop only; on mobile it lives in the top bar. */}

@@ -2,6 +2,7 @@ import { generateObject, gateway, tool } from "ai";
 import { and, desc, eq, gte, lt } from "drizzle-orm";
 import { z } from "zod";
 import { getDb } from "@/lib/db";
+import { isGuestId } from "@/lib/auth/guest";
 import {
   conversations,
   conversationMemories,
@@ -656,7 +657,8 @@ export async function refreshUserMemory(
   clerkUserId: string,
   options: { force?: boolean; forcePeriods?: boolean; conversationLimit?: number } = {}
 ) {
-  if (!MEMORY_ENABLED) {
+  // Guests get no long-term memory; their chats are claimed on sign-up.
+  if (!MEMORY_ENABLED || isGuestId(clerkUserId)) {
     return {
       enabled: false,
       conversationsScanned: 0,
@@ -716,6 +718,7 @@ export async function refreshActiveUsersMemory(options: { userLimit?: number } =
     .limit(userLimit * 20);
 
   const userIds = [...new Set(recentConversationOwners.map((row) => row.clerkUserId))]
+    .filter((userId) => !isGuestId(userId))
     .slice(0, userLimit);
 
   const results = [];
@@ -890,7 +893,7 @@ export async function recordFeedbackMemory({
   question,
   answerText,
 }: RecordFeedbackMemoryInput): Promise<void> {
-  if (!MEMORY_ENABLED) return;
+  if (!MEMORY_ENABLED || isGuestId(clerkUserId)) return;
   if (feedback === "up" && !comment?.trim()) return;
 
   try {

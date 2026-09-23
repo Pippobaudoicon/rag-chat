@@ -1,4 +1,4 @@
-import { auth } from "@clerk/nextjs/server";
+import { getViewer } from "@/lib/auth/guest";
 import { and, desc, eq, isNull, lt, or } from "drizzle-orm";
 import type { NextRequest } from "next/server";
 import { getDb } from "@/lib/db";
@@ -53,7 +53,7 @@ function parseCursor(value: string | null) {
 
 // GET /api/conversations — list user's conversations, newest first
 export async function GET(req: NextRequest) {
-  const { userId } = await auth();
+  const { userId } = await getViewer();
   if (!userId) return new Response("Unauthorized", { status: 401 });
 
   const limit = clampLimit(req.nextUrl.searchParams.get("limit"));
@@ -174,7 +174,7 @@ export async function GET(req: NextRequest) {
 
 // POST /api/conversations — create a new conversation
 export async function POST(req: Request) {
-  const { userId } = await auth();
+  const { userId } = await getViewer();
   if (!userId) return new Response("Unauthorized", { status: 401 });
 
   const parsedBody = createConversationSchema.safeParse(await req.json().catch(() => ({})));

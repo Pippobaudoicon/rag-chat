@@ -1,4 +1,4 @@
-import { auth } from "@clerk/nextjs/server";
+import { getViewer } from "@/lib/auth/guest";
 import { and, desc, eq } from "drizzle-orm";
 import { getDb } from "@/lib/db";
 import { conversations, messageFeedback, messages } from "@/lib/db/schema";
@@ -8,7 +8,7 @@ import { recordFeedbackMemory } from "@/lib/memory/conversation-memory";
 export const runtime = "nodejs";
 
 export async function POST(req: Request) {
-  const { userId } = await auth();
+  const { userId } = await getViewer();
   if (!userId) {
     return new Response("Unauthorized", { status: 401 });
   }

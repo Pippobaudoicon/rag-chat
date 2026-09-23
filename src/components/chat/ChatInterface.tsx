@@ -98,11 +98,14 @@ function SearchScopeToggle({
   isSuper,
   onToggle,
   disabled,
+  locked,
 }: {
   language: UiLanguage;
   isSuper: boolean;
   onToggle: () => void;
   disabled?: boolean;
+  /** Guests can't use Super; the tooltip explains why. */
+  locked?: boolean;
 }) {
   const scope = uiText(language).settings.searchScope;
   return (
@@ -110,10 +113,11 @@ function SearchScopeToggle({
       <TooltipTrigger
         type="button"
         data-tour="super-toggle"
-        onClick={onToggle}
+        onClick={locked ? undefined : onToggle}
         disabled={disabled}
+        aria-disabled={locked || undefined}
         aria-pressed={isSuper}
-        className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs font-medium transition-all disabled:opacity-50 ${
+        className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs font-medium transition-all disabled:opacity-50 aria-disabled:cursor-not-allowed aria-disabled:opacity-50 ${
           isSuper
             ? "border-amber-500/40 bg-amber-500/15 text-amber-300"
             : "border-border/50 bg-transparent text-muted-foreground hover:border-border hover:text-foreground"
@@ -123,9 +127,9 @@ function SearchScopeToggle({
         <span className="hidden sm:inline">{scope.super}</span>
       </TooltipTrigger>
       <TooltipContent side="top" className="max-w-xs text-xs leading-relaxed">
-        <p className="mb-0.5 font-medium">{isSuper ? scope.super : scope.standard}</p>
+        <p className="mb-0.5 font-medium">{isSuper || locked ? scope.super : scope.standard}</p>
         <p className="text-muted-foreground">
-          {isSuper ? scope.superTooltip : scope.standardTooltip}
+          {locked ? scope.superGuestTooltip : isSuper ? scope.superTooltip : scope.standardTooltip}
         </p>
       </TooltipContent>
     </Tooltip>
@@ -185,9 +189,11 @@ export function ChatInterface({
   // normally-visible source, Super sends all namespaces. The model may still
   // narrow *within* this scope (the backend ceilings its override to it).
   const [searchScope, setSearchScope] = useState<"standard" | "super">("standard");
+  const isGuest = billingOverview?.plan === "guest";
+  const isSuperScope = searchScope === "super" && !isGuest;
   const sources = useMemo(
-    () => (searchScope === "super" ? SUPER_SOURCES : ALL_SOURCES),
-    [searchScope]
+    () => (isSuperScope ? SUPER_SOURCES : ALL_SOURCES),
+    [isSuperScope]
   );
 
   // Response style. The user's persistent default applies unless this
@@ -358,6 +364,8 @@ export function ChatInterface({
       // The SDK reports transport errors without rejecting sendMessage(). Keep
       // polling once so a server-owned generation can still prove it was claimed.
       clientTransportErrorRef.current = true;
+      // A quota rejection (429) should update the remaining-messages banner.
+      void refreshBillingOverview();
     },
     onFinish: ({ isAbort, isDisconnect, isError }) => {
       if (isAbort || isDisconnect || isError) return;
@@ -400,9 +408,10 @@ export function ChatInterface({
     null;
   const chatUsage = billingOverview?.usage.chat;
   const shouldShowUsageWarning =
-    billingOverview?.plan === "free" &&
     chatUsage?.available &&
-    (chatUsage.percentUsed >= 75 || chatUsage.remaining <= 5);
+    (isGuest ||
+      (billingOverview?.plan === "free" &&
+        (chatUsage.percentUsed >= 75 || chatUsage.remaining <= 5)));
   const composerStatus = isStreaming ? "submitted" : status;
 
   const ensureConversation = useCallback(async (initialTurn?: {
@@ -880,20 +889,21 @@ export function ChatInterface({
             <div className="flex min-w-0 items-start gap-2">
               <AlertTriangleIcon className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
               <div className="min-w-0">
-                <p className="font-medium text-primary">{text.chat.usageWarningTitle}</p>
+                <p className="font-medium text-primary">
+                  {isGuest ? text.chat.guestUsageTitle : text.chat.usageWarningTitle}
+                </p>
                 <p className="text-xs text-muted-foreground">
-                  {text.chat.usageWarningDescription.replace(
-                    "{remaining}",
-                    String(chatUsage.remaining)
-                  )}
+                  {(isGuest ? text.chat.guestUsageDescription : text.chat.usageWarningDescription)
+                    .replace("{remaining}", String(chatUsage.remaining))
+                    .replace("{limit}", String(chatUsage.limit))}
                 </p>
               </div>
             </div>
             <a
-              href="/billing"
+              href={isGuest ? "/sign-up" : "/billing"}
               className="w-fit rounded-md border border-primary/30 bg-background px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-accent"
             >
-              {text.chat.usageWarningAction}
+              {isGuest ? text.chat.guestUsageAction : text.chat.usageWarningAction}
             </a>
           </div>
         </div>
@@ -987,7 +997,8 @@ export function ChatInterface({
                 />
                 <SearchScopeToggle
                   language={language}
-                  isSuper={searchScope === "super"}
+                  isSuper={isSuperScope}
+                  locked={isGuest}
                   onToggle={() =>
                     setSearchScope((current) =>
                       current === "super" ? "standard" : "super"

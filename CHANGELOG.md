@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.12.43
+
+- **Guest access without login.** Signed-out visitors can now chat at `/chat` instead of hitting the sign-in wall. The proxy issues a random httpOnly `chatlds_guest` cookie and guests are stored as `guest:<uuid>` owners, so the existing conversation, cache, and ownership code works unchanged. A new `guest` plan allows 5 chat requests per rolling 30 days (plus a 4× per-IP cap). The chat banner tracks "N of 5 free messages left" with a Sign-up CTA, and the sidebar shows Sign up in place of the account button. Guests can't use the Super search scope: the toggle is locked with a sign-up tooltip, and the chat route clamps guest sources to the standard set. Guests get no long-term memory. After sign-in/up, their guest conversations and feedback move to the real account. Search, Memory, Billing, and voice still require sign-in. The mobile app is unaffected (it always authenticates with a bearer token). New check: `pnpm run test:guest`.
+
 ## 0.12.42
 
 - **Mobile app: commit to Expo / React Native and scaffold the M1 slice.** Rewrote `docs/MOBILE_APP_PLAN.md`, superseding the Capacitor/WebView draft. A native client feels like ChatGPT's app only if it *is* native, the WebView's "reuse the React UI" saving was illusory (the Next.js Server Components + Route Handlers can't lift into a static SPA), and Expo removes the draft's hardest gate (native `fetch` needs no CORS) while making Clerk auth turnkey. The backend is unchanged: the native client speaks the existing API over a Clerk **bearer** token (`POST /api/conversations` → `POST /api/chat`, AI SDK v6 UI Message Stream). The client lives in the sibling repo `chatlds-mobile/` (Expo SDK 54, pinned to match store Expo Go), scaffolded with a working vertical slice: email/password sign-in + one authenticated streamed chat turn. `PROJECT_INFO.md` mobile-direction notes updated to match.
