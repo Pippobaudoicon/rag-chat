@@ -351,26 +351,28 @@ export function OnboardingTour() {
   useEffect(() => {
     if (!open || !anchorEl) return;
 
+    // Poll every frame: late content (e.g. the guest usage banner)
+    let frame = 0;
     const update = () => {
+      frame = requestAnimationFrame(update);
       if (!anchorEl.isConnected) return;
       const step = visibleRef.current[indexRef.current];
-      setSpotlight(
-        measureSpotlight(
-          anchorEl,
-          step?.id === "memory" ? MEMORY_SPOTLIGHT_PADDING : SPOTLIGHT_PADDING
-        )
+      const next = measureSpotlight(
+        anchorEl,
+        step?.id === "memory" ? MEMORY_SPOTLIGHT_PADDING : SPOTLIGHT_PADDING
+      );
+      setSpotlight((prev) =>
+        prev &&
+        prev.top === next.top &&
+        prev.left === next.left &&
+        prev.width === next.width &&
+        prev.height === next.height
+          ? prev
+          : next
       );
     };
     update();
-    const observer = new ResizeObserver(update);
-    observer.observe(anchorEl);
-    window.addEventListener("resize", update);
-    window.addEventListener("scroll", update, true);
-    return () => {
-      observer.disconnect();
-      window.removeEventListener("resize", update);
-      window.removeEventListener("scroll", update, true);
-    };
+    return () => cancelAnimationFrame(frame);
   }, [anchorEl, open]);
 
   useEffect(() => () => cancelStepSave(), [cancelStepSave]);
