@@ -7,8 +7,9 @@ import {
   useEffect,
   useState,
 } from "react";
-import { SUPPORTED_UI_LANGUAGES } from "@/lib/types";
+import { SUPPORTED_UI_LANGUAGES, UI_LANGUAGE_BCP47 } from "@/lib/types";
 import type { UiLanguage } from "@/lib/types";
+import { pickLanguage } from "@/components/chat/i18n";
 
 interface LanguageContextValue {
   language: UiLanguage;
@@ -18,37 +19,30 @@ interface LanguageContextValue {
 
 const LanguageContext = createContext<LanguageContextValue | null>(null);
 
-// ISO 639-1 for the UI languages: <html lang> (the root layout can only seed a
-// static SSR default, so it is synced after mount) and `Intl` locales. Bare
-// subtags resolve to the same defaults as "it-IT" / "en-US" for our formats.
-export const UI_LANGUAGE_BCP47: Record<UiLanguage, string> = {
-  eng: "en",
-  ita: "it",
-  spa: "es",
-  fra: "fr",
-  por: "pt",
-  deu: "de",
-};
-
 export function LanguageProvider({ children }: { children: React.ReactNode }) {
   const [language, setLanguageState] = useState<UiLanguage>("ita");
 
-  // Hydrate from localStorage after mount to avoid SSR mismatch
+  // Hydrate after mount to avoid SSR mismatch: the user's pick, else the
+  // device language (not stored, so it keeps following the device until they pick).
   useEffect(() => {
     const stored = localStorage.getItem("chat:language");
-    if (SUPPORTED_UI_LANGUAGES.includes(stored as UiLanguage)) {
-      setLanguageState(stored as UiLanguage);
-    }
+    setLanguageState(
+      SUPPORTED_UI_LANGUAGES.includes(stored as UiLanguage)
+        ? (stored as UiLanguage)
+        : pickLanguage(navigator.languages)
+    );
   }, []);
 
   // Screen readers pick their voice from <html lang>; without this every
   // language is announced with an Italian one.
   useEffect(() => {
+    const ssrLang = document.documentElement.lang;
     document.documentElement.lang = UI_LANGUAGE_BCP47[language];
     return () => {
       // The root layout persists across client navigation. Restore its SSR
-      // default when leaving the app layout for auth or other public routes.
-      document.documentElement.lang = "it";
+      // value (the device language) when leaving the app layout for auth or
+      // other public routes.
+      document.documentElement.lang = ssrLang;
     };
   }, [language]);
 

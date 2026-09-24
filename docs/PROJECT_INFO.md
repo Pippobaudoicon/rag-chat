@@ -92,6 +92,15 @@ Read this first before deep code exploration.
   There are no custom auth hooks: styling is `appearance.elements` Tailwind
   classes (effective because of `cssLayerName: "clerk"` + the layer order at
   the top of `globals.css`), and copy is `localization` on `ClerkProvider`.
+  With no language picker before login, the root layout reads `Accept-Language`
+  (`deviceLanguage()` in `AuthShell.tsx`) and picks the first language that has
+  copy in `UI_TEXT` (it/en/es, fallback English). That choice drives Clerk's text
+  (`@clerk/localizations`, which must stay on the same `@clerk/shared` as
+  `@clerk/nextjs`, so bump them together), our auth copy (`UI_TEXT[lang].auth`)
+  and the SSR `<html lang>`. The app's `LanguageProvider` and the PWA install
+  prompt use the same matcher (`pickLanguage()` in `src/components/chat/i18n.ts`,
+  fed `navigator.languages`) as the default until the user picks a language;
+  only an explicit pick is saved (`chat:language`).
   Both pages offer "Continue as a guest" (`/chat`). Sign-out redirects to
   `/sign-in` (`afterSignOutUrl`). `/` has no page; `next.config.ts` redirects
   it to `/chat`.

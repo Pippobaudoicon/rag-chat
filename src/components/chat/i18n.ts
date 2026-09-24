@@ -1,4 +1,4 @@
-import { SOURCE_LABELS } from "@/lib/types";
+import { SOURCE_LABELS, UI_LANGUAGE_BCP47 } from "@/lib/types";
 import type { CorpusLanguage, SourceType, UiLanguage } from "@/lib/types";
 
 export const UI_LANGUAGE_CODES: Record<UiLanguage, string> = {
@@ -342,6 +342,28 @@ export const UI_TEXT = {
         },
       },
     },
+    auth: {
+      signIn: {
+        title: "Bentornato.",
+        subtitle: "Accedi per riprendere le tue conversazioni da dove le avevi lasciate.",
+        actionText: "Nuovo su ChatLDS?",
+        actionLink: "Crea un account",
+      },
+      signUp: {
+        title: "Crea il tuo account.",
+        subtitle: "Conserva le tue chat e continua da qualsiasi dispositivo.",
+        actionText: "Hai già un account?",
+        actionLink: "Accedi",
+      },
+      guest: "Continua come ospite",
+      guestNote: "Nessun account necessario. Se ti registri più tardi, le tue chat vengono con te.",
+      privacyBefore: "Continuando, prendi atto dell’",
+      privacyLink: "Informativa sulla privacy",
+      privacyAfter: ".",
+      quote: "Cercate nei libri migliori parole di saggezza; cercate l’istruzione, sì, ",
+      quoteEmphasis: "mediante lo studio ed anche mediante la fede",
+      quoteSource: "Dottrina e Alleanze 88:118",
+    },
   },
   eng: {
     app: {
@@ -660,6 +682,28 @@ export const UI_TEXT = {
         },
       },
     },
+    auth: {
+      signIn: {
+        title: "Welcome back.",
+        subtitle: "Sign in to pick up your conversations where you left off.",
+        actionText: "New to ChatLDS?",
+        actionLink: "Create an account",
+      },
+      signUp: {
+        title: "Create your account.",
+        subtitle: "Keep your chats and continue on any device.",
+        actionText: "Already have an account?",
+        actionLink: "Sign in",
+      },
+      guest: "Continue as a guest",
+      guestNote: "No account needed. Your chats come with you if you sign up later.",
+      privacyBefore: "By continuing, you acknowledge the ",
+      privacyLink: "Privacy Policy",
+      privacyAfter: ".",
+      quote: "Seek ye out of the best books words of wisdom; seek learning, ",
+      quoteEmphasis: "even by study and also by faith",
+      quoteSource: "Doctrine and Covenants 88:118",
+    },
   },
   spa: {
     app: {
@@ -977,6 +1021,28 @@ export const UI_TEXT = {
         },
       },
     },
+    auth: {
+      signIn: {
+        title: "Hola de nuevo.",
+        subtitle: "Inicia sesión para retomar tus conversaciones donde las dejaste.",
+        actionText: "¿Nuevo en ChatLDS?",
+        actionLink: "Crear una cuenta",
+      },
+      signUp: {
+        title: "Crea tu cuenta.",
+        subtitle: "Guarda tus chats y continúa en cualquier dispositivo.",
+        actionText: "¿Ya tienes una cuenta?",
+        actionLink: "Iniciar sesión",
+      },
+      guest: "Continuar como invitado",
+      guestNote: "No necesitas una cuenta. Tus chats se conservan si te registras más tarde.",
+      privacyBefore: "Al continuar, reconoces la ",
+      privacyLink: "Política de privacidad",
+      privacyAfter: ".",
+      quote: "Buscad palabras de sabiduría de los mejores libros; buscad conocimiento, ",
+      quoteEmphasis: "tanto por el estudio como por la fe",
+      quoteSource: "Doctrina y Convenios 88:118",
+    },
   },
 } as const;
 
@@ -987,6 +1053,21 @@ export function uiText(language: UiLanguage): UiText {
   if (language === "ita") return UI_TEXT.ita;
   if (language === "spa") return UI_TEXT.spa;
   return UI_TEXT.eng;
+}
+
+export type TextLanguage = keyof typeof UI_TEXT;
+
+// Default UI language before the user picks one: the first device language
+// (Accept-Language on the server, navigator.languages in the browser) that has
+// copy, else English.
+// ponytail: ignores Accept-Language q-values; browsers already sort by preference.
+export function pickLanguage(tags: readonly string[]): TextLanguage {
+  for (const tag of tags) {
+    const code = tag.trim().slice(0, 2).toLowerCase();
+    const lang = (Object.keys(UI_TEXT) as TextLanguage[]).find((l) => UI_LANGUAGE_BCP47[l] === code);
+    if (lang) return lang;
+  }
+  return "eng";
 }
 
 export function sourceLabel(source: SourceType, language: UiLanguage): string {

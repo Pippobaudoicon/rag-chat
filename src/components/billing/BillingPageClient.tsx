@@ -10,11 +10,9 @@ import {
 
 import { BillingActions } from '@/components/billing/BillingActions';
 import { uiText } from '@/components/chat/i18n';
-import {
-  UI_LANGUAGE_BCP47,
-  useLanguage,
-} from '@/components/chat/language-context';
+import { useLanguage } from '@/components/chat/language-context';
 import type { BillingEntitlements } from '@/lib/billing/entitlements';
+import { UI_LANGUAGE_BCP47 } from '@/lib/types';
 import type {
   BillingUsageSnapshot,
   BillingUsageSummary,

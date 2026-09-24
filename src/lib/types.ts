@@ -27,6 +27,19 @@ export const SUPPORTED_UI_LANGUAGES: UiLanguage[] = [
   "deu",
 ];
 
+// ISO 639-1 for the UI languages: <html lang> (the root layout seeds the
+// device language on SSR; the app syncs its own after mount), `Intl` locales
+// and Accept-Language matching. Bare subtags resolve to the same defaults as
+// "it-IT" / "en-US" for our formats.
+export const UI_LANGUAGE_BCP47: Record<UiLanguage, string> = {
+  eng: "en",
+  ita: "it",
+  spa: "es",
+  fra: "fr",
+  por: "pt",
+  deu: "de",
+};
+
 /** Sources shown as individual toggles in the settings bar. */
 export const ALL_SOURCES: SourceType[] = [
   "scriptures",

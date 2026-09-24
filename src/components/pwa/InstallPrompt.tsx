@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { DownloadIcon, ShareIcon, XIcon } from "lucide-react";
+import { pickLanguage } from "@/components/chat/i18n";
 
 interface BeforeInstallPromptEvent extends Event {
   prompt(): Promise<void>;
@@ -11,7 +12,7 @@ interface BeforeInstallPromptEvent extends Event {
 const DISMISSED_KEY = "pwa-install-dismissed";
 
 // Rendered from the root layout, outside LanguageProvider, so it reads the
-// stored UI language directly (same key and "ita" default as the provider).
+// stored UI language directly (same key and device default as the provider).
 const COPY = {
   ita: { title: "Installa ChatLDS", tap: "Tocca", share: "Condividi e poi", addHome: "Aggiungi alla schermata Home", quick: "Accesso rapido dalla home", install: "Installa", close: "Chiudi" },
   eng: { title: "Install ChatLDS", tap: "Tap", share: "Share, then", addHome: "Add to Home Screen", quick: "Quick access from your home screen", install: "Install", close: "Close" },
@@ -20,7 +21,7 @@ const COPY = {
 
 function readCopy() {
   try {
-    const lang = localStorage.getItem("chat:language") ?? "ita";
+    const lang = localStorage.getItem("chat:language") ?? pickLanguage(navigator.languages);
     return lang in COPY ? COPY[lang as keyof typeof COPY] : COPY.eng;
   } catch {
     return COPY.ita;

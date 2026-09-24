@@ -1,7 +1,10 @@
 import Image from "next/image";
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
+import { headers } from "next/headers";
 import { SignIn, SignUp } from "@clerk/nextjs";
+import { enUS, esES, itIT } from "@clerk/localizations";
+import { pickLanguage, UI_TEXT, type TextLanguage } from "@/components/chat/i18n";
 import { cn } from "@/lib/utils";
 
 const ENTER =
@@ -22,7 +25,7 @@ const LINK = "font-medium text-foreground underline-offset-4 hover:underline hov
 // verification, captcha); we restyle each piece so it reads as our own form.
 // Classes win over Clerk's styles because of `cssLayerName: "clerk"` on
 // ClerkProvider + the layer order at the top of globals.css. Copy lives in the
-// `localization` prop on ClerkProvider (root layout).
+// `localization` prop on ClerkProvider (root layout), see authLocalization().
 const appearance = {
   variables: {
     colorPrimary: "var(--primary)",
@@ -80,26 +83,26 @@ const appearance = {
   },
 };
 
+// Full Clerk translations (labels, errors, verification steps) per UI language.
+const CLERK_LOCALIZATION = { ita: itIT, eng: enUS, spa: esES } satisfies Record<TextLanguage, unknown>;
+
+// There's no language picker before sign-in, so auth follows the device.
+export async function deviceLanguage(): Promise<TextLanguage> {
+  const header = (await headers()).get("accept-language") ?? "";
+  return pickLanguage(header.split(",").map((tag) => tag.split(";")[0]));
+}
+
 // Clerk only takes `localization` on ClerkProvider, so the root layout passes
-// this; it overrides Clerk's default English copy for the start screens.
-export const authLocalization = {
-  signIn: {
-    start: {
-      title: "Welcome back.",
-      subtitle: "Sign in to pick up your conversations where you left off.",
-      actionText: "New to ChatLDS?",
-      actionLink: "Create an account",
-    },
-  },
-  signUp: {
-    start: {
-      title: "Create your account.",
-      subtitle: "Keep your chats and continue on any device.",
-      actionText: "Already have an account?",
-      actionLink: "Sign in",
-    },
-  },
-};
+// this: Clerk's translation for the language plus our copy for the start screens.
+export function authLocalization(lang: TextLanguage) {
+  const clerk = CLERK_LOCALIZATION[lang];
+  const { signIn, signUp } = UI_TEXT[lang].auth;
+  return {
+    ...clerk,
+    signIn: { ...clerk.signIn, start: { ...clerk.signIn?.start, ...signIn } },
+    signUp: { ...clerk.signUp, start: { ...clerk.signUp?.start, ...signUp } },
+  };
+}
 
 function BrandMark({ className }: { className?: string }) {
   return (
@@ -163,7 +166,8 @@ function FlowingLines() {
   );
 }
 
-export function AuthShell({ mode }: { mode: "sign-in" | "sign-up" }) {
+export async function AuthShell({ mode }: { mode: "sign-in" | "sign-up" }) {
+  const t = UI_TEXT[await deviceLanguage()].auth;
   // <html>/<body> are overflow-hidden for the app shell, so the auth page
   // scrolls inside its own viewport-height container (long sign-up on phones).
   return (
@@ -181,11 +185,11 @@ export function AuthShell({ mode }: { mode: "sign-in" | "sign-up" }) {
             className={cn(ENTER, "relative z-10 mt-auto flex flex-col gap-3")}
           >
             <blockquote className="font-serif text-2xl leading-[1.25] tracking-tight md:text-3xl">
-              Seek ye out of the best books words of wisdom; seek learning,{" "}
-              <span className="italic">even by study and also by faith</span>.
+              {t.quote}
+              <span className="italic">{t.quoteEmphasis}</span>.
             </blockquote>
             <figcaption className="text-xs uppercase tracking-wide text-muted-foreground">
-              Doctrine and Covenants 88:118
+              {t.quoteSource}
             </figcaption>
           </figure>
         </aside>
@@ -205,19 +209,19 @@ export function AuthShell({ mode }: { mode: "sign-in" | "sign-up" }) {
                 href="/chat"
                 className="group flex h-10 w-full items-center justify-center gap-1.5 rounded-lg text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
               >
-                Continue as a guest
+                {t.guest}
                 <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5 motion-reduce:transition-none" />
               </Link>
               <p className="text-center text-xs text-muted-foreground">
-                No account needed. Your chats come with you if you sign up later.
+                {t.guestNote}
               </p>
             </div>
             <p className="text-xs text-muted-foreground">
-              By continuing, you acknowledge the{" "}
+              {t.privacyBefore}
               <Link href="/privacy-policy" className={LINK}>
-                Privacy Policy
+                {t.privacyLink}
               </Link>
-              .
+              {t.privacyAfter}
             </p>
           </div>
         </div>
