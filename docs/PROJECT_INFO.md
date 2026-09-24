@@ -82,11 +82,17 @@ Read this first before deep code exploration.
   `ALL_SOURCES`). Guests get no long-term memory (memory writers and the
   cron skip `guest:` ids). On the first request after sign-in/up, the proxy moves
   the guest's conversations and feedback to the Clerk user and clears the
-  cookie. Guest-reachable routes: `/`, `/chat*`, `/api/chat*`,
+  cookie. The proxy hands out the guest cookie only on `/chat*`, `/api/chat*`,
   `/api/conversations*`, `/api/feedback`, `/api/settings`,
-  `/api/billing/subscription`; `/privacy-policy` is fully public (no guest
-  cookie); everything else (Search, Memory, Billing, voice) still requires
-  sign-in.
+  `/api/billing/subscription` (`GUEST_PATHS`, plain path check). It does no
+  auth checks: per Clerk's resource-based guidance (`createRouteMatcher` is
+  deprecated), every page and route checks auth where it reads data, via
+  `getViewer()` (guest-capable) or `auth.protect()` / `auth()` (signed-in only:
+  Search, Memory, Billing pages redirect to sign-in with a return URL;
+  `/api/memory` and `/api/search` return 401). A new page or route that reads
+  user data must add its own check. In the sidebar, guests get locked
+  Search/Memory/Billing buttons (`FeatureGate`, `src/components/ui/feature-gate.tsx`, reusable for Pro-only buttons) that open a sign-up card instead
+  of navigating.
 - Auth pages (`/sign-in`, `/sign-up`) render `src/components/auth/AuthShell.tsx`:
   a ChatLDS split layout around Clerk's `<SignIn/>`/`<SignUp/>` components.
   There are no custom auth hooks: styling is `appearance.elements` Tailwind

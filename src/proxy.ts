@@ -1,4 +1,4 @@
-import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
+import { clerkMiddleware } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import {
   GUEST_COOKIE,
@@ -6,24 +6,21 @@ import {
   guestIdFromCookie,
 } from "@/lib/auth/guest";
 
-// Public routes — everything else requires auth
-const isPublicRoute = createRouteMatcher([
-  "/sign-in(.*)",
-  "/sign-up(.*)",
-  "/privacy-policy",
-  "/api/cron/memory",
-]);
-
-// Signed-out visitors can chat as a guest (quota-limited, see entitlements).
-const isGuestRoute = createRouteMatcher([
-  "/",
-  "/chat(.*)",
-  "/api/chat(.*)",
-  "/api/conversations(.*)",
+// Auth is checked where the data is (each page and route calls getViewer() or
+// auth()), not here. The proxy only hands signed-out visitors of the
+// guest-capable routes a guest id (quota-limited, see entitlements).
+const GUEST_PATHS = [
+  "/chat",
+  "/api/chat",
+  "/api/conversations",
   "/api/feedback",
   "/api/settings",
   "/api/billing/subscription",
-]);
+];
+
+function isGuestRoute(pathname: string) {
+  return GUEST_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`));
+}
 
 const GUEST_COOKIE_MAX_AGE_SECONDS = 365 * 24 * 60 * 60;
 
@@ -41,12 +38,7 @@ export default clerkMiddleware(async (auth, req) => {
     return res;
   }
 
-  if (isPublicRoute(req)) return;
-  if (!isGuestRoute(req)) {
-    await auth.protect();
-    return;
-  }
-
+  if (!isGuestRoute(req.nextUrl.pathname)) return;
   if (guestIdFromCookie(guestCookie)) return;
   const res = NextResponse.next();
   res.cookies.set(GUEST_COOKIE, crypto.randomUUID(), {

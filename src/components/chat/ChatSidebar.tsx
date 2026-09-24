@@ -41,6 +41,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { FeatureGate } from '@/components/ui/feature-gate';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
@@ -238,6 +239,7 @@ export function ChatSidebar({
   const router = useRouter();
   const pathname = usePathname();
   const { isLoaded, user } = useUser();
+  const isGuest = isLoaded && !user;
   const [conversations, setConversations] = useState<ConversationItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -461,6 +463,7 @@ export function ChatSidebar({
   }
 
   function handleSearch() {
+    if (isGuest) return;
     if (isSearchActive) {
       onClose?.();
       return;
@@ -484,6 +487,7 @@ export function ChatSidebar({
   }
 
   function handlePageNavigation(path: "/memory" | "/billing") {
+    if (isGuest) return;
     if (currentPath === path) {
       onClose?.();
       return;
@@ -655,6 +659,13 @@ export function ChatSidebar({
             {text.sidebar.newChat}
             {/* <span className="ml-auto font-mono text-[10px] text-muted-foreground/50">⌘K</span> */}
           </button>
+          <FeatureGate
+            locked={isGuest}
+            title={text.sidebar.search}
+            message={text.sidebar.guestLocked.search}
+            action={text.chat.guestUsageAction}
+            href="/sign-up"
+          >
           <button
             type="button"
             onClick={handleSearch}
@@ -672,6 +683,7 @@ export function ChatSidebar({
           >
             <SearchIcon className="h-4 w-4" />
           </button>
+          </FeatureGate>
         </div>
 
         {/* Conversation list */}
@@ -835,6 +847,13 @@ export function ChatSidebar({
               className="-m-1 flex shrink-0 rounded-xl border border-transparent p-1"
             >
               <Tooltip>
+                <FeatureGate
+                  locked={isGuest}
+                  title={text.memory.button}
+                  message={text.sidebar.guestLocked.memory}
+                  action={text.chat.guestUsageAction}
+                  href="/sign-up"
+                >
                 <TooltipTrigger
                   render={
                     <button
@@ -850,12 +869,20 @@ export function ChatSidebar({
                     </button>
                   }
                 />
+                </FeatureGate>
                 <TooltipContent side="top" className="text-xs">
                   {text.memory.button}
                 </TooltipContent>
               </Tooltip>
             </span>
             <Tooltip>
+              <FeatureGate
+                locked={isGuest}
+                title={text.billing.title}
+                message={text.sidebar.guestLocked.billing}
+                action={text.chat.guestUsageAction}
+                href="/sign-up"
+              >
               <TooltipTrigger
                 render={
                   <button
@@ -871,6 +898,7 @@ export function ChatSidebar({
                   </button>
                 }
               />
+              </FeatureGate>
               <TooltipContent side="top" className="text-xs">
                 {text.billing.title}
               </TooltipContent>
