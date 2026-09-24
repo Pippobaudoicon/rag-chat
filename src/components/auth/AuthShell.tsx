@@ -2,7 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { headers } from "next/headers";
-import { SignIn, SignUp } from "@clerk/nextjs";
+import { ClerkLoaded, ClerkLoading, SignIn, SignUp } from "@clerk/nextjs";
 import { enUS, esES, itIT } from "@clerk/localizations";
 import { pickLanguage, UI_TEXT, type TextLanguage } from "@/components/chat/i18n";
 import { cn } from "@/lib/utils";
@@ -104,6 +104,29 @@ export function authLocalization(lang: TextLanguage) {
   };
 }
 
+// Clerk's form only renders once clerk-js has loaded in the browser, so hold
+// its place with the same shape (title, Google, divider, email, continue,
+// footer link) instead of letting it pop in and shove the guest link down.
+function FormSkeleton() {
+  const bar = "rounded-lg bg-muted animate-pulse motion-reduce:animate-none";
+  return (
+    <div aria-hidden className="flex flex-col gap-6">
+      <div className="space-y-2">
+        <div className={cn(bar, "h-10 w-3/4")} />
+        <div className={cn(bar, "h-4 w-1/2")} />
+      </div>
+      <div className={cn(bar, "h-10")} />
+      <div className="h-px bg-border" />
+      <div className="space-y-2">
+        <div className={cn(bar, "h-3 w-1/4")} />
+        <div className={cn(bar, "h-10")} />
+      </div>
+      <div className={cn(bar, "h-10")} />
+      <div className={cn(bar, "h-4 w-2/3")} />
+    </div>
+  );
+}
+
 function BrandMark({ className }: { className?: string }) {
   return (
     <div className={cn("flex items-center gap-2", className)}>
@@ -197,11 +220,18 @@ export async function AuthShell({ mode }: { mode: "sign-in" | "sign-up" }) {
         <div className="relative flex flex-1 flex-col justify-center px-6 pt-[max(2.5rem,env(safe-area-inset-top))] pb-10 sm:px-8 lg:py-8">
           <div className="relative z-10 mx-auto w-full space-y-5 sm:max-w-sm">
             <BrandMark className={cn(ENTER, "lg:hidden")} />
-            {mode === "sign-in" ? (
-              <SignIn appearance={appearance} />
-            ) : (
-              <SignUp appearance={appearance} />
-            )}
+            <ClerkLoading>
+              <FormSkeleton />
+            </ClerkLoading>
+            <ClerkLoaded>
+              <div className="animate-in fade-in duration-300 motion-reduce:animate-none">
+                {mode === "sign-in" ? (
+                  <SignIn appearance={appearance} />
+                ) : (
+                  <SignUp appearance={appearance} />
+                )}
+              </div>
+            </ClerkLoaded>
             {/* Guests chat quota-limited without an account; the proxy moves
                 their chats over if they sign up later (src/proxy.ts). */}
             <div className="space-y-1 border-t border-border pt-4">
