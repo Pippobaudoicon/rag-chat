@@ -39,10 +39,11 @@ Core tooling files:
 - `src/lib/rag/cache.ts`
 - `src/lib/rag/system-prompt.ts`
 
-Validation command:
+Validation commands:
 
 ```bash
 pnpm run docs:guard
+pnpm run check   # typecheck + lint + all tests; Vercel runs it before every build
 ```
 
 ## Browser Verification

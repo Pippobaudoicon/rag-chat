@@ -1,0 +1,3 @@
+#!/usr/bin/env sh
+# Same checks Vercel runs before `next build`. Skip once with `git push --no-verify`.
+exec pnpm run check

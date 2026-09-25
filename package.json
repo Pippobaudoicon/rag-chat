@@ -1,6 +1,6 @@
 {
   "name": "rag-chat",
-  "version": "0.12.52",
+  "version": "0.12.53",
   "private": true,
   "packageManager": "pnpm@10.34.5",
   "scripts": {
@@ -8,6 +8,10 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "pnpm run test:routing && pnpm run test:eager && pnpm run test:language-policy && pnpm run test:onboarding && pnpm run test:cross-language && pnpm run test:chat-lifecycle && pnpm run test:guest",
+    "check": "pnpm run typecheck && pnpm run lint && pnpm run test",
+    "prepare": "git config core.hooksPath .githooks || true",
     "db:generate": "dotenv -o -e .env -e .env.local -- drizzle-kit generate",
     "db:migrate": "dotenv -o -e .env -e .env.local -- drizzle-kit migrate",
     "docs:guard": "bash scripts/docs-guard.sh",
@@ -61,6 +65,8 @@
     "@types/react-dom": "^19",
     "dotenv-cli": "^11.0.0",
     "drizzle-kit": "^0.31.10",
+    "eslint": "^9.39.5",
+    "eslint-config-next": "16.2.10",
     "tailwindcss": "^4",
     "tsx": "^4.21.0",
     "typescript": "^5"

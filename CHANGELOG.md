@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.12.53
+
+- **Automatic checks without GitHub Actions.** Vercel now runs `pnpm run check` (typecheck + lint + all tests) before `next build`, via `buildCommand` in `vercel.json`. A preview or production deployment fails instead of shipping when a check fails, at no extra cost. Locally, `pnpm install` sets `core.hooksPath` to `.githooks/`: `pre-commit` runs `docs:guard`, `pre-push` runs `check` (`git push --no-verify` skips it once).
+- **One command for the tests.** `pnpm run test` runs all seven `test:*` suites in sequence.
+- **ESLint.** Added ESLint 9 with `eslint-config-next` (core-web-vitals + typescript) in `eslint.config.mjs`, run with `pnpm run lint`. Next 16 removed `next lint`, so the project had no linter. The existing code has 36 warnings and no errors. Three rules are warnings for now because the current code breaks them: `react-hooks/set-state-in-effect` (14), `react-hooks/refs` (11), and `@next/next/no-html-link-for-pages` (the two plain `<a href="/sign-in">` Log in links). Fixing them changes UI behavior, so it is a separate change.
+
 ## 0.12.52
 
 - **The sign-in/sign-up form no longer pops in late.** Clerk's form only renders once clerk-js loads in the browser, so it appeared after the rest of the page and pushed the guest link down. `AuthShell` now shows a form-shaped skeleton while Clerk loads (`<ClerkLoading>`) and fades the real form in (`<ClerkLoaded>`).

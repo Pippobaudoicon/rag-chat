@@ -1,6 +1,6 @@
 # ChatLDS Project Knowledge Base
 
-Last updated: 2026-07-21
+Last updated: 2026-09-25
 
 This document is the single source of truth for project context.
 Read this first before deep code exploration.
@@ -701,6 +701,19 @@ Reference template: `.env.example`.
 - Install: `corepack enable && pnpm install --frozen-lockfile`
 - Dev: `pnpm run dev`
 - Typecheck: `pnpm run typecheck`
+- Lint: `pnpm run lint` (ESLint 9 flat config in `eslint.config.mjs`:
+  `eslint-config-next` core-web-vitals + typescript; Next 16 has no `next lint`).
+  `react-hooks/set-state-in-effect`, `react-hooks/refs` and
+  `@next/next/no-html-link-for-pages` are downgraded to warnings for existing
+  code; promote them back to errors once the warnings are gone.
+- All unit tests: `pnpm run test` (runs every `test:*` suite in sequence).
+- Full check: `pnpm run check` = typecheck + lint + test.
+- CI (no GitHub Actions, everything free): `vercel.json` sets
+  `buildCommand: "pnpm run check && pnpm run build"`, so every Vercel deployment
+  (preview and production) fails before `next build` if a check fails. Locally,
+  `pnpm install` runs `prepare`, which points `core.hooksPath` at `.githooks/`:
+  `pre-commit` runs `docs:guard`, `pre-push` runs `check`
+  (skip once with `--no-verify`).
 - Build: `pnpm run build`
 - Start: `pnpm run start`
 - Generate migrations: `pnpm run db:generate`

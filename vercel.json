@@ -1,5 +1,6 @@
 {
   "framework": "nextjs",
+  "buildCommand": "pnpm run check && pnpm run build",
   "functions": {
     "src/app/api/chat/route.ts": {
       "maxDuration": 180
