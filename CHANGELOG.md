@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.12.58
+
+- **UI copy split per language.** `src/components/chat/i18n.ts` went from 1096 lines to 64: the Italian, English and Spanish copy now lives in `src/components/chat/locales/ita.ts`, `eng.ts` and `spa.ts`, and `i18n.ts` builds `UI_TEXT` from them. Imports and types are unchanged, and the resulting `UI_TEXT` is identical (checked by comparing the old and new values). Adding a language is now a new file in `locales/` plus one line in `UI_TEXT`.
+
 ## 0.12.57
 
 - **Smaller chat route.** `src/app/api/chat/route.ts` goes from 1204 to about 940 lines. The route still runs every step in the same order; the pieces it used to spell out inline now live in `src/lib/chat/`. No API or behavior change.

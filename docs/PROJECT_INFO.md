@@ -563,6 +563,8 @@ Reference template: `.env.example`.
   - `src/components/chat/ChatInterface.tsx` (orchestration: chat transport, conversation lifecycle, billing/usage, regeneration, composer)
   - `src/components/chat/ChatMessage.tsx` (per-message render: response, action toolbar, feedback panels, sources, version nav, pending indicators)
   - `src/components/chat/useMessageFeedback.ts` (feedback state machine: thumbs persistence, follow-up auto-dismiss timer, submit, reset)
+  - `src/components/chat/i18n.ts` (`UI_TEXT`, `uiText()`, `pickLanguage()`); the copy
+    itself is one file per language in `src/components/chat/locales/` (`ita`, `eng`, `spa`)
   - `src/components/chat/chat-utils.tsx` (shared chat helpers + `ToolActivityIndicator`/`PendingIndicator`, imported by both `ChatInterface` and `ChatMessage`)
   - `src/components/chat/SettingsPanel.tsx` (source/style filter bar — now only the `/search` console)
   - `src/components/chat/SourcesPanel.tsx`
