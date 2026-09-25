@@ -4,10 +4,8 @@ import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { flushSync } from "react-dom";
 import { useChat } from "@ai-sdk/react";
 import { useUser } from "@clerk/nextjs";
-import { useRouter } from "next/navigation";
 import { DefaultChatTransport } from "ai";
 import type { UIMessage } from "ai";
-import { AlertTriangleIcon, RotateCcwIcon, ZapIcon } from "lucide-react";
 import {
   Conversation,
   ConversationContent,
@@ -31,14 +29,10 @@ import {
   getPreviousUserQuery,
 } from "./chat-utils";
 import { useMessageFeedback } from "./useMessageFeedback";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { ALL_SOURCES, SUPER_SOURCES } from "@/lib/types";
 import type {
   AssistantVersion,
   ChatGenerationStatus,
   ChatProgressData,
-  UiLanguage,
-  MessageMetadata,
   SourceChunk,
 } from "@/lib/types";
 import {
@@ -50,11 +44,17 @@ import { uiText } from "./i18n";
 import { useBillingOverview } from "@/components/billing/BillingContext";
 import type { OnboardingStatus } from "@/lib/onboarding/steps";
 import {
-  CHAT_GENERATION_CLAIM_TIMEOUT_MS,
+  chatErrorKind,
   shouldAutoFocusNewChatComposer,
-  shouldFailGenerationClaim,
   shouldShowPendingAssistant,
 } from "@/lib/chat/client-lifecycle";
+import { ChatErrorCard } from "./interface/ChatErrorCard";
+import { ChatUsageBanner } from "./interface/ChatUsageBanner";
+import { SearchScopeToggle } from "./interface/SearchScopeToggle";
+import { useGenerationState, useGenerationSync } from "./interface/useGenerationSync";
+import { useMessageVersions } from "./interface/useMessageVersions";
+import { useResponseStyle } from "./interface/useResponseStyle";
+import { useSearchScope } from "./interface/useSearchScope";
 
 interface ChatInterfaceProps {
   conversationId?: string;
@@ -85,61 +85,6 @@ function deriveConversationTitle(question: string): string {
   return title;
 }
 
-function getLastAssistantMessageIndex(messages: UIMessage[]): number {
-  for (let i = messages.length - 1; i >= 0; i -= 1) {
-    if (messages[i].role === "assistant") return i;
-  }
-  return -1;
-}
-
-/** Compact Standard/Super search-scope toggle for the composer toolbar. */
-function SearchScopeToggle({
-  language,
-  isSuper,
-  onToggle,
-  disabled,
-  locked,
-}: {
-  language: UiLanguage;
-  isSuper: boolean;
-  onToggle: () => void;
-  disabled?: boolean;
-  /** Guests can't use Super; the tooltip explains why. */
-  locked?: boolean;
-}) {
-  const scope = uiText(language).settings.searchScope;
-  // Controlled so a tap can open it: touch never fires hover, and a locked
-  // guest would otherwise get no feedback at all.
-  const [open, setOpen] = useState(false);
-  return (
-    <Tooltip open={open} onOpenChange={setOpen}>
-      <TooltipTrigger
-        type="button"
-        data-tour="super-toggle"
-        closeOnClick={!locked}
-        onClick={locked ? () => setOpen((current) => !current) : onToggle}
-        disabled={disabled}
-        aria-disabled={locked || undefined}
-        aria-pressed={isSuper}
-        className={`inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition-colors disabled:opacity-50 aria-disabled:cursor-not-allowed aria-disabled:opacity-50 ${
-          isSuper
-            ? "border-amber-400/40 bg-amber-400/10 text-amber-200"
-            : "border-border text-muted-foreground hover:bg-accent hover:text-foreground"
-        }`}
-      >
-        <ZapIcon size={14} className={isSuper ? "fill-amber-400 text-amber-400" : ""} />
-        <span>{scope.super}</span>
-      </TooltipTrigger>
-      <TooltipContent side="top" className="max-w-xs text-xs leading-relaxed">
-        <p className="mb-0.5 font-medium">{isSuper || locked ? scope.super : scope.standard}</p>
-        <p className="text-muted-foreground">
-          {locked ? scope.superGuestTooltip : isSuper ? scope.superTooltip : scope.standardTooltip}
-        </p>
-      </TooltipContent>
-    </Tooltip>
-  );
-}
-
 export function ChatInterface({
   conversationId: initialConversationId,
   initialMessages = [],
@@ -153,7 +98,6 @@ export function ChatInterface({
   resumeStreamEnabled = false,
 }: ChatInterfaceProps) {
   const { user } = useUser();
-  const router = useRouter();
   const { language } = useLanguage();
   const { billingOverview, refreshBillingOverview } = useBillingOverview();
   const text = uiText(language);
@@ -189,127 +133,41 @@ export function ChatInterface({
       }
     };
   }, [isEmptyNewChat, shouldFocusNewChatAfterPaint]);
-  // Search scope replaces manual per-source selection: Standard sends every
-  // normally-visible source, Super sends all namespaces. The model may still
-  // narrow *within* this scope (the backend ceilings its override to it).
-  const [searchScope, setSearchScope] = useState<"standard" | "super">("standard");
   const isGuest = billingOverview?.plan === "guest";
-  const isSuperScope = searchScope === "super" && !isGuest;
-  const sources = useMemo(
-    () => (isSuperScope ? SUPER_SOURCES : ALL_SOURCES),
-    [isSuperScope]
-  );
-
-  // Response style. The user's persistent default applies unless this
-  // conversation has an explicit override (conversationStyle !== null). The
-  // active style shown in the UI and sent for new conversations is derived
-  // below.
-  const [defaultResponseStyle, setDefaultResponseStyle] =
-    useState<ResponseStyleId>(initialDefaultResponseStyle);
-  const [conversationStyle, setConversationStyle] = useState<ResponseStyleId | null>(
-    initialResponseStyle
-  );
-  const activeResponseStyle = conversationStyle ?? defaultResponseStyle;
-
-  // Fallback: fetch the user's saved default if the server didn't provide one.
-  useEffect(() => {
-    if (initialDefaultResponseStyle !== DEFAULT_RESPONSE_STYLE) return;
-    let cancelled = false;
-    void (async () => {
-      try {
-        const res = await fetch("/api/settings");
-        if (!res.ok) return;
-        const data = (await res.json()) as { defaultResponseStyle?: ResponseStyleId };
-        if (!cancelled && data.defaultResponseStyle) {
-          setDefaultResponseStyle(data.defaultResponseStyle);
-        }
-      } catch {
-        // Settings fetch is non-critical; keep the system default.
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [initialDefaultResponseStyle]);
-
-  const handleResponseStyleChange = useCallback((style: ResponseStyleId) => {
-    setConversationStyle(style);
-    const convId = conversationIdRef.current;
-    if (convId) {
-      // Persist the override immediately so it sticks even without sending.
-      void fetch(`/api/conversations/${convId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ responseStyle: style }),
-      });
-    }
-  }, []);
-
-  const handleSetDefaultResponseStyle = useCallback((style: ResponseStyleId) => {
-    setDefaultResponseStyle(style);
-    void fetch("/api/settings", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ defaultResponseStyle: style }),
-    });
-  }, []);
-
-  // Hydrate the search scope from localStorage after mount to avoid SSR mismatch.
-  useEffect(() => {
-    try {
-      const stored = localStorage.getItem("chat:search-scope");
-      if (stored === "super" || stored === "standard") setSearchScope(stored);
-    } catch {
-      // ignore
-    }
-  }, []);
-  const [expandedDetailsId, setExpandedDetailsId] = useState<string | null>(null);
-  const [chatProgress, setChatProgress] = useState<ChatProgressData | null>(null);
-  const [persistedGenerationStatus, setPersistedGenerationStatus] =
-    useState<ChatGenerationStatus>(initialGenerationStatus);
-  const [resolvedConversationId, setResolvedConversationId] =
-    useState<string | undefined>(initialConversationId);
-  const [messageVersions, setMessageVersions] = useState<Record<string, AssistantVersion[]>>(
-    initialMessageVersions
-  );
-  const [activeVersionIndex, setActiveVersionIndex] = useState<Record<string, number>>(() => {
-    const initialIndexes: Record<string, number> = {};
-    for (const [messageId, versions] of Object.entries(initialMessageVersions)) {
-      initialIndexes[messageId] = Math.max(versions.length - 1, 0);
-    }
-    return initialIndexes;
-  });
+  const { isSuperScope, sources, toggleSearchScope } = useSearchScope(isGuest);
 
   // Track the resolved conversation ID (may be created on first send)
   const conversationIdRef = useRef<string | undefined>(initialConversationId);
+  const {
+    defaultResponseStyle,
+    conversationStyle,
+    activeResponseStyle,
+    handleResponseStyleChange,
+    handleSetDefaultResponseStyle,
+  } = useResponseStyle(initialDefaultResponseStyle, initialResponseStyle, conversationIdRef);
+
+  const [expandedDetailsId, setExpandedDetailsId] = useState<string | null>(null);
+  const [resolvedConversationId, setResolvedConversationId] =
+    useState<string | undefined>(initialConversationId);
   const conversationContextVersionRef = useRef(0);
   const conversationCreationPromiseRef = useRef<Promise<EnsuredConversation> | null>(null);
   const submitTokenRef = useRef<symbol | null>(null);
-  const resumeInFlightRef = useRef(false);
-  const resumeAllowedRef = useRef(initialGenerationStatus === "streaming");
-  const generationClaimPendingRef = useRef(false);
-  const generationClaimStartedAtRef = useRef<number | null>(null);
-  const clientTransportErrorRef = useRef(false);
   const pendingConversationTitleRef = useRef<string | null>(null);
-  const pendingRegenerationRef = useRef<
-    | {
-        targetMessageId: string;
-        previousVersion: AssistantVersion;
-      }
-    | null
-  >(null);
 
   const feedback = useMessageFeedback(initialFeedbackByMessageId, conversationIdRef);
   const resetFeedback = feedback.reset;
 
-  const markGenerationClaimError = useCallback(() => {
-    generationClaimPendingRef.current = false;
-    generationClaimStartedAtRef.current = null;
-    clientTransportErrorRef.current = false;
-    setPersistedGenerationStatus("error");
-    setChatProgress(null);
-    window.dispatchEvent(new CustomEvent("chat:conversations-changed"));
-  }, []);
+  const generation = useGenerationState(initialGenerationStatus);
+  const {
+    chatProgress,
+    setChatProgress,
+    generationStatus: persistedGenerationStatus,
+    setGenerationStatus: setPersistedGenerationStatus,
+    beginClaim,
+    settleClaim,
+    markTransportError,
+    resetGeneration,
+  } = generation;
 
   const chatTransport = useMemo(
     () => new DefaultChatTransport({ api: "/api/chat" }),
@@ -331,11 +189,8 @@ export function ChatInterface({
     messages: initialMessages,
     onData: (dataPart) => {
       if (dataPart.type !== "data-chat-progress") return;
-
       const progress = dataPart.data as ChatProgressData;
-      generationClaimPendingRef.current = false;
-      generationClaimStartedAtRef.current = null;
-      clientTransportErrorRef.current = false;
+      settleClaim();
       setChatProgress(progress.phase === "complete" ? null : progress);
       setPersistedGenerationStatus(
         progress.phase === "complete" ? "complete" : "streaming"
@@ -369,16 +224,14 @@ export function ChatInterface({
     onError: () => {
       // The SDK reports transport errors without rejecting sendMessage(). Keep
       // polling once so a server-owned generation can still prove it was claimed.
-      clientTransportErrorRef.current = true;
+      markTransportError();
       // A quota rejection (429) should update the remaining-messages banner.
       void refreshBillingOverview();
     },
     onFinish: ({ isAbort, isDisconnect, isError }) => {
       if (isAbort || isDisconnect || isError) return;
 
-      generationClaimPendingRef.current = false;
-      generationClaimStartedAtRef.current = null;
-      clientTransportErrorRef.current = false;
+      settleClaim();
       setPersistedGenerationStatus("complete");
       setChatProgress(null);
 
@@ -399,12 +252,30 @@ export function ChatInterface({
     },
   });
 
+  useGenerationSync(generation, {
+    conversationId: resolvedConversationId,
+    chatStatus: status,
+    initialGenerationStatus,
+    resumeStreamEnabled,
+    resumeStream,
+  });
+
   const isStreaming =
     status === "streaming" ||
     status === "submitted" ||
     persistedGenerationStatus === "streaming";
-  const chatStatusRef = useRef(status);
-  chatStatusRef.current = status;
+  const {
+    versionsFor,
+    activeVersionIndexFor,
+    selectVersion,
+    beginRegeneration,
+    resetVersions,
+  } = useMessageVersions({
+    messages,
+    isStreaming,
+    initialMessageVersions,
+    initialAssistantVersions,
+  });
   const showPendingAssistant = shouldShowPendingAssistant(messages, isStreaming);
   const userDisplayName =
     user?.firstName ||
@@ -424,16 +295,7 @@ export function ChatInterface({
   const failedTurn =
     !isStreaming && (!!chatError || persistedGenerationStatus === "error");
   const lastMessage = messages.at(-1);
-  // HTTP errors carry the response body as the message (e.g. the 429 JSON);
-  // stream errors arrive already masked, so they fall through to "generic".
-  const errorText = chatError?.message ?? "";
-  const errorKind = /rate limit/i.test(errorText)
-    ? "quota"
-    : /already being generated/i.test(errorText)
-      ? "busy"
-      : chatError && (!navigator.onLine || /failed to fetch|network/i.test(errorText))
-        ? "network"
-        : "generic";
+  const errorKind = chatError ? chatErrorKind(chatError, navigator.onLine) : "generic";
   const failedQuestion =
     failedTurn && lastMessage?.role === "user" ? getPlainText(lastMessage) : null;
 
@@ -497,121 +359,6 @@ export function ChatInterface({
     }
   }, [language, sources, conversationStyle]);
 
-  // Persist the search scope (language is persisted by LanguageProvider).
-  useEffect(() => {
-    localStorage.setItem("chat:search-scope", searchScope);
-  }, [searchScope]);
-
-  useEffect(() => {
-    if (!resolvedConversationId || persistedGenerationStatus !== "streaming") return;
-
-    let cancelled = false;
-    let timer: number | undefined;
-
-    const synchronizeGeneration = async () => {
-      let shouldPollAgain = true;
-      try {
-        const response = await fetch(
-          `/api/conversations/${resolvedConversationId}?status=1`,
-          { cache: "no-store" }
-        );
-        if (!response.ok) return;
-
-        const payload = (await response.json()) as {
-          generationStatus: ChatGenerationStatus;
-        };
-        if (cancelled) return;
-
-        if (payload.generationStatus === "streaming") {
-          generationClaimPendingRef.current = false;
-          generationClaimStartedAtRef.current = null;
-          clientTransportErrorRef.current = false;
-          setPersistedGenerationStatus("streaming");
-
-          if (
-            initialGenerationStatus === "streaming" &&
-            resumeStreamEnabled &&
-            resumeAllowedRef.current &&
-            chatStatusRef.current === "ready" &&
-            !resumeInFlightRef.current
-          ) {
-            resumeInFlightRef.current = true;
-            try {
-              await resumeStream();
-            } finally {
-              resumeInFlightRef.current = false;
-              if (!cancelled) router.refresh();
-            }
-          }
-          return;
-        }
-
-        if (generationClaimPendingRef.current) {
-          const claimFailed = shouldFailGenerationClaim(
-            generationClaimStartedAtRef.current,
-            clientTransportErrorRef.current
-          );
-          if (!claimFailed) {
-            // The status can still reflect the preceding turn while /api/chat
-            // is completing its authenticated generation claim.
-            setPersistedGenerationStatus("streaming");
-            return;
-          }
-
-          shouldPollAgain = false;
-          markGenerationClaimError();
-          return;
-        }
-
-        setPersistedGenerationStatus(payload.generationStatus);
-        shouldPollAgain = false;
-        window.dispatchEvent(new CustomEvent("chat:conversations-changed"));
-        router.refresh();
-      } catch (error) {
-        console.error("Failed to synchronize active chat generation", error);
-      } finally {
-        if (!cancelled && shouldPollAgain) {
-          timer = window.setTimeout(synchronizeGeneration, 2000);
-        }
-      }
-    };
-
-    void synchronizeGeneration();
-    return () => {
-      cancelled = true;
-      if (timer !== undefined) window.clearTimeout(timer);
-    };
-  }, [
-    initialGenerationStatus,
-    persistedGenerationStatus,
-    resolvedConversationId,
-    resumeStream,
-    resumeStreamEnabled,
-    router,
-    markGenerationClaimError,
-  ]);
-
-  useEffect(() => {
-    const startedAt = generationClaimStartedAtRef.current;
-    if (
-      !resolvedConversationId ||
-      persistedGenerationStatus !== "streaming" ||
-      !generationClaimPendingRef.current ||
-      startedAt === null
-    ) {
-      return;
-    }
-
-    const remainingMs = Math.max(
-      0,
-      CHAT_GENERATION_CLAIM_TIMEOUT_MS - (Date.now() - startedAt)
-    );
-    const timer = window.setTimeout(() => {
-      if (generationClaimPendingRef.current) markGenerationClaimError();
-    }, remainingMs);
-    return () => window.clearTimeout(timer);
-  }, [markGenerationClaimError, persistedGenerationStatus, resolvedConversationId]);
-
   const handleSubmit = useCallback(
     async (text: string) => {
       if (!text.trim() || isStreaming || submitTokenRef.current) return;
@@ -634,9 +381,7 @@ export function ChatInterface({
 
         if (isCurrentContext) {
           pendingConversationTitleRef.current = null;
-          generationClaimPendingRef.current = true;
-          generationClaimStartedAtRef.current = Date.now();
-          clientTransportErrorRef.current = false;
+          beginClaim();
           setChatProgress({ phase: "queued", conversationId: convId, title });
           setPersistedGenerationStatus("streaming");
         }
@@ -706,12 +451,15 @@ export function ChatInterface({
       }
     },
     [
+      beginClaim,
       conversationStyle,
       ensureConversation,
       isStreaming,
       language,
       messages.length,
       sendMessage,
+      setChatProgress,
+      setPersistedGenerationStatus,
       sources,
     ]
   );
@@ -749,9 +497,7 @@ export function ChatInterface({
       // Offline: sending below fails too and the error card comes back.
     }
 
-    generationClaimPendingRef.current = true;
-    generationClaimStartedAtRef.current = Date.now();
-    clientTransportErrorRef.current = false;
+    beginClaim();
     setChatProgress({ phase: "queued", conversationId: convId });
     setPersistedGenerationStatus("streaming");
     retryInFlightRef.current = false; // isStreaming guards from here on
@@ -767,13 +513,16 @@ export function ChatInterface({
       },
     });
   }, [
+    beginClaim,
     conversationStyle,
     failedQuestion,
     handleSubmit,
     isStreaming,
     language,
     sendMessage,
+    setChatProgress,
     setMessages,
+    setPersistedGenerationStatus,
     sources,
   ]);
 
@@ -782,19 +531,14 @@ export function ChatInterface({
       if (!question.trim() || !currentText.trim() || fixedChunks.length === 0 || isStreaming) return;
 
       const { id: convId } = await ensureConversation();
-      generationClaimPendingRef.current = true;
-      generationClaimStartedAtRef.current = Date.now();
-      clientTransportErrorRef.current = false;
+      beginClaim();
       setPersistedGenerationStatus("streaming");
       setChatProgress({ phase: "queued", conversationId: convId });
 
-      pendingRegenerationRef.current = {
-        targetMessageId: messageId,
-        previousVersion: {
-          text: currentText,
-          sources: fixedChunks,
-        },
-      };
+      beginRegeneration(messageId, {
+        text: currentText,
+        sources: fixedChunks,
+      });
 
       await regenerate({
         messageId,
@@ -809,7 +553,18 @@ export function ChatInterface({
         },
       });
     },
-    [ensureConversation, isStreaming, language, regenerate, sources, conversationStyle]
+    [
+      beginClaim,
+      beginRegeneration,
+      ensureConversation,
+      isStreaming,
+      language,
+      regenerate,
+      setChatProgress,
+      setPersistedGenerationStatus,
+      sources,
+      conversationStyle,
+    ]
   );
 
   const handlePromptSubmit = useCallback(
@@ -832,36 +587,9 @@ export function ChatInterface({
     }
   }, []);
 
-  const handleSelectVersion = useCallback((messageId: string, index: number) => {
-    setActiveVersionIndex((prev) => ({ ...prev, [messageId]: index }));
-  }, []);
-
   const handleToggleDetails = useCallback((messageId: string) => {
     setExpandedDetailsId((prev) => (prev === messageId ? null : messageId));
   }, []);
-
-  useEffect(() => {
-    if (initialAssistantVersions.length === 0 || messages.length === 0) return;
-
-    const mappedVersions: Record<string, AssistantVersion[]> = {};
-    const mappedActive: Record<string, number> = {};
-    let assistantIndex = 0;
-
-    for (const message of messages) {
-      if (message.role !== "assistant") continue;
-      const versions = initialAssistantVersions[assistantIndex] ?? [];
-      if (versions.length > 0 && !messageVersions[message.id]) {
-        mappedVersions[message.id] = versions;
-        mappedActive[message.id] = Math.max(versions.length - 1, 0);
-      }
-      assistantIndex += 1;
-    }
-
-    if (Object.keys(mappedVersions).length > 0) {
-      setMessageVersions((prev) => ({ ...prev, ...mappedVersions }));
-      setActiveVersionIndex((prev) => ({ ...prev, ...mappedActive }));
-    }
-  }, [initialAssistantVersions, messageVersions, messages]);
 
   useEffect(() => {
     const onNewConversation = () => {
@@ -870,12 +598,6 @@ export function ChatInterface({
       conversationIdRef.current = undefined;
       conversationCreationPromiseRef.current = null;
       submitTokenRef.current = null;
-      resumeInFlightRef.current = false;
-      resumeAllowedRef.current = false;
-      generationClaimPendingRef.current = false;
-      generationClaimStartedAtRef.current = null;
-      clientTransportErrorRef.current = false;
-      pendingRegenerationRef.current = null;
 
       // Commit the blank-chat screen before focusing. Keeping this synchronous
       // preserves the initiating mobile gesture without letting the keyboard
@@ -884,10 +606,8 @@ export function ChatInterface({
         setResolvedConversationId(undefined);
         setMessages([]);
         resetFeedback();
-        setMessageVersions({});
-        setActiveVersionIndex({});
-        setChatProgress(null);
-        setPersistedGenerationStatus("idle");
+        resetVersions();
+        resetGeneration();
       });
 
       if (window.location.pathname !== "/chat") {
@@ -905,65 +625,7 @@ export function ChatInterface({
     return () => {
       window.removeEventListener("chat:new-conversation", onNewConversation);
     };
-  }, [resetFeedback, setMessages, stop]);
-
-  useEffect(() => {
-    const pending = pendingRegenerationRef.current;
-    if (!pending || isStreaming) return;
-
-    let targetMessage = messages.find(
-      (msg) => msg.id === pending.targetMessageId && msg.role === "assistant"
-    );
-
-    if (!targetMessage) {
-      const fallbackIndex = getLastAssistantMessageIndex(messages);
-      if (fallbackIndex >= 0) {
-        targetMessage = messages[fallbackIndex];
-      }
-    }
-
-    if (!targetMessage || targetMessage.role !== "assistant") {
-      pendingRegenerationRef.current = null;
-      return;
-    }
-
-    const newText = getPlainText(targetMessage);
-    const newSources = ((targetMessage.metadata as MessageMetadata | undefined)?.sources ?? []) as SourceChunk[];
-    if (!newText.trim()) {
-      pendingRegenerationRef.current = null;
-      return;
-    }
-
-    const messageId = targetMessage.id;
-    let nextLength = 0;
-    setMessageVersions((prev) => {
-      const existing = prev[messageId];
-      if (existing && existing.length > 0) {
-        nextLength = existing.length + 1;
-        return {
-          ...prev,
-          [messageId]: [...existing, { text: newText, sources: newSources }],
-        };
-      }
-
-      nextLength = 2;
-
-      return {
-        ...prev,
-        [messageId]: [pending.previousVersion, { text: newText, sources: newSources }],
-      };
-    });
-    setActiveVersionIndex((prev) => {
-      return { ...prev, [messageId]: Math.max(nextLength - 1, 0) };
-    });
-
-    pendingRegenerationRef.current = null;
-  }, [isStreaming, messages]);
-
-  useEffect(() => {
-    if (status !== "ready") return;
-    setChatProgress(null);
-  }, [status]);
+  }, [resetFeedback, resetGeneration, resetVersions, setMessages, stop]);
 
   const isEmptyChat = messages.length === 0;
 
@@ -996,11 +658,7 @@ export function ChatInterface({
             language={language}
             isSuper={isSuperScope}
             locked={isGuest}
-            onToggle={() =>
-              setSearchScope((current) =>
-                current === "super" ? "standard" : "super"
-              )
-            }
+            onToggle={toggleSearchScope}
             disabled={isStreaming}
           />
         </PromptInputTools>
@@ -1022,34 +680,7 @@ export function ChatInterface({
   return (
     <div className="flex flex-col h-full min-h-0">
       {shouldShowUsageWarning && chatUsage && (
-        <div className="px-4 pt-2">
-          <div className="mx-auto flex max-w-3xl items-center gap-3 rounded-2xl border border-border bg-card/60 px-3.5 py-1.5 text-sm sm:py-2.5">
-            <AlertTriangleIcon className="hidden h-4 w-4 shrink-0 text-muted-foreground sm:block" />
-            <div className="min-w-0 flex-1">
-              {/* Phones get one line: every pixel here comes out of the answer. */}
-              <p className="truncate text-xs text-muted-foreground sm:hidden">
-                {(isGuest ? text.chat.guestUsageShort : text.chat.usageWarningShort)
-                  .replace("{remaining}", String(chatUsage.remaining))
-                  .replace("{limit}", String(chatUsage.limit))}
-              </p>
-              <p className="hidden font-medium text-foreground sm:block">
-                {isGuest ? text.chat.guestUsageTitle : text.chat.usageWarningTitle}
-              </p>
-              <p className="hidden text-xs text-muted-foreground sm:block">
-                {(isGuest ? text.chat.guestUsageDescription : text.chat.usageWarningDescription)
-                  .replace("{remaining}", String(chatUsage.remaining))
-                  .replace("{limit}", String(chatUsage.limit))}
-              </p>
-            </div>
-            {/* The only Sign-up CTA for guests: the top bar offers just Log in. */}
-            <a
-              href={isGuest ? "/sign-up" : "/billing"}
-              className="shrink-0 rounded-full bg-foreground px-3 py-1.5 text-xs font-medium text-background transition-opacity hover:opacity-85"
-            >
-              {isGuest ? text.chat.guestUsageAction : text.chat.usageWarningAction}
-            </a>
-          </div>
-        </div>
+        <ChatUsageBanner chatUsage={chatUsage} isGuest={isGuest} text={text} />
       )}
 
       {/* One tree for both layouts so the composer never remounts (keeps focus
@@ -1079,10 +710,10 @@ export function ChatInterface({
                   copiedId={copiedId}
                   expandedDetailsId={expandedDetailsId}
                   conversationIdRef={conversationIdRef}
-                  versionsOverride={messageVersions[message.id]}
-                  activeVersionIndex={activeVersionIndex[message.id]}
+                  versionsOverride={versionsFor(message.id)}
+                  activeVersionIndex={activeVersionIndexFor(message.id)}
                   feedback={feedback}
-                  onSelectVersion={handleSelectVersion}
+                  onSelectVersion={selectVersion}
                   onToggleDetails={handleToggleDetails}
                   onCopy={handleCopyMessage}
                   onRegenerate={handleRegenerate}
@@ -1108,45 +739,13 @@ export function ChatInterface({
                 </Message>
               )}
               {failedTurn && (
-                <div
-                  role="alert"
-                  className="flex items-start gap-3 rounded-2xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm"
-                >
-                  <AlertTriangleIcon className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
-                  <div className="min-w-0 flex-1">
-                    <p className="font-medium text-foreground">{text.chat.errorTitle}</p>
-                    <p className="mt-0.5 text-muted-foreground">
-                      {errorKind === "quota"
-                        ? isGuest
-                          ? text.chat.errorQuotaGuest
-                          : text.chat.errorQuota
-                        : errorKind === "busy"
-                          ? text.chat.errorBusy
-                          : errorKind === "network"
-                            ? text.chat.errorNetwork
-                            : text.chat.errorGeneric}
-                    </p>
-                  </div>
-                  {errorKind === "quota" ? (
-                    <a
-                      href={isGuest ? "/sign-up" : "/billing"}
-                      className="shrink-0 self-center rounded-full bg-foreground px-3 py-1.5 text-xs font-medium text-background transition-opacity hover:opacity-85"
-                    >
-                      {isGuest ? text.chat.guestUsageAction : text.chat.usageWarningAction}
-                    </a>
-                  ) : (
-                    failedQuestion && (
-                      <button
-                        type="button"
-                        onClick={() => void handleRetry()}
-                        className="inline-flex shrink-0 items-center gap-1.5 self-center rounded-full border border-border px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent"
-                      >
-                        <RotateCcwIcon className="h-3.5 w-3.5" />
-                        {text.chat.errorRetry}
-                      </button>
-                    )
-                  )}
-                </div>
+                <ChatErrorCard
+                  errorKind={errorKind}
+                  isGuest={isGuest}
+                  failedQuestion={failedQuestion}
+                  text={text}
+                  onRetry={() => void handleRetry()}
+                />
               )}
             </ConversationContent>
             <ConversationScrollButton />

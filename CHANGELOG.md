@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.12.60
+
+- **Smaller chat screen component.** `ChatInterface.tsx` goes from 1184 to about 780 lines. It keeps the `useChat` wiring, conversation creation, submit / retry / regenerate, the new-chat reset and the layout. The rest moved to `src/components/chat/interface/`:
+  - `useGenerationSync.ts`: `useGenerationState` (persisted generation status, live progress, and whether a sent request is still waiting for the server's claim) and `useGenerationSync` (status polling, stream resume, claim timeout). The claim state was three refs reset together in eight places; it is now one object with `beginClaim()` / `settleClaim()` / `markTransportError()`;
+  - `useMessageVersions.ts`: answer versions and the selected one, and recording a regenerated answer;
+  - `useResponseStyle.ts`, `useSearchScope.ts`;
+  - `SearchScopeToggle.tsx`, `ChatUsageBanner.tsx`, `ChatErrorCard.tsx`.
+  - Pure rules moved to `src/lib/chat/client-lifecycle.ts` with 9 new checks in `test:chat-lifecycle`: `chatErrorKind()` (which error card to show), `assistantVersionsByPosition()`, `withRegeneratedVersion()`.
+- **3 fewer lint warnings.** Stored versions for messages whose client id differs from the row id (e.g. after a resumed stream) are now derived during render instead of being copied into state by an effect. Clearing the progress when `useChat` returns to `ready` happens during render instead of in an effect. Restoring the search scope from localStorage stays in an effect (after hydration), with an explained `eslint-disable` line.
+
 ## 0.12.56
 
 - **Lint warnings down from 36 to 27.** Only the three downgraded rules (`react-hooks/set-state-in-effect`, `react-hooks/refs`, `@next/next/no-html-link-for-pages`) still warn. Fixed without behavior changes:
