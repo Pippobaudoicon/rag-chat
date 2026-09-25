@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.12.61
+
+- **The language menu only offers languages that are translated.** French, Portuguese and German were selectable but showed the app in English, which looked like a bug. The menu (and the language toggle) now lists English, Italian and Spanish only (`SELECTABLE_UI_LANGUAGES`, derived from `UI_TEXT`). Someone who had picked French/Portuguese/German gets their device language instead, as if they had never picked. The three languages stay valid in `UiLanguage` and the API schemas, so API clients (the mobile app) are unaffected. A language becomes selectable again as soon as it has a `UI_TEXT` entry.
+
 ## 0.12.60
 
 - **Smaller chat screen component.** `ChatInterface.tsx` goes from 1184 to about 780 lines. It keeps the `useChat` wiring, conversation creation, submit / retry / regenerate, the new-chat reset and the layout. The rest moved to `src/components/chat/interface/`:

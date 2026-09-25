@@ -1,4 +1,4 @@
-import { SOURCE_LABELS, UI_LANGUAGE_BCP47 } from "@/lib/types";
+import { SOURCE_LABELS, SUPPORTED_UI_LANGUAGES, UI_LANGUAGE_BCP47 } from "@/lib/types";
 import type { CorpusLanguage, SourceType, UiLanguage } from "@/lib/types";
 import { eng } from "./locales/eng";
 import { ita } from "./locales/ita";
@@ -39,6 +39,14 @@ export function uiText(language: UiLanguage): UiText {
 }
 
 export type TextLanguage = keyof typeof UI_TEXT;
+
+/**
+ * The languages users can pick: the supported ones that have UI copy. The
+ * others stay valid in the API (`UiLanguage`) but would only show English.
+ */
+export const SELECTABLE_UI_LANGUAGES: UiLanguage[] = SUPPORTED_UI_LANGUAGES.filter(
+  (language) => language in UI_TEXT
+);
 
 // Default UI language before the user picks one: the first device language
 // (Accept-Language on the server, navigator.languages in the browser) that has
