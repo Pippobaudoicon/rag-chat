@@ -9,7 +9,7 @@ import {
   stepCountIs,
   smoothStream,
 } from "ai";
-import { eq, and, asc, isNull, ne } from "drizzle-orm";
+import { eq, and, asc } from "drizzle-orm";
 import { getDb } from "@/lib/db";
 import { conversations, messages, type Conversation } from "@/lib/db/schema";
 import {
@@ -22,7 +22,6 @@ import {
   conversationTitleCacheKey,
   deriveConversationTitle,
   getSessionAnswerFromCache,
-  getSlidingWindowRateLimit,
   invalidateConversationCaches,
   sessionAnswerCacheKey,
   setConversationTitleInCache,
@@ -59,6 +58,24 @@ import {
 import {
   getChatStreamContext,
 } from "@/lib/chat/resumable-stream";
+import { cachedAnswerResponse } from "@/lib/chat/cached-replay";
+import { getChatRateLimiter, rateLimitedResponse } from "@/lib/chat/rate-limit";
+import {
+  claimGeneration,
+  completeGenerationUpdate,
+  markGenerationError,
+  ownedActiveTurn,
+  recoverStaleGeneration,
+  releasePendingInitialTurn as releasePendingTurn,
+} from "@/lib/chat/turn-store";
+import {
+  findRegenerateTarget,
+  getToolNames,
+  toRetrievalToolEvent,
+  uniqueSources,
+  usageDetails,
+  userTurnIndexBefore,
+} from "@/lib/chat/turn";
 import { ALL_SOURCES } from "@/lib/types";
 import type {
   AssistantVersion,
@@ -74,21 +91,6 @@ export const maxDuration = 180;
 const DEFAULT_MAX_OUTPUT_TOKENS = 6000;
 const DEFAULT_MAX_RESPONSE_SOURCES = 50;
 const MAX_RETRIEVAL_CALLS = 2;
-const CACHED_REPLAY_WORDS_PER_CHUNK = 3;
-const CACHED_REPLAY_DELAY_MS = 16;
-const GUEST_IP_LIMIT_MULTIPLIER = 4;
-
-function chunkCachedText(text: string): string[] {
-  const words = text.match(/\S+\s*/g) ?? [];
-  const chunks: string[] = [];
-  for (let index = 0; index < words.length; index += CACHED_REPLAY_WORDS_PER_CHUNK) {
-    chunks.push(words.slice(index, index + CACHED_REPLAY_WORDS_PER_CHUNK).join(""));
-  }
-  return chunks;
-}
-
-const waitForCachedReplay = (delayMs: number) =>
-  new Promise<void>((resolve) => setTimeout(resolve, delayMs));
 
 const getPositiveInt = (value: string | undefined, fallback: number): number => {
   const parsed = Number(value);
@@ -136,35 +138,9 @@ export async function POST(req: Request) {
     persistedUserMessageId,
   } = parsedBody.data;
 
-  // POST /api/conversations exposes the first turn immediately as an active
-  // pending generation (streaming + no activeTurnId). If an early gate rejects
-  // /api/chat before it can claim that turn, clear only that pending snapshot;
-  // never touch a request that already has a server-owned activeTurnId.
-  const releasePendingInitialTurn = async () => {
-    if (!conversationId || !persistedUserMessageId) return;
-    try {
-      const earlyDb = getDb();
-      const [released] = await earlyDb
-        .update(conversations)
-        .set({
-          generationStatus: "error",
-          generationStartedAt: null,
-          updatedAt: new Date(),
-        })
-        .where(
-          and(
-            eq(conversations.id, conversationId),
-            eq(conversations.clerkUserId, userId),
-            eq(conversations.generationStatus, "streaming"),
-            isNull(conversations.activeTurnId)
-          )
-        )
-        .returning({ id: conversations.id });
-      if (released) await invalidateConversationCaches(userId);
-    } catch (error) {
-      console.error("Failed to release pending initial chat turn", error);
-    }
-  };
+  // Early gates that reject the request free the first turn's pending marker.
+  const releasePendingInitialTurn = () =>
+    releasePendingTurn(conversationId, persistedUserMessageId, userId);
 
   const entitlements = await latency
     .phase("entitlements", () =>
@@ -183,51 +159,17 @@ export async function POST(req: Request) {
       ? requestedSources.filter((source) => ALL_SOURCES.includes(source))
       : requestedSources;
 
-  const rateLimit = getSlidingWindowRateLimit(
-    `chat:${entitlements.plan}`,
-    entitlements.limits.chatRequests,
-    entitlements.limits.window
-  );
-  if (rateLimit) {
+  const limitChatRequest = getChatRateLimiter(entitlements);
+  if (limitChatRequest) {
     const rateLimitResult = await latency
-      .phase("ratelimit", async () => {
-        const result = await rateLimit.limit(`chat:${entitlements.plan}:${userId}`);
-        // Clearing the guest cookie mints a fresh quota, so guests are also
-        // capped per IP (loose, to tolerate shared/NAT networks).
-        const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
-        if (!result.success || entitlements.plan !== "guest" || !ip) return result;
-        const ipResult = await getSlidingWindowRateLimit(
-          "chat:guest-ip",
-          entitlements.limits.chatRequests * GUEST_IP_LIMIT_MULTIPLIER,
-          entitlements.limits.window
-        )!.limit(ip);
-        return ipResult.success ? result : ipResult;
-      })
+      .phase("ratelimit", () => limitChatRequest(req, userId))
       .catch(async (error) => {
         await releasePendingInitialTurn();
         throw error;
       });
     if (!rateLimitResult.success) {
       await releasePendingInitialTurn();
-      return Response.json(
-        {
-          error: "Rate limit exceeded",
-          plan: entitlements.plan,
-          reset: rateLimitResult.reset,
-          upgradeUrl:
-            entitlements.plan === "guest" ? "/sign-up" : entitlements.isPro ? null : "/billing",
-        },
-        {
-          status: 429,
-          headers: {
-            "Retry-After": String(Math.max(1, Math.ceil((rateLimitResult.reset - Date.now()) / 1000))),
-            "X-RateLimit-Limit": String(rateLimitResult.limit),
-            "X-RateLimit-Remaining": String(rateLimitResult.remaining),
-            "X-RateLimit-Reset": String(rateLimitResult.reset),
-            "X-Subscription-Plan": entitlements.plan,
-          },
-        }
-      );
+      return rateLimitedResponse(rateLimitResult, entitlements);
     }
 
     after(() =>
@@ -286,26 +228,8 @@ export async function POST(req: Request) {
     toolChunksUsed.push(...newChunks);
   };
 
-  const getResponseSources = (): SourceChunk[] => {
-    const merged = [...initialChunks, ...toolChunksUsed];
-    return merged.filter(
-      (chunk, idx, arr) => arr.findIndex((c) => c.id === chunk.id) === idx
-    ).slice(0, MAX_RESPONSE_SOURCES);
-  };
-
-  const getToolNames = (steps: readonly { toolCalls?: readonly unknown[] }[]): string[] => {
-    return [
-      ...new Set(
-        steps.flatMap((step) =>
-          (step.toolCalls ?? []).flatMap((toolCall) => {
-            if (!toolCall || typeof toolCall !== "object") return [];
-            const { toolName } = toolCall as { toolName?: unknown };
-            return typeof toolName === "string" && toolName.trim() ? [toolName] : [];
-          })
-        )
-      ),
-    ];
-  };
+  const getResponseSources = (): SourceChunk[] =>
+    uniqueSources([...initialChunks, ...toolChunksUsed], MAX_RESPONSE_SOURCES);
 
   // ── 4. Preamble: ownership gate, then independent reads concurrently ───────
   // The 401/429 gates (auth, ratelimit) already resolved above. We resolve the
@@ -387,31 +311,13 @@ export async function POST(req: Request) {
 
   if (conversationId) {
     if (isRegenerateRequest && messageId) {
-      const numericMessageId = Number(messageId);
-      if (!Number.isNaN(numericMessageId)) {
-        targetAssistantMessage =
-          storedMessages.find(
-            (msg) => msg.id === numericMessageId && msg.role === "assistant"
-          ) ?? null;
-      }
-
-      if (!targetAssistantMessage) {
-        targetAssistantMessage =
-          [...storedMessages].reverse().find((msg) => msg.role === "assistant") ?? null;
-      }
+      targetAssistantMessage = findRegenerateTarget(storedMessages, messageId);
 
       // Fallback question resolution for regenerate requests where transport
       // does not include text in body.messages.
       if (!question.trim() && targetAssistantMessage) {
-        const targetIndex = storedMessages.findIndex(
-          (msg) => msg.id === targetAssistantMessage?.id
-        );
-        for (let i = targetIndex - 1; i >= 0; i -= 1) {
-          if (storedMessages[i].role === "user") {
-            question = storedMessages[i].content;
-            break;
-          }
-        }
+        const userIndex = userTurnIndexBefore(storedMessages, targetAssistantMessage.id);
+        if (userIndex >= 0) question = storedMessages[userIndex].content;
       }
     }
   } else {
@@ -455,32 +361,7 @@ export async function POST(req: Request) {
       conversation.activeTurnId === null
     )
   ) {
-    const staleTurnId = conversation.activeTurnId;
-    const [recoveredConversation] = await db
-      .update(conversations)
-      .set({
-        generationStatus: "error",
-        activeTurnId: null,
-        activeStreamId: null,
-        generationStartedAt: null,
-      })
-      .where(
-        and(
-          eq(conversations.id, conversation.id),
-          eq(conversations.clerkUserId, userId),
-          eq(conversations.generationStatus, "streaming"),
-          staleTurnId === null
-            ? isNull(conversations.activeTurnId)
-            : eq(conversations.activeTurnId, staleTurnId)
-        )
-      )
-      .returning({ id: conversations.id });
-    if (recoveredConversation) {
-      conversation.generationStatus = "error";
-      conversation.activeTurnId = null;
-      conversation.activeStreamId = null;
-      conversation.generationStartedAt = null;
-    }
+    await recoverStaleGeneration(conversation, userId);
   }
 
   // A first-turn conversation is exposed in the sidebar before /api/chat starts
@@ -540,64 +421,20 @@ export async function POST(req: Request) {
   const turnId = generateId();
   const streamContext = getChatStreamContext();
   const activeStreamId = streamContext ? generateId() : null;
-  const [claimedConversation] = await db
-    .update(conversations)
-    .set({
-      generationStatus: "streaming",
-      activeTurnId: turnId,
-      activeStreamId,
-      generationStartedAt: new Date(),
-      updatedAt: new Date(),
-    })
-    .where(
-      and(
-        eq(conversations.id, conversation.id),
-        eq(conversations.clerkUserId, userId),
-        hasPendingInitialTurn
-          ? and(
-              eq(conversations.generationStatus, "streaming"),
-              isNull(conversations.activeTurnId)
-            )
-          : ne(conversations.generationStatus, "streaming")
-      )
-    )
-    .returning({ id: conversations.id });
+  const claimed = await claimGeneration({
+    conversationId: conversation.id,
+    userId,
+    turnId,
+    activeStreamId,
+    fromPendingInitialTurn: hasPendingInitialTurn,
+  });
 
-  if (!claimedConversation) {
+  if (!claimed) {
     return new Response("A response is already being generated", { status: 409 });
   }
 
-  const markGenerationError = async () => {
-    const [markedConversation] = await db
-      .update(conversations)
-      .set({
-        generationStatus: "error",
-        activeTurnId: null,
-        activeStreamId: null,
-        generationStartedAt: null,
-        updatedAt: new Date(),
-      })
-      .where(
-        and(
-          eq(conversations.id, conversation.id),
-          eq(conversations.clerkUserId, userId),
-          eq(conversations.generationStatus, "streaming"),
-          eq(conversations.activeTurnId, turnId)
-        )
-      )
-      .returning({ id: conversations.id });
-    if (markedConversation) {
-      await invalidateConversationCaches(userId);
-    }
-  };
-
-  const markGenerationErrorSafely = async () => {
-    try {
-      await markGenerationError();
-    } catch (markError) {
-      console.error("Failed to persist chat generation error state", markError);
-    }
-  };
+  const markGenerationErrorSafely = () =>
+    markGenerationError(conversation.id, userId, turnId);
 
   try {
     await invalidateConversationCaches(userId);
@@ -611,14 +448,7 @@ export async function POST(req: Request) {
       await db
         .update(conversations)
         .set({ responseStyle: requestedResponseStyle })
-        .where(
-          and(
-            eq(conversations.id, conversation.id),
-            eq(conversations.clerkUserId, userId),
-            eq(conversations.generationStatus, "streaming"),
-            eq(conversations.activeTurnId, turnId)
-          )
-        );
+        .where(ownedActiveTurn(conversation.id, userId, turnId));
       conversation.responseStyle = requestedResponseStyle;
     }
 
@@ -646,14 +476,7 @@ export async function POST(req: Request) {
       await db
         .update(conversations)
         .set({ title, updatedAt: new Date() })
-        .where(
-          and(
-            eq(conversations.id, conversation.id),
-            eq(conversations.clerkUserId, userId),
-            eq(conversations.generationStatus, "streaming"),
-            eq(conversations.activeTurnId, turnId)
-          )
-        );
+        .where(ownedActiveTurn(conversation.id, userId, turnId));
       if (!conversation.title) {
         conversation.title = title;
         createdConversationTitle = title;
@@ -697,75 +520,21 @@ export async function POST(req: Request) {
             versionsJson: [{ text: cachedAnswer.text, sources: cachedAnswer.sources }],
             detailsJson: cachedDetails,
           }),
-          db
-            .update(conversations)
-            .set({
-              generationStatus: "complete",
-              activeTurnId: null,
-              activeStreamId: null,
-              generationStartedAt: null,
-              updatedAt: new Date(),
-            })
-            .where(
-              and(
-                eq(conversations.id, conversation.id),
-                eq(conversations.clerkUserId, userId),
-                eq(conversations.generationStatus, "streaming"),
-                eq(conversations.activeTurnId, turnId)
-              )
-            ),
+          completeGenerationUpdate(conversation.id, userId, turnId),
         ]);
 
         void invalidateConversationCaches(userId);
 
-        const metadata = {
-          sources: cachedAnswer.sources,
-          details: cachedDetails,
-        };
-
-        const stream = createUIMessageStream({
-          execute: async ({ writer }) => {
-            writer.write({ type: "start" });
-            writer.write({ type: "start-step" });
-            writer.write({ type: "text-start", id: "text-1" });
-            const cachedChunks = chunkCachedText(cachedAnswer.text);
-            for (let index = 0; index < cachedChunks.length; index += 1) {
-              writer.write({
-                type: "text-delta",
-                id: "text-1",
-                delta: cachedChunks[index],
-              });
-              if (index < cachedChunks.length - 1) {
-                await waitForCachedReplay(CACHED_REPLAY_DELAY_MS);
-              }
-            }
-            writer.write({ type: "text-end", id: "text-1" });
-            writer.write({ type: "message-metadata", messageMetadata: metadata });
-            writer.write({ type: "finish-step" });
-            writer.write({
-              type: "finish",
-              finishReason: cachedAnswer.details?.finishReason,
-              messageMetadata: metadata,
-            });
-          },
-          generateId,
-        });
-
-        return createUIMessageStreamResponse({ stream });
+        return cachedAnswerResponse(
+          cachedAnswer.text,
+          { sources: cachedAnswer.sources, details: cachedDetails },
+          cachedAnswer.details?.finishReason
+        );
       }
     }
 
     if (isRegenerateRequest && targetAssistantMessage) {
-      const targetIndex = storedMessages.findIndex(
-        (msg) => msg.id === targetAssistantMessage?.id
-      );
-      let priorUserIndex = -1;
-      for (let i = targetIndex - 1; i >= 0; i -= 1) {
-        if (storedMessages[i].role === "user") {
-          priorUserIndex = i;
-          break;
-        }
-      }
+      const priorUserIndex = userTurnIndexBefore(storedMessages, targetAssistantMessage.id);
 
       // Keep context up to (but not including) the user turn being regenerated.
       if (priorUserIndex > 0) {
@@ -866,21 +635,7 @@ export async function POST(req: Request) {
           // A tool's terminal "tools" event carries its result stats — capture
           // them for the persisted retrieval trace, then forward to the stream.
           if (progress.phase === "tools" && progress.toolName) {
-            retrievalToolEvents.push({
-              toolName: progress.toolName,
-              sourceCount: progress.sourceCount,
-              cacheHit: progress.cacheHit,
-              elapsedMs: progress.elapsedMs,
-              // Tool-local language routing (present for semantic_search /
-              // search_conference_talks; absent for lookup_scripture_passage).
-              routingMs: progress.routingMs,
-              translated: progress.translated,
-              inputLanguageCode: progress.inputLanguageCode,
-              retrievalLanguage: progress.retrievalLanguage,
-              routingModel: progress.routingModel,
-              routingFallbackUsed: progress.routingFallbackUsed,
-              routingCalls: progress.routingCalls,
-            });
+            retrievalToolEvents.push(toRetrievalToolEvent(progress));
           }
           writeProgress?.(progress);
         },
@@ -1012,10 +767,7 @@ export async function POST(req: Request) {
 
       // Build details object for persistence
       const details: MessageDetails = {
-        inputTokens: totalUsage.inputTokens ?? undefined,
-        outputTokens: totalUsage.outputTokens ?? undefined,
-        totalTokens: totalUsage.totalTokens ?? undefined,
-        reasoningTokens: totalUsage.outputTokenDetails?.reasoningTokens ?? undefined,
+        ...usageDetails(totalUsage),
         latencyMs: Date.now() - startTime,
         model: CHAT_MODEL,
         finishReason,
@@ -1055,23 +807,7 @@ export async function POST(req: Request) {
 
       // Persist assistant response + update conversation metadata.
       const responseSources = getResponseSources();
-      const completeConversation = db
-        .update(conversations)
-        .set({
-          generationStatus: "complete",
-          activeTurnId: null,
-          activeStreamId: null,
-          generationStartedAt: null,
-          updatedAt: new Date(),
-        })
-        .where(
-          and(
-            eq(conversations.id, conversation.id),
-            eq(conversations.clerkUserId, userId),
-            eq(conversations.generationStatus, "streaming"),
-            eq(conversations.activeTurnId, turnId)
-          )
-        );
+      const completeConversation = completeGenerationUpdate(conversation.id, userId, turnId);
 
       if (isRegenerateRequest && targetAssistantMessage) {
         const existingVersions =
@@ -1153,10 +889,7 @@ export async function POST(req: Request) {
           messageMetadata: ({ part }) => {
             if (part.type === "finish") {
               const details: MessageDetails = {
-                inputTokens: part.totalUsage.inputTokens ?? undefined,
-                outputTokens: part.totalUsage.outputTokens ?? undefined,
-                totalTokens: part.totalUsage.totalTokens ?? undefined,
-                reasoningTokens: part.totalUsage.outputTokenDetails?.reasoningTokens ?? undefined,
+                ...usageDetails(part.totalUsage),
                 latencyMs: Date.now() - startTime,
                 model: CHAT_MODEL,
                 finishReason: part.finishReason,
