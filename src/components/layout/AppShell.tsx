@@ -2,7 +2,6 @@
 
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { LoaderCircleIcon, PanelLeftIcon, SquarePenIcon } from "lucide-react";
-import Image from "next/image";
 import { useUser } from "@clerk/nextjs";
 import { usePathname, useRouter } from "next/navigation";
 import { ChatSidebar } from "@/components/chat/ChatSidebar";

@@ -16,6 +16,13 @@ const eslintConfig = defineConfig([
       "@next/next/no-html-link-for-pages": "warn",
     },
   },
+  {
+    // `const { id: _id, ...rest } = item` is how we drop fields.
+    files: ["**/*.{ts,tsx,mts,cts}"],
+    rules: {
+      "@typescript-eslint/no-unused-vars": ["warn", { ignoreRestSiblings: true }],
+    },
+  },
   globalIgnores([".next/**", ".vercel/**", "out/**", "build/**", "next-env.d.ts", "public/sw.js"]),
 ]);
 

@@ -7,7 +7,6 @@ import { createSemanticSearchTool } from "./semantic-search/tool";
 import { withToolCallBudget } from "./shared/tool-call-budget";
 import {
   createRagToolContext,
-  type RagToolContext,
   type ToolSourceListener,
 } from "./shared/tool-context";
 

@@ -706,7 +706,9 @@ Reference template: `.env.example`.
   generated `.next/` and `.vercel/` output is ignored).
   `react-hooks/set-state-in-effect`, `react-hooks/refs` and
   `@next/next/no-html-link-for-pages` are downgraded to warnings for existing
-  code; promote them back to errors once the warnings are gone. Any override of
+  code (27 warnings as of 0.12.56, none from other rules); promote them back to
+  errors once the warnings are gone. `no-unused-vars` ignores rest siblings
+  (`{ id: _id, ...rest }`). Any override of
   a plugin rule must use the same `files` glob as `eslint-config-next`
   (`**/*.{js,jsx,mjs,ts,tsx,mts,cts}`), or ESLint crashes on other files (e.g. `.cjs`).
 - All unit tests: `pnpm run test` (runs every `test:*` suite in sequence).

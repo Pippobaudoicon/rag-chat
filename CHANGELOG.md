@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.12.56
+
+- **Lint warnings down from 36 to 27.** Only the three downgraded rules (`react-hooks/set-state-in-effect`, `react-hooks/refs`, `@next/next/no-html-link-for-pages`) still warn. Fixed without behavior changes:
+  - removed unused code: the `next/image` import in `AppShell` (its only use is commented out), the `RagToolContext` import in `src/lib/rag/tools/index.ts` (still re-exported), and `LegalNav`'s unused `activePage` prop and nav-link class strings in `LegalPageLayout` (`LegalPageLayoutProps.activePage` is kept, so `/privacy-policy` is unchanged);
+  - `ChatInterface` reads `feedback.reset` (a stable `useCallback`) into `resetFeedback` before the new-conversation effect, so `exhaustive-deps` sees the real dependency;
+  - `@typescript-eslint/no-unused-vars` now sets `ignoreRestSiblings`, so `const { id: _id, ...rest } = item`, the way the code drops fields, is not reported.
+
 ## 0.12.55
 
 - **ESLint skips `.vercel/`.** The Vercel CLI writes local builds and builder dependencies there (gitignored). ESLint ignores only `.gitignore`d `.next/`-style paths it is told about, so `pnpm run lint` was linting those generated files, including the `.cjs` files that triggered the 0.12.54 crash. `.vercel/**` is now in `globalIgnores`.

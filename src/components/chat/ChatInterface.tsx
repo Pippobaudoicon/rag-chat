@@ -300,6 +300,7 @@ export function ChatInterface({
   >(null);
 
   const feedback = useMessageFeedback(initialFeedbackByMessageId, conversationIdRef);
+  const resetFeedback = feedback.reset;
 
   const markGenerationClaimError = useCallback(() => {
     generationClaimPendingRef.current = false;
@@ -882,7 +883,7 @@ export function ChatInterface({
       flushSync(() => {
         setResolvedConversationId(undefined);
         setMessages([]);
-        feedback.reset();
+        resetFeedback();
         setMessageVersions({});
         setActiveVersionIndex({});
         setChatProgress(null);
@@ -904,7 +905,7 @@ export function ChatInterface({
     return () => {
       window.removeEventListener("chat:new-conversation", onNewConversation);
     };
-  }, [feedback.reset, setMessages, stop]);
+  }, [resetFeedback, setMessages, stop]);
 
   useEffect(() => {
     const pending = pendingRegenerationRef.current;

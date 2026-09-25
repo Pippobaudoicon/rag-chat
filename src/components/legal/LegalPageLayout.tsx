@@ -29,17 +29,7 @@ const accentStyles = {
   },
 };
 
-function LegalNav({
-  activePage,
-  focusClass,
-}: {
-  activePage: LegalPageLayoutProps["activePage"];
-  focusClass: string;
-}) {
-  const navLinkClass =
-    "rounded-md px-3 py-2 text-sm font-medium text-zinc-300 transition hover:bg-white/10 hover:text-white";
-  const activeClass = "bg-white text-zinc-950 hover:bg-white hover:text-zinc-950";
-
+function LegalNav({ focusClass }: { focusClass: string }) {
   return (
     <header className="sticky top-0 z-50 border-b border-white/10 bg-zinc-950/80 backdrop-blur-xl">
       <nav
@@ -85,7 +75,6 @@ function LegalFooter() {
 
 export function LegalPageLayout({
   accent,
-  activePage,
   eyebrow,
   title,
   description,
@@ -103,7 +92,7 @@ export function LegalPageLayout({
         className={`pointer-events-none fixed inset-x-0 top-0 -z-10 h-72 bg-gradient-to-b ${styles.glow}`}
       />
 
-      <LegalNav activePage={activePage} focusClass={styles.focus} />
+      <LegalNav focusClass={styles.focus} />
 
       <main>
         <section className="mx-auto max-w-6xl px-5 pb-10 pt-14 sm:px-6 sm:pb-14 sm:pt-20">
