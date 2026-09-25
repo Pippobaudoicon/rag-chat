@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.12.54
+
+- **`pnpm run lint` no longer crashes on `.cjs` files.** `eslint-config-next` registers the `react-hooks` and `@next/next` plugins only for `**/*.{js,jsx,mjs,ts,tsx,mts,cts}`, but the warning overrides in `eslint.config.mjs` applied to every linted file. Any `.cjs` file in the tree (for example an untracked local one) made ESLint exit with "could not find plugin react-hooks". The overrides now use the same `files` glob.
+
 ## 0.12.53
 
 - **Automatic checks without GitHub Actions.** Vercel now runs `pnpm run check` (typecheck + lint + all tests) before `next build`, via `buildCommand` in `vercel.json`. A preview or production deployment fails instead of shipping when a check fails, at no extra cost. Locally, `pnpm install` sets `core.hooksPath` to `.githooks/`: `pre-commit` runs `docs:guard`, `pre-push` runs `check` (`git push --no-verify` skips it once).

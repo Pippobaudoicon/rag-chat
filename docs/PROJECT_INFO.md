@@ -705,7 +705,9 @@ Reference template: `.env.example`.
   `eslint-config-next` core-web-vitals + typescript; Next 16 has no `next lint`).
   `react-hooks/set-state-in-effect`, `react-hooks/refs` and
   `@next/next/no-html-link-for-pages` are downgraded to warnings for existing
-  code; promote them back to errors once the warnings are gone.
+  code; promote them back to errors once the warnings are gone. Any override of
+  a plugin rule must use the same `files` glob as `eslint-config-next`
+  (`**/*.{js,jsx,mjs,ts,tsx,mts,cts}`), or ESLint crashes on other files (e.g. `.cjs`).
 - All unit tests: `pnpm run test` (runs every `test:*` suite in sequence).
 - Full check: `pnpm run check` = typecheck + lint + test.
 - CI (no GitHub Actions, everything free): `vercel.json` sets

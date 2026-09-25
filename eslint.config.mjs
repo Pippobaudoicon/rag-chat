@@ -8,6 +8,8 @@ const eslintConfig = defineConfig([
   {
     // Existing violations, reported as warnings until the code is migrated.
     // Promote back to "error" once `pnpm lint` shows none left.
+    // Same files as eslint-config-next, which registers these plugins only there.
+    files: ["**/*.{js,jsx,mjs,ts,tsx,mts,cts}"],
     rules: {
       "react-hooks/set-state-in-effect": "warn",
       "react-hooks/refs": "warn",
