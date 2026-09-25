@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.12.59
+
+- **Smaller sidebar.** `ChatSidebar.tsx` goes from 965 to about 360 lines. It keeps navigation, the active row, and rename/delete wiring. The rest moved out:
+  - `src/components/chat/sidebar/useConversationList.ts`: the conversation list (memory + localStorage cache, paging and infinite scroll, `chat:conversations-changed` / `chat:conversation-updated` events, polling while a row is generating);
+  - `ConversationRow.tsx`, `RenameConversationDialog.tsx` (owns its draft/error/saving state; remounted per opening so it starts from the conversation's title), `SidebarFooter.tsx`;
+  - `src/lib/chat/conversation-list.ts`: the pure list rules (page merge, upsert, age groups), now covered by 6 new checks in `test:chat-lifecycle`.
+- **3 fewer lint warnings (24 left).** Following `pathname` (current path + clearing the optimistic selection) is now done during render when the path changes, instead of in two effects, so it no longer costs an extra render. Loading the cached list from localStorage stays in an effect (it can only run after hydration), with an explained `eslint-disable` line.
+- Small differences: the rename field keeps its text while the dialog closes (it used to clear first), and the list hook drops the `!cacheKey` checks, which could never be true (the key is always `chat:conversations:<user or guest>`).
+
 ## 0.12.56
 
 - **Lint warnings down from 36 to 27.** Only the three downgraded rules (`react-hooks/set-state-in-effect`, `react-hooks/refs`, `@next/next/no-html-link-for-pages`) still warn. Fixed without behavior changes:
