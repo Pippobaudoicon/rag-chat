@@ -7,9 +7,9 @@ import {
   useEffect,
   useState,
 } from "react";
-import { SUPPORTED_UI_LANGUAGES, UI_LANGUAGE_BCP47 } from "@/lib/types";
+import { UI_LANGUAGE_BCP47 } from "@/lib/types";
 import type { UiLanguage } from "@/lib/types";
-import { pickLanguage } from "@/components/chat/i18n";
+import { pickLanguage, SELECTABLE_UI_LANGUAGES } from "@/components/chat/i18n";
 
 interface LanguageContextValue {
   language: UiLanguage;
@@ -27,7 +27,7 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const stored = localStorage.getItem("chat:language");
     setLanguageState(
-      SUPPORTED_UI_LANGUAGES.includes(stored as UiLanguage)
+      SELECTABLE_UI_LANGUAGES.includes(stored as UiLanguage)
         ? (stored as UiLanguage)
         : pickLanguage(navigator.languages)
     );
@@ -56,9 +56,9 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const toggle = useCallback(() => {
-    const currentIndex = SUPPORTED_UI_LANGUAGES.indexOf(language);
-    const nextIndex = currentIndex >= 0 ? (currentIndex + 1) % SUPPORTED_UI_LANGUAGES.length : 0;
-    setLanguage(SUPPORTED_UI_LANGUAGES[nextIndex]);
+    const currentIndex = SELECTABLE_UI_LANGUAGES.indexOf(language);
+    const nextIndex = currentIndex >= 0 ? (currentIndex + 1) % SELECTABLE_UI_LANGUAGES.length : 0;
+    setLanguage(SELECTABLE_UI_LANGUAGES[nextIndex]);
   }, [language, setLanguage]);
 
   return (

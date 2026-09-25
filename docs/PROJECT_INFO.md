@@ -40,7 +40,7 @@ Read this first before deep code exploration.
   - `Standard` — sends `ALL_SOURCES` (scriptures, conference, handbook, study_helps, topics); the model may narrow *within* this scope.
   - `Super` — sends `SUPER_SOURCES` (every Pinecone namespace). Persisted to `localStorage` under `chat:search-scope`.
   - The `/search` console keeps the full per-source `SettingsPanel` for debugging.
-- Language selector: UI-only language preference. Current selectable UI languages are Italian, English, French, Spanish, Portuguese, and German. Italian, English, and Spanish have complete UI translations; French, Portuguese, and German currently fall back to English.
+- Language selector: UI-only language preference. Users can pick only the languages with UI copy: English, Italian, Spanish (`SELECTABLE_UI_LANGUAGES` in `src/components/chat/i18n.ts`, derived from `UI_TEXT`). French, Portuguese, and German remain valid `UiLanguage` values in the types and API schemas (unchanged for clients such as the mobile app) but are hidden from the selector until they have copy; a stored pick of one of them is ignored in favor of the device language. Adding a `locales/<lang>.ts` file and its `UI_TEXT` entry makes a language selectable.
 - Installable PWA: web manifest (`src/app/manifest.ts`), service worker
   (`public/sw.js` — network-first navigation with an offline `/chat` fallback,
   stale-while-revalidate for static assets), and install prompts

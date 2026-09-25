@@ -4,9 +4,8 @@ import { ChevronDownIcon, GlobeIcon } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useLanguage } from "./language-context";
 import { cn } from "@/lib/utils";
-import { SUPPORTED_UI_LANGUAGES } from "@/lib/types";
 import type { UiLanguage } from "@/lib/types";
-import { UI_LANGUAGE_CODES, UI_LANGUAGE_NAMES, uiText } from "./i18n";
+import { SELECTABLE_UI_LANGUAGES, UI_LANGUAGE_CODES, UI_LANGUAGE_NAMES, uiText } from "./i18n";
 
 interface LanguageToggleProps {
   className?: string;
@@ -22,7 +21,7 @@ export function LanguageToggle({
   const { language, setLanguage } = useLanguage();
   const text = uiText(language);
 
-  const options = SUPPORTED_UI_LANGUAGES.map((option) => (
+  const options = SELECTABLE_UI_LANGUAGES.map((option) => (
     <option key={option} value={option}>
       {UI_LANGUAGE_CODES[option]}
     </option>
