@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.12.59
+
+- **Smaller sidebar.** `ChatSidebar.tsx` goes from 965 to about 360 lines. It keeps navigation, the active row, and rename/delete wiring. The rest moved out:
+  - `src/components/chat/sidebar/useConversationList.ts`: the conversation list (memory + localStorage cache, paging and infinite scroll, `chat:conversations-changed` / `chat:conversation-updated` events, polling while a row is generating);
+  - `ConversationRow.tsx`, `RenameConversationDialog.tsx` (owns its draft/error/saving state; remounted per opening so it starts from the conversation's title), `SidebarFooter.tsx`;
+  - `src/lib/chat/conversation-list.ts`: the pure list rules (page merge, upsert, age groups), now covered by 6 new checks in `test:chat-lifecycle`.
+- **3 fewer lint warnings (24 left).** Following `pathname` (current path + clearing the optimistic selection) is now done during render when the path changes, instead of in two effects, so it no longer costs an extra render. Loading the cached list from localStorage stays in an effect (it can only run after hydration), with an explained `eslint-disable` line.
+- Small differences: the rename field keeps its text while the dialog closes (it used to clear first), and the list hook drops the `!cacheKey` checks, which could never be true (the key is always `chat:conversations:<user or guest>`).
+
 ## 0.12.58
 
 - **UI copy split per language.** `src/components/chat/i18n.ts` went from 1096 lines to 64: the Italian, English and Spanish copy now lives in `src/components/chat/locales/ita.ts`, `eng.ts` and `spa.ts`, and `i18n.ts` builds `UI_TEXT` from them. Imports and types are unchanged, and the resulting `UI_TEXT` is identical (checked by comparing the old and new values). Adding a language is now a new file in `locales/` plus one line in `UI_TEXT`.

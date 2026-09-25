@@ -568,7 +568,10 @@ Reference template: `.env.example`.
   - `src/components/chat/chat-utils.tsx` (shared chat helpers + `ToolActivityIndicator`/`PendingIndicator`, imported by both `ChatInterface` and `ChatMessage`)
   - `src/components/chat/SettingsPanel.tsx` (source/style filter bar — now only the `/search` console)
   - `src/components/chat/SourcesPanel.tsx`
-  - `src/components/chat/ChatSidebar.tsx`
+  - `src/components/chat/ChatSidebar.tsx` (navigation, active row, rename/delete wiring)
+  - `src/components/chat/sidebar/` (`useConversationList` — cached, paged, polled list;
+    `ConversationRow`, `RenameConversationDialog`, `SidebarFooter`)
+  - `src/lib/chat/conversation-list.ts` (pure list rules: page merge, upsert, age groups)
 - Search UI:
   - `src/app/(app)/search/page.tsx`
   - `src/components/search/SearchPageClient.tsx`
@@ -716,7 +719,7 @@ Reference template: `.env.example`.
   generated `.next/` and `.vercel/` output is ignored).
   `react-hooks/set-state-in-effect`, `react-hooks/refs` and
   `@next/next/no-html-link-for-pages` are downgraded to warnings for existing
-  code (27 warnings as of 0.12.56, none from other rules); promote them back to
+  code (24 warnings as of 0.12.59, none from other rules); promote them back to
   errors once the warnings are gone. `no-unused-vars` ignores rest siblings
   (`{ id: _id, ...rest }`). Any override of
   a plugin rule must use the same `files` glob as `eslint-config-next`

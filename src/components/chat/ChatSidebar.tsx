@@ -3,229 +3,43 @@
 import {
   useCallback,
   useEffect,
-  useRef,
   useState,
   useTransition,
 } from 'react';
 import { flushSync } from 'react-dom';
 
 import {
-  BadgeCheckIcon,
-  BrainIcon,
-  CircleHelpIcon,
-  CreditCardIcon,
-  EllipsisVerticalIcon,
-  LoaderCircleIcon,
   PanelLeftCloseIcon,
-  PencilIcon,
   SearchIcon,
-  Trash2Icon,
 } from 'lucide-react';
 import {
   usePathname,
   useRouter,
 } from 'next/navigation';
 
-import { Button } from '@/components/ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import { FeatureGate } from '@/components/ui/feature-gate';
-import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from '@/components/ui/tooltip';
 import type { SubscriptionPlan } from '@/lib/billing/entitlements';
 import {
-  mergeRefreshedConversationFirstPage,
-} from '@/lib/chat/client-lifecycle';
-import type { ChatGenerationStatus } from '@/lib/types';
+  groupConversationsByAge,
+  type ConversationItem,
+} from '@/lib/chat/conversation-list';
 import { cn } from '@/lib/utils';
-import {
-  UserButton,
-  useUser,
-} from '@clerk/nextjs';
+import { useUser } from '@clerk/nextjs';
 
 import { version } from '../../../package.json';
 import { uiText } from './i18n';
 import { useLanguage } from './language-context';
-
-const CONVERSATION_PAGE_SIZE = 20;
-const CONVERSATION_CACHE_TTL_MS = 2 * 60 * 1000;
-
-interface ConversationCache {
-  items: ConversationItem[];
-  nextCursor: string | null;
-  hasMore: boolean;
-  savedAt: number;
-}
-
-interface ConversationPage {
-  items: ConversationItem[];
-  nextCursor: string | null;
-  hasMore: boolean;
-}
-
-const memoryCache = new Map<string, ConversationCache>();
-
-interface ConversationItem {
-  id: string;
-  title: string | null;
-  generationStatus?: ChatGenerationStatus;
-  updatedAt: string;
-}
-
-interface ConversationUpdatedDetail {
-  id: string;
-  title?: string | null;
-  generationStatus?: ChatGenerationStatus;
-  updatedAt?: string;
-}
+import { ConversationRow } from './sidebar/ConversationRow';
+import { RenameConversationDialog } from './sidebar/RenameConversationDialog';
+import { SidebarFooter } from './sidebar/SidebarFooter';
+import { useConversationList } from './sidebar/useConversationList';
 
 interface ChatSidebarProps {
   onClose?: () => void;
   onCollapse?: () => void;
   showMobileClose?: boolean;
   subscriptionPlan: SubscriptionPlan | null;
-}
-
-interface ConversationGroup {
-  key: string;
-  label: string;
-  items: ConversationItem[];
-}
-
-type SidebarText = ReturnType<typeof uiText>["sidebar"];
-
-function mergeConversationPages(
-  existing: ConversationItem[],
-  incoming: ConversationItem[]
-) {
-  const seen = new Set<string>();
-  const merged: ConversationItem[] = [];
-
-  for (const conversation of [...existing, ...incoming]) {
-    if (seen.has(conversation.id)) continue;
-    seen.add(conversation.id);
-    merged.push(conversation);
-  }
-
-  return merged;
-}
-
-function upsertConversationItem(
-  conversations: ConversationItem[],
-  update: ConversationUpdatedDetail
-) {
-  const updatedAt = update.updatedAt ?? new Date().toISOString();
-  const existing = conversations.find((conversation) => conversation.id === update.id);
-
-  if (!existing) {
-    return [
-      {
-        id: update.id,
-        title: update.title ?? null,
-        generationStatus: update.generationStatus,
-        updatedAt,
-      },
-      ...conversations,
-    ];
-  }
-
-  const merged = conversations.map((conversation) =>
-    conversation.id === update.id
-      ? {
-          ...conversation,
-          title: update.title === undefined ? conversation.title : update.title,
-          generationStatus:
-            update.generationStatus === undefined
-              ? conversation.generationStatus
-              : update.generationStatus,
-          updatedAt,
-        }
-      : conversation
-  );
-
-  return merged.sort(
-    (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
-  );
-}
-
-function groupConversationsByAge(
-  conversations: ConversationItem[],
-  labels: Pick<SidebarText, "today" | "thisWeek" | "thisMonth" | "older">
-): ConversationGroup[] {
-  const now = Date.now();
-  const oneDayAgo = now - 24 * 60 * 60 * 1000;
-  const oneWeekAgo = now - 7 * 24 * 60 * 60 * 1000;
-  const oneMonthAgo = now - 30 * 24 * 60 * 60 * 1000;
-
-  const today: ConversationItem[] = [];
-  const thisWeek: ConversationItem[] = [];
-  const thisMonth: ConversationItem[] = [];
-  const older: ConversationItem[] = [];
-
-  for (const conversation of conversations) {
-    const updatedAt = new Date(conversation.updatedAt).getTime();
-
-    if (updatedAt > oneDayAgo) {
-      today.push(conversation);
-    } else if (updatedAt > oneWeekAgo) {
-      thisWeek.push(conversation);
-    } else if (updatedAt > oneMonthAgo) {
-      thisMonth.push(conversation);
-    } else {
-      older.push(conversation);
-    }
-  }
-
-  return [
-    { key: "today", label: labels.today, items: today },
-    { key: "this-week", label: labels.thisWeek, items: thisWeek },
-    { key: "this-month", label: labels.thisMonth, items: thisMonth },
-    { key: "older", label: labels.older, items: older },
-  ].filter((group) => group.items.length > 0);
-}
-
-function readConversationCache(key: string) {
-  const cached = memoryCache.get(key);
-  if (cached) return cached;
-
-  try {
-    const raw = window.localStorage.getItem(key);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as ConversationCache;
-    if (!Array.isArray(parsed.items) || typeof parsed.savedAt !== "number") {
-      return null;
-    }
-    memoryCache.set(key, parsed);
-    return parsed;
-  } catch {
-    return null;
-  }
-}
-
-function writeConversationCache(key: string, cache: ConversationCache) {
-  memoryCache.set(key, cache);
-  try {
-    window.localStorage.setItem(key, JSON.stringify(cache));
-  } catch {
-    // Storage can be unavailable in private browsing or quota pressure.
-  }
 }
 
 export function ChatSidebar({
@@ -240,213 +54,44 @@ export function ChatSidebar({
   const pathname = usePathname();
   const { isLoaded, user } = useUser();
   const isGuest = isLoaded && !user;
-  const [conversations, setConversations] = useState<ConversationItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [hasMore, setHasMore] = useState(false);
-  const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const [currentPath, setCurrentPath] = useState(pathname ?? "/chat");
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
   const [renameTarget, setRenameTarget] = useState<ConversationItem | null>(null);
-  const [renameDraft, setRenameDraft] = useState("");
-  const [renameError, setRenameError] = useState<string | null>(null);
-  const [isRenaming, setIsRenaming] = useState(false);
-  const listRef = useRef<HTMLDivElement | null>(null);
-  const loadMoreRef = useRef<HTMLDivElement | null>(null);
-  const loadingPageRef = useRef(false);
-  const conversationCountRef = useRef(0);
-  const paginationRef = useRef<Pick<ConversationCache, "nextCursor" | "hasMore">>({
-    nextCursor: null,
-    hasMore: false,
-  });
+  // Remounts the rename dialog per opening, so it starts from that title.
+  const [renameKey, setRenameKey] = useState(0);
   // Optimistic active ID — set immediately on click, before the route resolves
   const [pendingId, setPendingId] = useState<string | null>(null);
   // Signed-out visitors chat as a guest (cookie-identified server-side).
   const cacheKey = `chat:conversations:${user?.id ?? "guest"}`;
-  const hasActiveGeneration = conversations.some(
-    (conversation) => conversation.generationStatus === "streaming"
-  );
-  const subscriptionPlanLabel =
-    subscriptionPlan === "pro" ? text.billing.proPlan : text.billing.freePlan;
+  const {
+    conversations,
+    loading,
+    loadingMore,
+    hasMore,
+    listRef,
+    loadMoreRef,
+    upsertConversation,
+    removeConversation,
+  } = useConversationList(cacheKey, isLoaded);
 
-  useEffect(() => {
-    conversationCountRef.current = conversations.length;
-  }, [conversations.length]);
-
-  useEffect(() => {
-    paginationRef.current = { nextCursor, hasMore };
-  }, [hasMore, nextCursor]);
-
-  const persistConversationState = useCallback(
-    (items: ConversationItem[], cursor: string | null, more: boolean) => {
-      if (!cacheKey) return;
-      writeConversationCache(cacheKey, {
-        items,
-        nextCursor: cursor,
-        hasMore: more,
-        savedAt: Date.now(),
-      });
-    },
-    [cacheKey]
-  );
-
-  const loadConversations = useCallback(async ({
-    cursor = null,
-    replace = false,
-    preserveLoadedPages = false,
-  }: {
-    cursor?: string | null;
-    replace?: boolean;
-    preserveLoadedPages?: boolean;
-  } = {}) => {
-    if (!cacheKey || loadingPageRef.current) return;
-
-    loadingPageRef.current = true;
-    if (replace) {
-      setLoading(conversationCountRef.current === 0);
-    } else {
-      setLoadingMore(true);
-    }
-
-    try {
-      const params = new URLSearchParams({
-        limit: String(CONVERSATION_PAGE_SIZE),
-      });
-      if (cursor) params.set("cursor", cursor);
-
-      const response = await fetch(`/api/conversations?${params.toString()}`, {
-        cache: "no-store",
-      });
-      if (!response.ok) return;
-
-      const data = (await response.json()) as ConversationPage;
-      const preservePagination =
-        preserveLoadedPages &&
-        conversationCountRef.current > CONVERSATION_PAGE_SIZE;
-      const effectiveNextCursor = preservePagination
-        ? paginationRef.current.nextCursor
-        : data.nextCursor;
-      const effectiveHasMore = preservePagination
-        ? paginationRef.current.hasMore
-        : data.hasMore;
-      setNextCursor(effectiveNextCursor);
-      setHasMore(effectiveHasMore);
-      setConversations((prev) => {
-        const nextItems = replace
-          ? preserveLoadedPages
-            ? mergeRefreshedConversationFirstPage(
-                prev,
-                data.items,
-                CONVERSATION_PAGE_SIZE
-              )
-            : data.items
-          : mergeConversationPages(prev, data.items);
-        persistConversationState(nextItems, effectiveNextCursor, effectiveHasMore);
-        return nextItems;
-      });
-    } finally {
-      setLoading(false);
-      setLoadingMore(false);
-      loadingPageRef.current = false;
-    }
-  }, [cacheKey, persistConversationState]);
-
-  const loadNextPage = useCallback(() => {
-    if (!hasMore || !nextCursor || loadingMore) return;
-    loadConversations({ cursor: nextCursor });
-  }, [hasMore, loadConversations, loadingMore, nextCursor]);
-
-  useEffect(() => {
-    if (!isLoaded) return;
-    if (!cacheKey) {
-      setConversations([]);
-      setLoading(false);
-      return;
-    }
-
-    const cached = readConversationCache(cacheKey);
-    if (cached) {
-      setConversations(cached.items);
-      setNextCursor(cached.nextCursor);
-      setHasMore(cached.hasMore);
-      setLoading(false);
-    }
-
-    if (!cached || Date.now() - cached.savedAt > CONVERSATION_CACHE_TTL_MS) {
-      loadConversations({ replace: true });
-    }
-  }, [cacheKey, isLoaded, loadConversations]);
-
-  useEffect(() => {
-    const sentinel = loadMoreRef.current;
-    const root = listRef.current;
-    if (!sentinel || !root || !hasMore || loading || loadingMore) return;
-
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry?.isIntersecting) {
-          loadNextPage();
-        }
-      },
-      { root, rootMargin: "120px" }
-    );
-
-    observer.observe(sentinel);
-    return () => observer.disconnect();
-  }, [conversations.length, hasMore, loadNextPage, loading, loadingMore]);
-
-  useEffect(() => {
+  // Follow route changes, and clear the pending selection once the route
+  // actually changes (adjusted during render rather than in an effect).
+  const [renderedPathname, setRenderedPathname] = useState(pathname);
+  if (pathname !== renderedPathname) {
+    setRenderedPathname(pathname);
     setCurrentPath(pathname ?? "/chat");
-  }, [pathname]);
+    setPendingId(null);
+  }
 
   useEffect(() => {
     const onPathChanged = (event: Event) => {
-      const customEvent = event as CustomEvent<{ path?: string }>;
-      if (customEvent.detail?.path) {
-        setCurrentPath(customEvent.detail.path);
-      }
+      const path = (event as CustomEvent<{ path?: string }>).detail?.path;
+      if (path) setCurrentPath(path);
     };
-
-    const onConversationsChanged = () => {
-      loadConversations({ replace: true, preserveLoadedPages: true });
-    };
-
-    const onConversationUpdated = (event: Event) => {
-      const customEvent = event as CustomEvent<ConversationUpdatedDetail>;
-      const detail = customEvent.detail;
-      if (!detail?.id) return;
-
-      setConversations((prev) => {
-        const nextItems = upsertConversationItem(prev, detail);
-        persistConversationState(nextItems, nextCursor, hasMore);
-        return nextItems;
-      });
-    };
-
-    window.addEventListener("chat:path-changed", onPathChanged as EventListener);
-    window.addEventListener("chat:conversations-changed", onConversationsChanged);
-    window.addEventListener("chat:conversation-updated", onConversationUpdated as EventListener);
-
-    return () => {
-      window.removeEventListener("chat:path-changed", onPathChanged as EventListener);
-      window.removeEventListener("chat:conversations-changed", onConversationsChanged);
-      window.removeEventListener("chat:conversation-updated", onConversationUpdated as EventListener);
-    };
-  }, [hasMore, loadConversations, nextCursor, persistConversationState]);
-
-  // Clear pending selection once the route actually changes
-  useEffect(() => {
-    setPendingId(null);
-  }, [pathname]);
-
-  useEffect(() => {
-    if (!hasActiveGeneration) return;
-    const interval = window.setInterval(() => {
-      void loadConversations({ replace: true, preserveLoadedPages: true });
-    }, 2500);
-    return () => window.clearInterval(interval);
-  }, [hasActiveGeneration, loadConversations]);
+    window.addEventListener("chat:path-changed", onPathChanged);
+    return () => window.removeEventListener("chat:path-changed", onPathChanged);
+  }, []);
 
   function handleNewChat() {
     // Close the mobile drawer before ChatInterface commits and focuses the new
@@ -501,14 +146,9 @@ export function ChatSidebar({
     });
   }
 
-  async function handleDelete(e: React.MouseEvent, id: string) {
-    e.stopPropagation();
+  async function handleDelete(id: string) {
     await fetch(`/api/conversations/${id}`, { method: "DELETE" });
-    setConversations((prev) => {
-      const nextItems = prev.filter((c) => c.id !== id);
-      persistConversationState(nextItems, nextCursor, hasMore);
-      return nextItems;
-    });
+    removeConversation(id);
     if (pathname === `/chat/${id}`) {
       router.push("/chat");
     }
@@ -516,53 +156,8 @@ export function ChatSidebar({
 
   function openRenameDialog(conversation: ConversationItem) {
     setRenameTarget(conversation);
-    setRenameDraft(conversation.title ?? "");
-    setRenameError(null);
+    setRenameKey((key) => key + 1);
     setMenuOpenId(null);
-  }
-
-  async function handleRenameSubmit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!renameTarget || isRenaming) return;
-
-    const title = renameDraft.trim();
-    if (!title) {
-      setRenameError(text.sidebar.titleRequired);
-      return;
-    }
-
-    setIsRenaming(true);
-    setRenameError(null);
-
-    try {
-      const response = await fetch(`/api/conversations/${renameTarget.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`Rename failed with status ${response.status}`);
-      }
-
-      const updated = (await response.json()) as ConversationItem;
-      setConversations((prev) => {
-        const nextItems = upsertConversationItem(prev, {
-          id: updated.id,
-          title: updated.title,
-          updatedAt: updated.updatedAt,
-        });
-        persistConversationState(nextItems, nextCursor, hasMore);
-        return nextItems;
-      });
-      setRenameTarget(null);
-      setRenameDraft("");
-    } catch (error) {
-      console.error("Failed to rename conversation", error);
-      setRenameError(text.sidebar.renameError);
-    } finally {
-      setIsRenaming(false);
-    }
   }
 
   const activeId = currentPath?.match(/\/chat\/([^/]+)/)?.[1];
@@ -703,73 +298,22 @@ export function ChatSidebar({
                 <div className="px-2 py-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/70">
                   {group.label}
                 </div>
-                {group.items.map((convo) => {
-                  const isActive =
-                    pendingId === convo.id ||
-                    (!pendingId && String(convo.id) === activeId);
-
-                  return (
-                    <div
-                      key={convo.id}
-                      onClick={() => handleSelect(convo.id)}
-                      className={cn(
-                        "group flex items-center gap-2 px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors",
-                        isActive
-                          ? "bg-accent text-foreground"
-                          : "text-muted-foreground hover:text-foreground hover:bg-accent/60"
-                      )}
-                    >
-                      <span className="flex-1 truncate text-xs leading-snug">
-                        {convo.title ?? (
-                          <span className="italic text-muted-foreground/60">{text.sidebar.untitledChat}</span>
-                        )}
-                      </span>
-                      {convo.generationStatus === "streaming" && (
-                        <LoaderCircleIcon
-                          aria-label={text.chat.pendingDrafting}
-                          className="h-3.5 w-3.5 shrink-0 animate-spin text-primary"
-                        />
-                      )}
-                      <DropdownMenu
-                        open={menuOpenId === convo.id}
-                        onOpenChange={(open) => setMenuOpenId(open ? convo.id : null)}
-                      >
-                        <DropdownMenuTrigger
-                          render={
-                            <button
-                              type="button"
-                              aria-label={text.sidebar.actions}
-                              className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 data-[popup-open]:opacity-100 transition-opacity p-0.5 rounded hover:bg-accent/80 hover:text-foreground"
-                              onClick={(event) => event.stopPropagation()}
-                            />
-                          }
-                        >
-                          <EllipsisVerticalIcon className="h-3.5 w-3.5" />
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-40">
-                          <DropdownMenuItem
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              openRenameDialog(convo);
-                            }}
-                          >
-                            <PencilIcon className="h-3.5 w-3.5" />
-                            {text.sidebar.rename}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            variant="destructive"
-                            onClick={(event) => {
-                              void handleDelete(event as unknown as React.MouseEvent, convo.id);
-                            }}
-                          >
-                            <Trash2Icon className="h-3.5 w-3.5" />
-                            {text.sidebar.delete}
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </div>
-                  );
-                })}
+                {group.items.map((convo) => (
+                  <ConversationRow
+                    key={convo.id}
+                    conversation={convo}
+                    isActive={
+                      pendingId === convo.id ||
+                      (!pendingId && String(convo.id) === activeId)
+                    }
+                    menuOpen={menuOpenId === convo.id}
+                    text={text}
+                    onSelect={() => handleSelect(convo.id)}
+                    onMenuOpenChange={(open) => setMenuOpenId(open ? convo.id : null)}
+                    onRename={() => openRenameDialog(convo)}
+                    onDelete={() => void handleDelete(convo.id)}
+                  />
+                ))}
               </div>
             ))}
             {hasMore && (
@@ -789,177 +333,29 @@ export function ChatSidebar({
       </div>
 
       {/* Footer — account + language + memory + billing */}
-      <div className="pb-safe border-t border-border/40 px-3 py-3">
-        <div className="flex min-w-0 items-center gap-2 rounded-lg px-2 py-1">
-          {isLoaded && !user ? (
-            // Sign up lives only in the chat guest banner; here, as in the top bar, just Log in.
-            <a
-              href="/sign-in"
-              className="shrink-0 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent"
-            >
-              {text.app.logIn}
-            </a>
-          ) : (
-            <>
-              <span className="shrink-0">
-                <UserButton>
-                  <UserButton.MenuItems>
-                    <UserButton.Action
-                      label={text.onboarding.replayLabel}
-                      labelIcon={<CircleHelpIcon className="h-4 w-4" />}
-                      onClick={replayTutorial}
-                    />
-                  </UserButton.MenuItems>
-                </UserButton>
-              </span>
-              {subscriptionPlan ? (
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <button
-                        type="button"
-                        aria-label={`${text.billing.currentPlan}: ${subscriptionPlanLabel}`}
-                        className={cn(
-                          "inline-flex shrink-0 items-center gap-1 rounded-full transition-colors",
-                          subscriptionPlan === "pro"
-                            ? "text-indigo-400 hover:bg-indigo-500/20"
-                            : "bg-muted/50 text-muted-foreground hover:bg-accent hover:text-foreground"
-                        )}
-                      >
-                        {subscriptionPlan === "pro" ? (
-                          <BadgeCheckIcon className="h-4 w-4 text-indigo-400" aria-hidden="true" />
-                        ) : null}
-                      </button>
-                    }
-                  />
-                  <TooltipContent side="top" className="text-xs">
-                    {`${text.billing.currentPlan}: ${subscriptionPlanLabel}`}
-                  </TooltipContent>
-                </Tooltip>
-              ) : (
-                <Skeleton className="h-6 w-11 rounded-full" />
-              )}
-            </>
-          )}
-          <div className="ml-auto flex min-w-0 items-center gap-2">
-            <span
-              data-tour="memory"
-              className="-m-1 flex shrink-0 rounded-xl border border-transparent p-1"
-            >
-              <Tooltip>
-                <FeatureGate
-                  locked={isGuest}
-                  title={text.memory.button}
-                  message={text.sidebar.guestLocked.memory}
-                  action={text.chat.guestUsageAction}
-                  href="/sign-up"
-                >
-                <TooltipTrigger
-                  render={
-                    <button
-                      type="button"
-                      onClick={() => handlePageNavigation("/memory")}
-                      onPointerEnter={() => router.prefetch("/memory")}
-                      onFocus={() => router.prefetch("/memory")}
-                      disabled={isPending}
-                      aria-label={text.memory.button}
-                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50"
-                    >
-                      <BrainIcon className="h-4 w-4" />
-                    </button>
-                  }
-                />
-                </FeatureGate>
-                <TooltipContent side="top" className="text-xs">
-                  {text.memory.button}
-                </TooltipContent>
-              </Tooltip>
-            </span>
-            <Tooltip>
-              <FeatureGate
-                locked={isGuest}
-                title={text.billing.title}
-                message={text.sidebar.guestLocked.billing}
-                action={text.chat.guestUsageAction}
-                href="/sign-up"
-              >
-              <TooltipTrigger
-                render={
-                  <button
-                    type="button"
-                    onClick={() => handlePageNavigation("/billing")}
-                    onPointerEnter={() => router.prefetch("/billing")}
-                    onFocus={() => router.prefetch("/billing")}
-                    disabled={isPending}
-                    aria-label={text.billing.title}
-                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50"
-                  >
-                    <CreditCardIcon className="h-4 w-4" />
-                  </button>
-                }
-              />
-              </FeatureGate>
-              <TooltipContent side="top" className="text-xs">
-                {text.billing.title}
-              </TooltipContent>
-            </Tooltip>
-          </div>
-        </div>
-      </div>
+      <SidebarFooter
+        text={text}
+        isGuest={isGuest}
+        isPending={isPending}
+        subscriptionPlan={subscriptionPlan}
+        onReplayTutorial={replayTutorial}
+        onNavigate={handlePageNavigation}
+      />
 
-      <Dialog
-        open={!!renameTarget}
-        onOpenChange={(open) => {
-          if (!open && !isRenaming) {
-            setRenameTarget(null);
-            setRenameDraft("");
-            setRenameError(null);
-          }
+      <RenameConversationDialog
+        key={renameKey}
+        target={renameTarget}
+        text={text.sidebar}
+        onClose={() => setRenameTarget(null)}
+        onRenamed={(updated) => {
+          upsertConversation({
+            id: updated.id,
+            title: updated.title,
+            updatedAt: updated.updatedAt,
+          });
+          setRenameTarget(null);
         }}
-      >
-        <DialogContent>
-          <form className="space-y-4" onSubmit={handleRenameSubmit}>
-            <DialogHeader>
-              <DialogTitle className="text-sm">{text.sidebar.renameTitle}</DialogTitle>
-              <DialogDescription className="text-xs">
-                {text.sidebar.renameDescription}
-              </DialogDescription>
-            </DialogHeader>
-
-            <div className="space-y-2">
-              <Input
-                value={renameDraft}
-                maxLength={200}
-                placeholder={text.sidebar.titlePlaceholder}
-                onChange={(event) => setRenameDraft(event.target.value)}
-                disabled={isRenaming}
-                autoFocus
-              />
-              {renameError ? (
-                <p className="text-xs text-destructive">{renameError}</p>
-              ) : null}
-            </div>
-
-            <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => {
-                  if (isRenaming) return;
-                  setRenameTarget(null);
-                  setRenameDraft("");
-                  setRenameError(null);
-                }}
-              >
-                {text.sidebar.cancel}
-              </Button>
-              <Button type="submit" disabled={isRenaming}>
-                {isRenaming ? text.sidebar.saving : text.sidebar.save}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+      />
     </div>
   );
 }

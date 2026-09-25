@@ -22,6 +22,11 @@ import {
   shouldFailGenerationClaim,
   shouldShowPendingAssistant,
 } from "@/lib/chat/client-lifecycle";
+import {
+  groupConversationsByAge,
+  mergeConversationPages,
+  upsertConversationItem,
+} from "@/lib/chat/conversation-list";
 
 let failures = 0;
 let total = 0;
@@ -231,6 +236,46 @@ async function finish() {
   check(
     "resumed string chunks are encoded for a native Response body",
     encodedResumeText === "data: resumed\n\n"
+  );
+
+  // Sidebar conversation list
+  const row = (id: string, updatedAt: string, title: string | null = id) => ({ id, title, updatedAt });
+  check(
+    "next page skips conversations already listed",
+    mergeConversationPages([row("a", "2026-01-03"), row("b", "2026-01-02")], [row("b", "2026-01-02"), row("c", "2026-01-01")])
+      .map((c) => c.id).join() === "a,b,c"
+  );
+  const listed = [row("a", "2026-01-03T00:00:00Z"), row("b", "2026-01-02T00:00:00Z")];
+  check(
+    "an update for a new conversation adds it on top",
+    upsertConversationItem(listed, { id: "n", updatedAt: "2026-01-01T00:00:00Z" })
+      .map((c) => `${c.id}:${c.title}`).join() === "n:null,a:a,b:b"
+  );
+  const bumped = upsertConversationItem(listed, { id: "b", generationStatus: "streaming", updatedAt: "2026-01-04T00:00:00Z" });
+  check(
+    "an update re-sorts by updatedAt and keeps untouched fields",
+    bumped.map((c) => c.id).join() === "b,a" && bumped[0].title === "b" && bumped[0].generationStatus === "streaming"
+  );
+  check(
+    "an explicit null title clears it",
+    upsertConversationItem(listed, { id: "a", title: null, updatedAt: "2026-01-03T00:00:00Z" })[0].title === null
+  );
+  const day = 24 * 60 * 60 * 1000;
+  const at = (daysAgo: number) => new Date(now - daysAgo * day).toISOString();
+  const groups = groupConversationsByAge(
+    [row("t", at(0.5)), row("w", at(3)), row("m", at(20)), row("o", at(40)), row("o2", at(90))],
+    { today: "Today", thisWeek: "Week", thisMonth: "Month", older: "Older" },
+    now
+  );
+  check(
+    "conversations group by age",
+    groups.map((g) => `${g.key}=${g.items.map((c) => c.id).join("+")}`).join() ===
+      "today=t,this-week=w,this-month=m,older=o+o2"
+  );
+  check(
+    "empty age groups are dropped",
+    groupConversationsByAge([row("o", at(40))], { today: "", thisWeek: "", thisMonth: "", older: "" }, now)
+      .map((g) => g.key).join() === "older"
   );
 
   console.log(`\n${total - failures}/${total} passed`);
