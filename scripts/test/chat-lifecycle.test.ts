@@ -14,6 +14,9 @@ import {
   shouldResumeChatStream,
 } from "@/lib/chat/generation";
 import {
+  assistantVersionsByPosition,
+  chatErrorKind,
+  withRegeneratedVersion,
   CHAT_GENERATION_CLAIM_TIMEOUT_MS,
   CHAT_GENERATION_TRANSPORT_ERROR_GRACE_MS,
   isGenerationClaimTimedOut,
@@ -276,6 +279,40 @@ async function finish() {
     "empty age groups are dropped",
     groupConversationsByAge([row("o", at(40))], { today: "", thisWeek: "", thisMonth: "", older: "" }, now)
       .map((g) => g.key).join() === "older"
+  );
+
+  // Failed-turn error card
+  check("429 body is a quota error", chatErrorKind(new Error('{"error":"Rate limit exceeded"}'), true) === "quota");
+  check("409 body is a busy error", chatErrorKind(new Error("A response is already being generated"), true) === "busy");
+  check("fetch failure is a network error", chatErrorKind(new TypeError("Failed to fetch"), true) === "network");
+  check("any error while offline is a network error", chatErrorKind(new Error("boom"), false) === "network");
+  check("masked stream error is generic", chatErrorKind(new Error("An error occurred."), true) === "generic");
+  check("no error is generic", chatErrorKind(undefined, false) === "generic");
+
+  // Answer versions
+  const v = (text: string) => ({ text, sources: [] });
+  const byPosition = assistantVersionsByPosition(
+    [
+      { id: "u1", role: "user" },
+      { id: "a1", role: "assistant" },
+      { id: "u2", role: "user" },
+      { id: "client-a2", role: "assistant" },
+      { id: "a3", role: "assistant" },
+    ],
+    [[v("one"), v("one b")], [v("two")], []]
+  );
+  check(
+    "stored versions follow assistant position, skipping empty lists",
+    Object.keys(byPosition).join() === "a1,client-a2" && byPosition["client-a2"][0].text === "two"
+  );
+  check(
+    "a regeneration appends to known versions",
+    withRegeneratedVersion([v("one"), v("two")], v("ignored"), v("three")).map((x) => x.text).join() === "one,two,three"
+  );
+  check(
+    "a first regeneration keeps the answer it replaced",
+    withRegeneratedVersion(undefined, v("old"), v("new")).map((x) => x.text).join() === "old,new" &&
+      withRegeneratedVersion([], v("old"), v("new")).length === 2
   );
 
   console.log(`\n${total - failures}/${total} passed`);

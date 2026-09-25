@@ -560,7 +560,11 @@ Reference template: `.env.example`.
   - `src/app/(app)/layout.tsx`
   - `src/components/layout/AppShell.tsx`
 - Chat UI and controls:
-  - `src/components/chat/ChatInterface.tsx` (orchestration: chat transport, conversation lifecycle, billing/usage, regeneration, composer)
+  - `src/components/chat/ChatInterface.tsx` (orchestration: chat transport, conversation creation, submit/retry/regenerate, new-chat reset, composer)
+  - `src/components/chat/interface/` (`useGenerationState` + `useGenerationSync` — persisted
+    generation status, progress, server-claim tracking, status polling/resume;
+    `useMessageVersions` — answer versions incl. positional fallback for stored versions;
+    `useResponseStyle`; `useSearchScope`; `SearchScopeToggle`, `ChatUsageBanner`, `ChatErrorCard`)
   - `src/components/chat/ChatMessage.tsx` (per-message render: response, action toolbar, feedback panels, sources, version nav, pending indicators)
   - `src/components/chat/useMessageFeedback.ts` (feedback state machine: thumbs persistence, follow-up auto-dismiss timer, submit, reset)
   - `src/components/chat/i18n.ts` (`UI_TEXT`, `uiText()`, `pickLanguage()`); the copy
@@ -589,7 +593,8 @@ Reference template: `.env.example`.
 - User settings:
   - `src/lib/db/user-settings.ts` (read/write `rag_user_settings`)
 - Chat generation lifecycle:
-  - `src/lib/chat/client-lifecycle.ts` (bounded client claim/polling and sidebar-page merge rules)
+  - `src/lib/chat/client-lifecycle.ts` (bounded client claim/polling, sidebar-page merge,
+    error-card kind, and answer-version rules)
   - `src/lib/chat/generation.ts` (active/stale/ownership and persisted-turn rules)
   - `src/lib/chat/turn-store.ts` (the chat route's generation-state DB writes: release
     pending first turn, stale recovery, claim, error, complete; `ownedActiveTurn()` is
@@ -719,7 +724,7 @@ Reference template: `.env.example`.
   generated `.next/` and `.vercel/` output is ignored).
   `react-hooks/set-state-in-effect`, `react-hooks/refs` and
   `@next/next/no-html-link-for-pages` are downgraded to warnings for existing
-  code (24 warnings as of 0.12.59, none from other rules); promote them back to
+  code (21 warnings as of 0.12.60, none from other rules); promote them back to
   errors once the warnings are gone. `no-unused-vars` ignores rest siblings
   (`{ id: _id, ...rest }`). Any override of
   a plugin rule must use the same `files` glob as `eslint-config-next`
