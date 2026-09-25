@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.12.57
+
+- **Smaller chat route.** `src/app/api/chat/route.ts` goes from 1204 to about 940 lines. The route still runs every step in the same order; the pieces it used to spell out inline now live in `src/lib/chat/`. No API or behavior change.
+  - `turn-store.ts`: the conversation generation-state writes (release the pending first turn, stale recovery, claim, mark error, complete). The "this turn still owns the generation" condition (conversation + owner + `streaming` + `activeTurnId`) was written out 5 times; it is now `ownedActiveTurn()`.
+  - `turn.ts`: pure helpers (tool names, source de-dup, regenerate target and the user turn before it, usage → details, retrieval-trace event).
+  - `rate-limit.ts`: the plan limiter with the guest per-IP cap, and the 429 response.
+  - `cached-replay.ts`: streaming a session-answer cache hit.
+- **New test:** `pnpm run test:chat-turn` (19 checks) covers the pure helpers and the cached-replay chunking. It is part of `pnpm run test`.
+- `docs:guard` now treats the new `src/lib/chat/` modules as core files.
+
 ## 0.12.56
 
 - **Lint warnings down from 36 to 27.** Only the three downgraded rules (`react-hooks/set-state-in-effect`, `react-hooks/refs`, `@next/next/no-html-link-for-pages`) still warn. Fixed without behavior changes:

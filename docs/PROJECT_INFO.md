@@ -586,9 +586,17 @@ Reference template: `.env.example`.
 - Chat generation lifecycle:
   - `src/lib/chat/client-lifecycle.ts` (bounded client claim/polling and sidebar-page merge rules)
   - `src/lib/chat/generation.ts` (active/stale/ownership and persisted-turn rules)
+  - `src/lib/chat/turn-store.ts` (the chat route's generation-state DB writes: release
+    pending first turn, stale recovery, claim, error, complete; `ownedActiveTurn()` is
+    the WHERE every post-claim write uses)
+  - `src/lib/chat/turn.ts` (pure per-turn helpers: tool names, source de-dup,
+    regenerate target/history, usage details, retrieval-trace events)
+  - `src/lib/chat/rate-limit.ts` (plan-aware chat limiter + guest per-IP cap, 429 response)
+  - `src/lib/chat/cached-replay.ts` (streams a session-answer cache hit)
   - `src/lib/chat/resumable-stream.ts` (`resumable-stream/generic` Upstash adapter)
   - `migrations/0010_sad_pestilence.sql` (conversation generation-state columns)
   - `scripts/test/chat-lifecycle.test.ts` (pure lifecycle regression suite)
+  - `scripts/test/chat-turn.test.ts` (per-turn helpers; `pnpm run test:chat-turn`)
 - Onboarding tour (first-visit guided tutorial, issue #12):
   - `src/lib/onboarding/steps.ts` (pure step/anchor/auto-start logic; tested by `test:onboarding`)
   - `src/components/onboarding/OnboardingTour.tsx` (anchored callouts, replay, persistence, a11y)
