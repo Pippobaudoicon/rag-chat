@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.12.55
+
+- **ESLint skips `.vercel/`.** The Vercel CLI writes local builds and builder dependencies there (gitignored). ESLint ignores only `.gitignore`d `.next/`-style paths it is told about, so `pnpm run lint` was linting those generated files, including the `.cjs` files that triggered the 0.12.54 crash. `.vercel/**` is now in `globalIgnores`.
+
 ## 0.12.54
 
 - **`pnpm run lint` no longer crashes on `.cjs` files.** `eslint-config-next` registers the `react-hooks` and `@next/next` plugins only for `**/*.{js,jsx,mjs,ts,tsx,mts,cts}`, but the warning overrides in `eslint.config.mjs` applied to every linted file. Any `.cjs` file in the tree (for example an untracked local one) made ESLint exit with "could not find plugin react-hooks". The overrides now use the same `files` glob.

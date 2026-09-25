@@ -702,7 +702,8 @@ Reference template: `.env.example`.
 - Dev: `pnpm run dev`
 - Typecheck: `pnpm run typecheck`
 - Lint: `pnpm run lint` (ESLint 9 flat config in `eslint.config.mjs`:
-  `eslint-config-next` core-web-vitals + typescript; Next 16 has no `next lint`).
+  `eslint-config-next` core-web-vitals + typescript; Next 16 has no `next lint`;
+  generated `.next/` and `.vercel/` output is ignored).
   `react-hooks/set-state-in-effect`, `react-hooks/refs` and
   `@next/next/no-html-link-for-pages` are downgraded to warnings for existing
   code; promote them back to errors once the warnings are gone. Any override of

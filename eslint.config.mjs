@@ -16,7 +16,7 @@ const eslintConfig = defineConfig([
       "@next/next/no-html-link-for-pages": "warn",
     },
   },
-  globalIgnores([".next/**", "out/**", "build/**", "next-env.d.ts", "public/sw.js"]),
+  globalIgnores([".next/**", ".vercel/**", "out/**", "build/**", "next-env.d.ts", "public/sw.js"]),
 ]);
 
 export default eslintConfig;
