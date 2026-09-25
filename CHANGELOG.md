@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.12.58
+
+- **UI copy split per language.** `src/components/chat/i18n.ts` went from 1096 lines to 64: the Italian, English and Spanish copy now lives in `src/components/chat/locales/ita.ts`, `eng.ts` and `spa.ts`, and `i18n.ts` builds `UI_TEXT` from them. Imports and types are unchanged, and the resulting `UI_TEXT` is identical (checked by comparing the old and new values). Adding a language is now a new file in `locales/` plus one line in `UI_TEXT`.
+
 ## 0.12.56
 
 - **Lint warnings down from 36 to 27.** Only the three downgraded rules (`react-hooks/set-state-in-effect`, `react-hooks/refs`, `@next/next/no-html-link-for-pages`) still warn. Fixed without behavior changes:
