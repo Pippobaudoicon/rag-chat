@@ -110,6 +110,13 @@ Read this first before deep code exploration.
   Both pages offer "Continue as a guest" (`/chat`). Sign-out redirects to
   `/sign-in` (`afterSignOutUrl`). `/` has no page; `next.config.ts` redirects
   it to `/chat`.
+- Google One Tap (`<GoogleOneTap cancelOnTapOutside={false} />` in
+  `src/app/(app)/layout.tsx`) offers one-tap re-login to signed-out visitors of
+  the app pages: Clerk's free plan caps sessions at 7 days and an expired user
+  lands on `/chat` as a guest. Not on the auth pages (their Google button is
+  right there). Needs custom Google credentials in Clerk, with every app origin
+  in the Google client's Authorized JavaScript origins (locally both
+  `http://localhost` and `http://localhost:3000`).
 - The sidebar account row always shows the confirmed subscription tier beside
   the account avatar: a gold Pro badge or a neutral, explicit Free badge. The
   account, plan, language, memory, and billing controls remain on one line
