@@ -55,7 +55,10 @@ Read this first before deep code exploration.
   the response-style picker (icon + label pill that opens an upward menu of
   described styles with a "Use for new chats" checkbox) and the Super toggle.
 - Branding: the logo is `public/icons/logo-no-bg.png`, shown as a white
-  silhouette on the (always dark) UI in the sidebar and sign-in page; the
+  silhouette on the (always dark) UI: the sidebar uses the pre-rendered 96px
+  `logo-mark-white.png` (eager, no CSS filter), the sign-in page recolors the
+  original with `brightness-0 invert`. The mobile drawer only moves initial
+  focus inside on keyboard opens (no focus ring on the logo on touch); the
   "ChatLDS" wordmark uses Fraunces via the `font-brand` utility (rest of the UI
   is Geist). On desktop the top-bar wordmark and new-chat icon hide while the
   sidebar is open and fade in (`TOP_BAR_ENTER`) when it closes.

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.12.65
+
+- **Mobile drawer logo shows up right away.** The sidebar loaded the 2000×2000, 1.4 MB `logo-no-bg.png` lazily and recolored it with a CSS filter, so on mobile it was missing when the drawer opened. It now uses `public/icons/logo-mark-white.png`, a pre-rendered 96×96 white silhouette (2.6 KB), loaded eagerly without the filter.
+- **No focus ring on the logo when the drawer opens.** The drawer (Base UI Dialog) focused its first focusable element, the logo link, and outlined it. Initial focus now moves inside only for keyboard opens (`initialFocus`), so keyboard users keep focus in the drawer.
+
 ## 0.12.64
 
 - **Search page redesigned like the chat.** Before the first search `/search` is centered like an empty chat: title, the same composer-style card (Enter searches, Shift+Enter adds a line), and the examples as suggestion cards. The card's toolbar has a "Sources" dropdown (per-source checkboxes), the chat's `SearchScopeToggle` for Super, a results-count dropdown (6/10/20) and a round search button. Results get a one-line summary (count · detected language · sources · translated query when it differs) instead of four stat boxes, and restyled cards (rounded, neutral links, no score gradient).

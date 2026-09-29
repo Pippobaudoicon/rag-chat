@@ -278,6 +278,8 @@ function AppShellContent({ children }: AppShellProps) {
               <SheetContent
                 side="left"
                 showCloseButton={false}
+                // Only keyboard opens move focus inside; on touch the logo link got an unwanted focus ring.
+                initialFocus={(openType) => openType === "keyboard"}
                 className="w-[min(18rem,85vw)] border-border/40 bg-sidebar p-0"
               >
                 <SidebarSwipeClose onClose={() => setMobileOpen(false)}>

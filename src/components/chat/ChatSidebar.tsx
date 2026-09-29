@@ -196,8 +196,9 @@ export function ChatSidebar({
           aria-label={text.sidebar.newChat}
           title={text.sidebar.newChat}
         >
-            {/* White silhouette, same as the auth page: the teal/purple original disappears on dark surfaces. */}
-            <Image src="/icons/logo-no-bg.png" alt="" width={24} height={24} className="shrink-0 brightness-0 invert" />
+            {/* Pre-rendered 2.6 KB white silhouette, loaded eagerly: the 1.4 MB original + CSS filter
+                arrived late (or not at all) when the mobile drawer opened. */}
+            <Image src="/icons/logo-mark-white.png" alt="" width={24} height={24} loading="eager" unoptimized className="shrink-0" />
             <span className="font-brand text-base font-semibold tracking-tight truncate">ChatLDS</span>
         </div>
         <span className="text-[9px] text-muted-foreground/50">v{version}</span>
