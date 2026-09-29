@@ -138,7 +138,7 @@ function BrandMark({ className }: { className?: string }) {
         height={28}
         className="brightness-0 invert"
       />
-      <span className="text-base font-semibold tracking-[-0.025em]">ChatLDS</span>
+      <span className="font-brand text-lg font-semibold tracking-[-0.025em]">ChatLDS</span>
     </div>
   );
 }

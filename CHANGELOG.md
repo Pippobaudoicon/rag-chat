@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.12.63
+
+- **One logo everywhere.** The sidebar used a temporary purple book icon; it now shows the real ChatLDS mark (`logo-no-bg.png`) as a white silhouette, like the sign-in page.
+- **"ChatLDS" wordmark in Fraunces.** Loaded with `next/font` (not preloaded) and exposed as the `font-brand` utility; used in the sidebar, the top bar and the sign-in page. The rest of the UI stays in Geist.
+- **No double wordmark.** On desktop the top-bar "ChatLDS" (and the new-chat icon) hide while the sidebar is open. When the sidebar closes they fade and drift in just behind its 200ms width transition instead of popping (`TOP_BAR_ENTER`; off with reduced motion).
+- **Loading skeletons match the real pages.** The chat skeleton lost a leftover settings bar (four blocks under the logo that vanished on load) and the divider above the composer. `/chat` now shows the empty-chat layout (greeting, centered composer, suggestions) and `/chat/[id]` the conversation with the composer docked at the bottom. Memory, Search and Billing each get their own skeleton in their `loading.tsx`; the generic `PageLoadingSkeleton` is removed.
+
 ## 0.12.61
 
 - **The language menu only offers languages that are translated.** French, Portuguese and German were selectable but showed the app in English, which looked like a bug. The menu (and the language toggle) now lists English, Italian and Spanish only (`SELECTABLE_UI_LANGUAGES`, derived from `UI_TEXT`). Someone who had picked French/Portuguese/German gets their device language instead, as if they had never picked. The three languages stay valid in `UiLanguage` and the API schemas, so API clients (the mobile app) are unaffected. A language becomes selectable again as soon as it has a `UI_TEXT` entry.

@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Fraunces, Geist, Geist_Mono } from "next/font/google";
 import { ClerkProvider } from "@clerk/nextjs";
 import { authLocalization, deviceLanguage } from "@/components/auth/AuthShell";
 import { UI_LANGUAGE_BCP47 } from "@/lib/types";
@@ -15,6 +15,14 @@ const geistSans = Geist({
   subsets: ["latin"],
   display: "swap",
   preload: true,
+});
+
+// Wordmark only ("ChatLDS" next to the logo).
+const fraunces = Fraunces({
+  variable: "--font-fraunces",
+  subsets: ["latin"],
+  display: "swap",
+  preload: false,
 });
 
 const geistMono = Geist_Mono({
@@ -67,7 +75,7 @@ export default async function RootLayout({
     >
       <html
         lang={UI_LANGUAGE_BCP47[lang]}
-        className={`${geistSans.variable} ${geistMono.variable} dark h-full antialiased`}
+        className={`${geistSans.variable} ${geistMono.variable} ${fraunces.variable} dark h-full antialiased`}
         suppressHydrationWarning
       >
         <head />

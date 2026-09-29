@@ -54,6 +54,11 @@ Read this first before deep code exploration.
   the greeting above it and three suggestion cards below it. The composer shows
   the response-style picker (icon + label pill that opens an upward menu of
   described styles with a "Use for new chats" checkbox) and the Super toggle.
+- Branding: the logo is `public/icons/logo-no-bg.png`, shown as a white
+  silhouette on the (always dark) UI in the sidebar and sign-in page; the
+  "ChatLDS" wordmark uses Fraunces via the `font-brand` utility (rest of the UI
+  is Geist). On desktop the top-bar wordmark and new-chat icon hide while the
+  sidebar is open and fade in (`TOP_BAR_ENTER`) when it closes.
 - Native mobile direction: keep this Next.js app as the web PWA and hosted API
   backend, unchanged. The native iOS/Android client is a **separate Expo / React
   Native app** (sibling repo `chatlds-mobile/`) that talks to this API with a
@@ -130,7 +135,9 @@ Read this first before deep code exploration.
 - Dedicated memory page (`/memory`) for authenticated users to review and refresh saved personalization memory.
 - Search, Memory, and Billing navigation provides immediate sidebar-driven loading
   feedback, hover/focus prefetching, and route-level skeletons while the target
-  route renders.
+  route renders. Each skeleton lives in the route's `loading.tsx` and mirrors
+  that page's real layout (chat: `ChatLoadingSkeleton`, with an `empty` variant
+  for `/chat`); keep them in sync when a page layout changes.
 - Free-plan warning banner in chat when the user approaches the chat request limit.
 - Tool-assisted answer refinement for:
   - scripture passage lookup

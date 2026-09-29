@@ -32,6 +32,11 @@ const OPEN_SWIPE_HORIZONTAL_RATIO = 1.5; // |dx| must dominate |dy| by this fact
 const TOP_BAR_ICON_BUTTON =
   "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground";
 
+// Desktop only: the controls that reappear when the sidebar collapses fade and
+// drift in just behind the 200ms width transition instead of popping.
+const TOP_BAR_ENTER =
+  "md:animate-in md:fade-in md:slide-in-from-left-2 md:blur-in-[2px] md:ease-out md:animation-duration-300 md:[animation-delay:100ms] md:fill-mode-backwards motion-reduce:animate-none";
+
 export function AppShell({ children }: AppShellProps) {
   return (
     <BillingProvider>
@@ -224,7 +229,7 @@ function AppShellContent({ children }: AppShellProps) {
               onClick={() => setDesktopOpen(true)}
               aria-label={text.app.openSidebar}
               title={text.app.openSidebar}
-              className={`${TOP_BAR_ICON_BUTTON} hidden md:flex`}
+              className={`${TOP_BAR_ICON_BUTTON} ${TOP_BAR_ENTER} hidden md:flex`}
             >
               <PanelLeftIcon className="h-5 w-5" />
             </button>
@@ -234,14 +239,14 @@ function AppShellContent({ children }: AppShellProps) {
             onClick={handleNewChatFromLogo}
             aria-label={text.sidebar.newChat}
             title={text.sidebar.newChat}
-            className={`${TOP_BAR_ICON_BUTTON} ${desktopOpen ? "md:hidden" : ""}`}
+            className={`${TOP_BAR_ICON_BUTTON} ${TOP_BAR_ENTER} ${desktopOpen ? "md:hidden" : ""}`}
           >
             <SquarePenIcon className="h-[18px] w-[18px]" />
           </button>
           <button
             type="button"
             onClick={handleNewChatFromLogo}
-            className="ml-1 rounded-lg px-1.5 py-1 text-[15px] font-semibold tracking-tight text-foreground transition-colors hover:bg-accent"
+            className={`ml-1 rounded-lg px-1.5 py-1 font-brand text-base font-semibold tracking-tight text-foreground transition-colors hover:bg-accent ${TOP_BAR_ENTER} ${desktopOpen ? "md:hidden" : ""}`}
           >
             {/* FUTURE LOGO (still ugly) */}
             {/* <Image src="/icons/logo-no-bg.png" alt="ChatLDS" width={24} height={24} className="shrink-0" /> */}
