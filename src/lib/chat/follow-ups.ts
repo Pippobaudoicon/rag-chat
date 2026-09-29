@@ -5,9 +5,10 @@
 import { generateText, gateway, Output } from "ai";
 import { z } from "zod";
 
-// The cheapest model we use (also the default chat model). Pinned here rather
-// than read from CHAT_MODEL, so a pricier chat model doesn't raise this cost.
-const DEFAULT_FOLLOW_UP_MODEL = "deepseek/deepseek-v4.1-flash";
+// A small, fast, non-reasoning multilingual model: three short questions need
+// no more. Pinned here rather than read from CHAT_MODEL, so a pricier chat
+// model doesn't raise this cost.
+const DEFAULT_FOLLOW_UP_MODEL = "google/gemini-2.5-flash-lite";
 const FOLLOW_UP_MODEL = process.env.FOLLOW_UP_MODEL?.trim() || DEFAULT_FOLLOW_UP_MODEL;
 // Suggestions arriving later than this are no longer useful; give up instead.
 const FOLLOW_UP_TIMEOUT_MS = 10_000;
@@ -62,8 +63,7 @@ export async function generateFollowUps(
         "Do not repeat the user's question and do not answer anything.",
       ].join("\n"),
       prompt: `User question:\n${question.trim()}\n\nAssistant answer:\n${answer.trim().slice(0, MAX_ANSWER_CHARS)}`,
-      // Headroom for any reasoning tokens; only the tokens actually used are billed.
-      maxOutputTokens: 600,
+      maxOutputTokens: 300,
       abortSignal: AbortSignal.timeout(FOLLOW_UP_TIMEOUT_MS),
       output: Output.object({ schema: followUpsSchema }),
     });

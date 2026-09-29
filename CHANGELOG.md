@@ -2,7 +2,7 @@
 
 ## 0.12.67
 
-- **Cheaper suggested questions.** `FOLLOW_UP_MODEL` now defaults to `deepseek/deepseek-v4.1-flash`, pinned in `src/lib/chat/follow-ups.ts` instead of following `CHAT_MODEL`, so switching the chat to a pricier model doesn't make suggestions pricier. The model reads at most the first 2500 characters of the answer (was 4000) and the call gives up after 10 seconds, in which case no suggestions are shown. `FOLLOW_UP_MODEL` still overrides it.
+- **Suggested questions use a small model of their own.** `FOLLOW_UP_MODEL` now defaults to `google/gemini-2.5-flash-lite` (small, fast, no reasoning step, multilingual, structured output), pinned in `src/lib/chat/follow-ups.ts` instead of following `CHAT_MODEL`, so switching the chat to a pricier model doesn't make suggestions pricier. Output ceiling 300 tokens (was 600). The model reads at most the first 2500 characters of the answer (was 4000) and the call gives up after 10 seconds, in which case no suggestions are shown. `FOLLOW_UP_MODEL` still overrides it.
 
 ## 0.12.66
 
