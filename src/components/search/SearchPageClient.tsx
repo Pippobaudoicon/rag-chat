@@ -2,16 +2,24 @@
 
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ArrowRightIcon,
+  ArrowUpIcon,
+  ArrowUpRightIcon,
   BookOpenIcon,
+  ChevronDownIcon,
   ExternalLinkIcon,
-  GaugeIcon,
-  Layers3Icon,
-  SearchIcon,
+  LibraryIcon,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { SettingsPanel } from "@/components/chat/SettingsPanel";
+import { Spinner } from "@/components/ui/spinner";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { SearchScopeToggle } from "@/components/chat/interface/SearchScopeToggle";
 import { cn } from "@/lib/utils";
 import {
   ALL_SOURCES,
@@ -23,7 +31,6 @@ import type { CorpusLanguage, SourceChunk, SourceType, UiLanguage } from "@/lib/
 import { useLanguage } from "@/components/chat/language-context";
 import {
   SOURCE_LANGUAGE_NAMES,
-  formatText,
   sourceLabel,
   uiText,
 } from "@/components/chat/i18n";
@@ -52,6 +59,10 @@ type SearchError = {
 };
 
 const TOP_K_OPTIONS = [6, 10, 20] as const;
+
+// Same pill as the chat composer's toolbar controls (ResponseStylePicker).
+const TOOLBAR_PILL =
+  "group inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-full border border-border px-3 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 data-popup-open:bg-accent data-popup-open:text-foreground";
 
 function arraysEqual(a: SourceType[], b: SourceType[]): boolean {
   if (a.length !== b.length) return false;
@@ -91,12 +102,6 @@ function chunkMeta(chunk: SourceChunk): string {
   return parts.join(" · ");
 }
 
-function scoreTone(score: number): string {
-  if (score >= 0.78) return "from-emerald-400 to-cyan-300";
-  if (score >= 0.62) return "from-cyan-400 to-sky-300";
-  return "from-amber-300 to-orange-300";
-}
-
 function ResultCard({
   chunk,
   index,
@@ -110,70 +115,53 @@ function ResultCard({
   const text = uiText(language);
   const searchText = text.search;
   const label = sourceLabel(chunk.source, language);
-  const scorePercent = Math.round(chunk.score * 100);
   const meta = chunkMeta(chunk);
 
   return (
     <>
-      <article className="group relative overflow-hidden rounded-lg border border-border/50 bg-card/50 p-3 text-sm transition-colors hover:border-border hover:bg-card/80">
-        <div
-          className={cn(
-            "absolute inset-x-0 top-0 h-0.5 bg-linear-to-r opacity-70",
-            scoreTone(chunk.score)
-          )}
-        />
-        <div className="relative flex h-full flex-col gap-3">
-          <div className="flex items-start justify-between gap-2">
-            <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-              <span
-                className={cn(
-                  "inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-medium",
-                  SOURCE_COLORS[chunk.source]
-                )}
-              >
-                {label}
-              </span>
-              <span className="text-[10px] text-muted-foreground">
-                #{index + 1}
-              </span>
-            </div>
-            <div className="flex shrink-0 items-center gap-1 text-[10px] tabular-nums text-muted-foreground">
-              <GaugeIcon className="h-3 w-3" />
-              <span>{scorePercent}%</span>
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <h2 className="line-clamp-2 text-sm font-medium leading-snug text-foreground/90">
-              {chunkTitle(chunk, searchText.sourceExcerpt)}
-            </h2>
-            {meta && <p className="line-clamp-1 text-[11px] text-muted-foreground">{meta}</p>}
-            <p className="line-clamp-4 text-xs leading-relaxed text-muted-foreground">{chunk.text}</p>
-          </div>
-
-          <div className="mt-auto flex items-center justify-between gap-3 pt-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setOpen(true)}
-              className="h-7 border-border/60 bg-background/50 px-2 text-xs text-muted-foreground hover:bg-card hover:text-foreground"
-            >
-              <BookOpenIcon className="h-3.5 w-3.5" />
-              {searchText.inspect}
-            </Button>
-            {chunk.url && (
-              <a
-                href={chunk.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-xs font-medium text-indigo-300 transition-colors hover:text-indigo-200"
-              >
-                {text.sources.open}
-                <ExternalLinkIcon className="h-3 w-3" />
-              </a>
+      <article className="flex flex-col gap-3 rounded-2xl border border-border bg-card/40 p-4 text-sm transition-colors hover:bg-card">
+        <div className="flex items-center justify-between gap-2">
+          <span
+            className={cn(
+              "inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium",
+              SOURCE_COLORS[chunk.source]
             )}
-          </div>
+          >
+            {label}
+          </span>
+          <span className="text-[11px] tabular-nums text-muted-foreground">
+            {Math.round(chunk.score * 100)}%
+          </span>
+        </div>
+
+        <div className="space-y-1.5">
+          <h2 className="line-clamp-2 font-medium leading-snug text-foreground">
+            {chunkTitle(chunk, searchText.sourceExcerpt)}
+          </h2>
+          {meta && <p className="line-clamp-1 text-xs text-muted-foreground">{meta}</p>}
+          <p className="line-clamp-4 text-[13px] leading-relaxed text-muted-foreground">{chunk.text}</p>
+        </div>
+
+        <div className="mt-auto flex items-center gap-1 pt-1">
+          <button
+            type="button"
+            onClick={() => setOpen(true)}
+            className="inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          >
+            <BookOpenIcon className="size-3.5" />
+            {searchText.inspect}
+          </button>
+          {chunk.url && (
+            <a
+              href={chunk.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            >
+              {text.sources.open}
+              <ExternalLinkIcon className="size-3.5" />
+            </a>
+          )}
         </div>
       </article>
 
@@ -206,8 +194,10 @@ export function SearchPageClient() {
   const [loading, setLoading] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const isSuperActive = arraysEqual(sources, SUPER_SOURCES);
-  const visibleSources = isSuperActive ? SUPER_SOURCES : sources;
   const hasResult = !!result && result.chunks.length > 0;
+  // Before the first search the page is centered like an empty chat.
+  const isIdle = !result && !loading && !error;
+  const resultsLabel = searchText.results.toLowerCase();
 
   const sourceSummary = useMemo(() => {
     if (isSuperActive) return searchText.superCorpus;
@@ -235,6 +225,16 @@ export function SearchPageClient() {
   useEffect(() => {
     window.localStorage.setItem("chat:sources", JSON.stringify(sources));
   }, [sources]);
+
+  function toggleSource(source: SourceType) {
+    if (sources.includes(source)) {
+      // Keep at least one source active
+      if (sources.length === 1) return;
+      setSources(sources.filter((s) => s !== source));
+    } else {
+      setSources([...sources, source]);
+    }
+  }
 
   async function runSearch(
     rawQuery = query,
@@ -298,89 +298,119 @@ export function SearchPageClient() {
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-background">
-      <SettingsPanel
-        language={language}
-        sources={sources}
-        onSourcesChange={setSources}
-        disabled={loading}
-      />
-
-      <main className="flex-1 overflow-y-auto">
-        <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-6">
-          <header className="space-y-4 text-center">
-            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl border border-indigo-500/20 bg-indigo-500/10">
-              <SearchIcon className="h-6 w-6 text-indigo-400" />
-            </div>
-            <div className="space-y-2">
-              <h1 className="text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">
-                {searchText.title}
-              </h1>
-              <p className="mx-auto max-w-xl text-sm leading-6 text-muted-foreground">
-                {searchText.description}
-              </p>
-            </div>
+    <div className="h-full overflow-y-auto bg-background">
+      <div
+        className={cn(
+          "mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-6",
+          isIdle && "min-h-full justify-center pb-[12vh]"
+        )}
+      >
+        {isIdle && (
+          <header className="space-y-2 text-center">
+            <h1 className="text-balance text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
+              {searchText.title}
+            </h1>
+            <p className="mx-auto max-w-xl text-sm leading-6 text-muted-foreground">
+              {searchText.description}
+            </p>
           </header>
+        )}
 
-        <section className="rounded-xl border border-border/60 bg-card/50 p-3 shadow-sm">
-          <form onSubmit={submitSearch} className="space-y-4">
-            <div className="rounded-lg border border-border/50 bg-background/70 p-3">
-              <div className="mb-2 flex items-center gap-2 px-1 text-xs text-muted-foreground">
-                <SearchIcon className="h-3.5 w-3.5 text-indigo-400" />
-                <span className="font-mono">/api/search</span>
-                <span className="ml-auto hidden sm:inline">{searchText.authenticatedRetrieval}</span>
-              </div>
-              <Textarea
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                onKeyDown={(event) => {
-                  if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-                    event.preventDefault();
-                    void runSearch();
-                  }
-                }}
-                placeholder={searchText.placeholder}
-                className="min-h-24 resize-none border-0 bg-transparent px-1 text-base leading-7 text-foreground shadow-none outline-none placeholder:text-muted-foreground/70 focus-visible:ring-0 md:text-lg"
-                disabled={loading}
-              />
-            </div>
+        {/* Same card as the chat composer. */}
+        <form
+          onSubmit={submitSearch}
+          className="rounded-3xl border border-border bg-card shadow-[0_8px_30px_-12px_rgb(0_0_0/0.5)]"
+        >
+          <Textarea
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+                event.preventDefault();
+                event.currentTarget.form?.requestSubmit();
+              }
+            }}
+            enterKeyHint="search"
+            placeholder={searchText.placeholder}
+            className="field-sizing-content min-h-14 max-h-52 resize-none border-0 bg-transparent px-4 pt-4 pb-1 text-base leading-6 shadow-none placeholder:text-muted-foreground/70 focus-visible:ring-0 md:text-[15px] dark:bg-transparent"
+          />
+          <div className="flex items-center gap-1.5 px-2.5 pt-1 pb-2.5">
+            <DropdownMenu>
+              <DropdownMenuTrigger disabled={loading} className={TOOLBAR_PILL}>
+                <LibraryIcon size={14} />
+                <span className="max-w-40 truncate">
+                  {isSuperActive ? searchText.superCorpus : `${searchText.sources} · ${sources.length}`}
+                </span>
+                <ChevronDownIcon
+                  size={12}
+                  className="opacity-60 transition-transform group-data-popup-open:rotate-180"
+                />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" sideOffset={8} className="w-56 rounded-2xl p-1.5">
+                {ALL_SOURCES.map((source) => (
+                  <DropdownMenuCheckboxItem
+                    key={source}
+                    checked={isSuperActive || sources.includes(source)}
+                    disabled={isSuperActive}
+                    closeOnClick={false}
+                    onCheckedChange={() => toggleSource(source)}
+                    className="cursor-pointer rounded-xl px-2.5 py-2 text-sm"
+                  >
+                    {sourceLabel(source, language)}
+                  </DropdownMenuCheckboxItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
 
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-muted-foreground">{searchText.topK}</span>
-                <div className="flex rounded-lg border border-border/50 bg-background/70 p-1">
-                  {TOP_K_OPTIONS.map((option) => (
-                    <button
-                      key={option}
-                      type="button"
-                      onClick={() => setTopK(option)}
-                      disabled={loading}
-                      className={cn(
-                        "rounded-md px-2.5 py-1 text-xs font-medium transition-colors disabled:opacity-50",
-                        topK === option
-                          ? "bg-accent text-foreground"
-                          : "text-muted-foreground hover:text-foreground"
-                      )}
-                    >
-                      {option}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div className="flex justify-end">
-                <Button
-                  type="submit"
-                  disabled={loading}
-                  className="h-9 px-4"
+            <SearchScopeToggle
+              language={language}
+              isSuper={isSuperActive}
+              onToggle={() => setSources(isSuperActive ? ALL_SOURCES : [...SUPER_SOURCES])}
+              disabled={loading}
+            />
+
+            <DropdownMenu>
+              <DropdownMenuTrigger disabled={loading} className={TOOLBAR_PILL}>
+                <span>
+                  {topK} {resultsLabel}
+                </span>
+                <ChevronDownIcon
+                  size={12}
+                  className="opacity-60 transition-transform group-data-popup-open:rotate-180"
+                />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" sideOffset={8} className="w-40 rounded-2xl p-1.5">
+                <DropdownMenuRadioGroup
+                  value={String(topK)}
+                  onValueChange={(next) => setTopK(Number(next) as (typeof TOP_K_OPTIONS)[number])}
                 >
-                  {loading ? searchText.searching : searchText.search}
-                  <ArrowRightIcon className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
-          </form>
+                  {TOP_K_OPTIONS.map((option) => (
+                    <DropdownMenuRadioItem
+                      key={option}
+                      value={String(option)}
+                      className="cursor-pointer rounded-xl px-2.5 py-2 text-sm"
+                    >
+                      {option} {resultsLabel}
+                    </DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
 
-          <div className="mt-4 flex flex-wrap gap-2 border-t border-border/50 pt-4">
+            <button
+              type="submit"
+              disabled={loading}
+              aria-label={loading ? searchText.searching : searchText.search}
+              title={searchText.search}
+              className="ml-auto flex size-9 shrink-0 items-center justify-center rounded-full bg-foreground text-background transition-opacity hover:opacity-85 disabled:bg-muted disabled:text-muted-foreground md:size-8"
+            >
+              {loading ? <Spinner /> : <ArrowUpIcon className="size-4" />}
+            </button>
+          </div>
+        </form>
+
+        {isIdle && (
+          <div className="-mx-4 flex snap-x scroll-px-4 gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] md:mx-0 md:grid md:grid-cols-3 md:overflow-visible md:px-0">
             {searchText.examples.map((example) => (
               <button
                 key={example}
@@ -389,58 +419,46 @@ export function SearchPageClient() {
                   setQuery(example);
                   void runSearch(example);
                 }}
-                disabled={loading}
-                className="rounded-lg border border-border/50 bg-background/50 px-3 py-2 text-left text-xs text-muted-foreground transition-colors hover:border-border hover:bg-card hover:text-foreground disabled:opacity-50"
+                className="group flex w-64 shrink-0 snap-start items-start justify-between gap-2 rounded-2xl border border-border bg-card/40 px-3.5 py-3 text-left text-sm leading-snug text-muted-foreground transition-colors hover:bg-accent hover:text-foreground md:w-auto"
               >
-                {example}
+                <span className="line-clamp-2">{example}</span>
+                <ArrowUpRightIcon className="mt-0.5 size-3.5 shrink-0 opacity-0 transition-opacity group-hover:opacity-60" />
               </button>
             ))}
           </div>
-        </section>
+        )}
 
         {error && (
-          <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          <div className="rounded-2xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
             {error}
           </div>
         )}
 
-        {result && (
-          <section className="grid gap-3 md:grid-cols-4">
-            <div className="rounded-lg border border-border/50 bg-card/40 p-3">
-              <p className="flex items-center gap-2 text-xs text-muted-foreground">
-                <Layers3Icon className="h-3.5 w-3.5" />
-                {searchText.results}
-              </p>
-              <p className="mt-2 text-xl font-semibold text-foreground">{result.chunks.length}</p>
-            </div>
-            <div className="rounded-lg border border-border/50 bg-card/40 p-3">
-              <p className="text-xs text-muted-foreground">{searchText.translatedQuery}</p>
-              <p className="mt-2 line-clamp-2 text-xs text-foreground/80">{result.searchQuery}</p>
-            </div>
-            <div className="rounded-lg border border-border/50 bg-card/40 p-3">
-              <p className="text-xs text-muted-foreground">{searchText.detectedLanguage}</p>
-              <p className="mt-2 text-xs text-foreground/80">{result.inputLanguage.name}</p>
-            </div>
-            <div className="rounded-lg border border-border/50 bg-card/40 p-3">
-              <p className="text-xs text-muted-foreground">{searchText.surface}</p>
-              <p className="mt-2 line-clamp-2 text-xs text-foreground/80">{sourceSummary}</p>
-            </div>
-          </section>
+        {result && !loading && (
+          <p className="px-1 text-xs text-muted-foreground">
+            {result.chunks.length} {resultsLabel} · {result.inputLanguage.name} · {sourceSummary}
+            {result.searchQuery !== result.query && (
+              <>
+                {" · "}
+                {searchText.translatedQuery}: “{result.searchQuery}”
+              </>
+            )}
+          </p>
         )}
 
         {loading && (
-          <section className="grid gap-2 md:grid-cols-2">
+          <section className="grid gap-3 md:grid-cols-2">
             {Array.from({ length: 6 }).map((_, index) => (
               <div
                 key={index}
-                className="h-36 animate-pulse rounded-lg border border-border/50 bg-card/40"
+                className="h-44 animate-pulse rounded-2xl border border-border bg-card/40"
               />
             ))}
           </section>
         )}
 
         {!loading && hasResult && (
-          <section className="grid gap-2 md:grid-cols-2">
+          <section className="grid gap-3 md:grid-cols-2">
             {result.chunks.map((chunk, index) => (
               <ResultCard
                 key={`${chunk.id}-${index}`}
@@ -453,32 +471,14 @@ export function SearchPageClient() {
         )}
 
         {!loading && result && result.chunks.length === 0 && (
-          <section className="rounded-xl border border-border/60 bg-card/40 px-6 py-10 text-center">
+          <section className="rounded-2xl border border-border bg-card/40 px-6 py-10 text-center">
             <p className="text-sm font-medium text-foreground">{searchText.noResultsTitle}</p>
             <p className="mt-2 text-sm text-muted-foreground">
               {searchText.noResultsDescription}
             </p>
           </section>
         )}
-
-        {!loading && !result && !error && (
-          <section className="rounded-xl border border-dashed border-border/70 bg-card/20 px-6 py-10 text-center">
-            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              {searchText.readyTitle}
-            </p>
-            <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-muted-foreground">
-              {searchText.readyDescription}
-            </p>
-          </section>
-        )}
-
-        {visibleSources.length > ALL_SOURCES.length && (
-          <p className="pb-6 text-center text-xs text-muted-foreground">
-            {formatText(searchText.superModeNotice, { count: visibleSources.length })}
-          </p>
-        )}
-        </div>
-      </main>
+      </div>
     </div>
   );
 }

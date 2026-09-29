@@ -39,7 +39,7 @@ Read this first before deep code exploration.
 - Search-scope toggle (chat composer, replaces the old per-source toggles):
   - `Standard` — sends `ALL_SOURCES` (scriptures, conference, handbook, study_helps, topics); the model may narrow *within* this scope.
   - `Super` — sends `SUPER_SOURCES` (every Pinecone namespace). Persisted to `localStorage` under `chat:search-scope`.
-  - The `/search` console keeps the full per-source `SettingsPanel` for debugging.
+  - `/search` uses the same composer-style card: a "Sources" dropdown with per-source checkboxes (`ALL_SOURCES`), the same `SearchScopeToggle` for Super, and a results-count dropdown (6/10/20). Before the first search it is centered like an empty chat (title, box, example cards); results show a one-line summary (count · detected language · sources · translated query when different).
 - Language selector: UI-only language preference. Users can pick only the languages with UI copy: English, Italian, Spanish (`SELECTABLE_UI_LANGUAGES` in `src/components/chat/i18n.ts`, derived from `UI_TEXT`). French, Portuguese, and German remain valid `UiLanguage` values in the types and API schemas (unchanged for clients such as the mobile app) but are hidden from the selector until they have copy; a stored pick of one of them is ignored in favor of the device language. Adding a `locales/<lang>.ts` file and its `UI_TEXT` entry makes a language selectable.
 - Installable PWA: web manifest (`src/app/manifest.ts`), service worker
   (`public/sw.js` — network-first navigation with an offline `/chat` fallback,
@@ -523,8 +523,7 @@ Notes:
   persists via `PATCH /api/conversations/[id]`. Its radio rows keep the selected
   style visibly tinted and bordered in addition to the check; opening the menu
   does not paint the first programmatically focused row as hovered. Pointer hover
-  and keyboard focus use separate visual treatments. (The `/search` console still
-  renders `ResponseStylePicker` inside `SettingsPanel`.)
+  and keyboard focus use separate visual treatments.
 
 ## 8) Environment variables
 
@@ -584,7 +583,6 @@ Reference template: `.env.example`.
   - `src/components/chat/i18n.ts` (`UI_TEXT`, `uiText()`, `pickLanguage()`); the copy
     itself is one file per language in `src/components/chat/locales/` (`ita`, `eng`, `spa`)
   - `src/components/chat/chat-utils.tsx` (shared chat helpers + `ToolActivityIndicator`/`PendingIndicator`, imported by both `ChatInterface` and `ChatMessage`)
-  - `src/components/chat/SettingsPanel.tsx` (source/style filter bar — now only the `/search` console)
   - `src/components/chat/SourcesPanel.tsx`
   - `src/components/chat/ChatSidebar.tsx` (navigation, active row, rename/delete wiring)
   - `src/components/chat/sidebar/` (`useConversationList` — cached, paged, polled list;

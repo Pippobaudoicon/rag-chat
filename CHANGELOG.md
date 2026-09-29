@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.12.64
+
+- **Search page redesigned like the chat.** Before the first search `/search` is centered like an empty chat: title, the same composer-style card (Enter searches, Shift+Enter adds a line), and the examples as suggestion cards. The card's toolbar has a "Sources" dropdown (per-source checkboxes), the chat's `SearchScopeToggle` for Super, a results-count dropdown (6/10/20) and a round search button. Results get a one-line summary (count · detected language · sources · translated query when it differs) instead of four stat boxes, and restyled cards (rounded, neutral links, no score gradient).
+- **Removed the old "retrieval console" look:** the purple source bar, the purple icon, the `/api/search` label, the Pinecone-namespaces notice. `SettingsPanel.tsx` (only used here) and 13 unused `search.*` copy keys in `ita`/`eng`/`spa` are gone. The search loading skeleton matches the new layout.
+
 ## 0.12.63
 
 - **One logo everywhere.** The sidebar used a temporary purple book icon; it now shows the real ChatLDS mark (`logo-no-bg.png`) as a white silhouette, like the sign-in page.
