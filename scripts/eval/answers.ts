@@ -107,6 +107,7 @@ async function runTurn(question: string, variant: Variant) {
     messages: [{ role: "user", content: buildUserMessage(question, [], { uiLanguage: "ita" }) }],
     maxOutputTokens: MAX_OUTPUT_TOKENS,
     stopWhen: stepCountIs(4),
+    abortSignal: AbortSignal.timeout(180_000),
     tools,
     prepareStep: ({ steps }) => {
       const policy = prepareChatToolStep(steps, false);
@@ -131,8 +132,11 @@ async function runTurn(question: string, variant: Variant) {
     error = e instanceof Error ? e.message : String(e);
   }
   const totalMs = performance.now() - t0;
-  const steps: StepResult<ToolSet>[] = await Promise.resolve(result.steps).catch(() => []);
-  const usage = await Promise.resolve(result.totalUsage).catch(() => undefined);
+  // Keeps the event loop alive: a never-settling promise would otherwise exit Node 0.
+  const within = <T,>(p: PromiseLike<T>, fallback: T) =>
+    Promise.race([Promise.resolve(p), new Promise<T>((r) => setTimeout(() => { error ??= "steps/usage timeout"; r(fallback); }, 30_000))]);
+  const steps: StepResult<ToolSet>[] = await within(result.steps, []).catch(() => []);
+  const usage = await within(result.totalUsage, undefined).catch(() => undefined);
 
   const answer = steps.at(-1)?.text ?? "";
   const cited = extractCitationMarkers(answer);

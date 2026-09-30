@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.12.74
+
+- **Shorter default answers.** Balanced style targets 80–150 words for ordinary questions, with essential source support and no automatic recap or takeaway. Explicit requests for detail or brevity override the selected style's default length; Scholar remains in depth by default. Related sources no longer imply a longer answer just because they were retrieved. Eval (8 Italian questions, `scripts/eval/answers.ts`): output tokens p50 626→500, total time p50 21.6→17.9 s, cost/turn −17%, blind judge 4–3 for the old prompt (within noise). The `reasoningEffort: "low"` option from the same draft is not included: the gateway accepts only none/high/max for DeepSeek, so `low` was ignored.
+
 ## 0.12.73
 
 - **Clients send only the latest message to `/api/chat`.** The web transport sent the whole UI history on every request, and each message's `metadata` carried its full sources, versions and details: 80 KB p50 per conversation, 350 KB p90, 1.26 MB max. The server only reads `messages.at(-1)` and loads the history from the DB. `prepareSendMessagesRequest` now sends `messages.slice(-1)` with the SDK's default body otherwise unchanged (`id`, `trigger`, `messageId` and the request `body`). Submit, retry, regenerate and stream resume behave as before.

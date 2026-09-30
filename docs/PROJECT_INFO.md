@@ -1,6 +1,6 @@
 # ChatLDS Project Knowledge Base
 
-Last updated: 2026-09-29
+Last updated: 2026-09-30
 
 This document is the single source of truth for project context.
 Read this first before deep code exploration.
@@ -521,17 +521,22 @@ Notes:
   - no fabricated citations,
   - citation mapping to tool-returned chunks only,
   - include canonical links only when present in chunk metadata.
-  - religious-scholar depth with clear, plain explanations suitable for adults,
-    youth, and new learners.
+  - careful source-grounded explanations, with length and depth matched to the
+    requested style and user instructions.
 - The system prompt is composed from a constant CORE (identity + the retrieval,
   grounding, citation, and memory rules above) plus a swappable **response-style**
   block that controls only voice/altitude — never grounding or citations.
   `system-prompt.ts` exports `RESPONSE_STYLES` (`balanced` | `scholar` | `simple`
   | `concise`), `DEFAULT_RESPONSE_STYLE` (`balanced`), and
   `buildSystemPrompt(styleId)`. `SYSTEM_PROMPT` = `buildSystemPrompt(default)`.
-  The default "Balanced" style encodes an operational readability contract:
-  scholar-level depth in the substance, child-followable wording, define-on-first-
-  use for doctrinal terms, and a child-and-scholar dual self-check.
+  The default "Balanced" style targets 80–150 words in one or two short
+  paragraphs for ordinary questions, with essential supporting points and
+  citations (0.12.74). Simple questions can be shorter; requested coverage and
+  necessary qualifications take precedence over the target. Explicit requests
+  for length, depth, or format override the selected style's default length.
+  Scholar remains in depth by default. Related source context is included only
+  when it helps answer the question, rather than automatically expanding the
+  response.
 - **Style resolution** (chat route): effective style =
   conversation `response_style` override → user `default_response_style`
   (`rag_user_settings`, via `getUserPreferences`) → `DEFAULT_RESPONSE_STYLE`
