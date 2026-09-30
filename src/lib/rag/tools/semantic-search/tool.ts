@@ -2,10 +2,6 @@ import { tool } from "ai";
 import { z } from "zod";
 import { SUPER_SOURCES } from "@/lib/types";
 import type { ChatProgressData, Language, SourceType } from "@/lib/types";
-import {
-  aggregateRoutingTelemetry,
-  type RetrievalQueryResolver,
-} from "@/lib/rag/retrieval-query-resolver";
 import { toToolChunk } from "../shared/chunk-formatting";
 import { runSemanticRetrieval } from "../shared/semantic-retrieval";
 import type { RagToolContext } from "../shared/tool-context";
@@ -43,8 +39,6 @@ const inputSchema = z.object({
 export interface SemanticSearchDeps {
   /** Semantic corpus language to retrieve against (English by default). */
   language: Language;
-  /** Query resolver: passthrough by default, legacy translation when enabled. */
-  resolver: RetrievalQueryResolver;
   /** Sources selected in the chat UI for this turn. */
   defaultSources: SourceType[];
   /** topK selected in the chat UI for this turn. */
@@ -71,7 +65,6 @@ export interface SemanticSearchDeps {
  */
 export function createSemanticSearchTool({
   language,
-  resolver,
   defaultSources,
   defaultTopK,
   context,
@@ -102,16 +95,8 @@ export function createSemanticSearchTool({
         toolName: "semantic_search",
       });
 
-      // Lazy translation to the corpus language. The local same-language fast
-      // path makes an English query identity (no LLM call); a cross-language
-      // query is translated once (memoized per request). The resolved English
-      // query drives the cache key, embeddings, Pinecone, rerank, and returned
-      // `query` metadata so retrieval is identical to the old pre-translated path.
-      const routing = await resolver.resolve(query, language);
-      const retrievalQuery = routing.searchQuery;
-
       const { chunks, cacheHit } = await runSemanticRetrieval({
-        query: retrievalQuery,
+        query,
         sources: effectiveSources,
         topK: effectiveTopK,
         language,
@@ -126,11 +111,10 @@ export function createSemanticSearchTool({
         cacheHit,
         elapsedMs: Date.now() - startedAt,
         retrievalLanguage: language,
-        ...aggregateRoutingTelemetry([routing]),
       });
 
       return {
-        query: retrievalQuery,
+        query,
         language,
         sources: effectiveSources,
         cacheHit,

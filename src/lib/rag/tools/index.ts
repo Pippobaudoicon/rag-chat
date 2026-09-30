@@ -1,5 +1,4 @@
 import type { ChatProgressData, Language, SourceChunk, SourceType } from "@/lib/types";
-import type { RetrievalQueryResolver } from "@/lib/rag/retrieval-query-resolver";
 import { createLookupScripturePassageTool } from "./lookup-scripture-passage/tool";
 import { createSearchConferenceTalksTool } from "./search-conference-talks/tool";
 import { createSemanticSearchTool } from "./semantic-search/tool";
@@ -15,12 +14,6 @@ export interface CreateRagToolsOptions {
   /** Semantic corpus language (English by default) expected in semantic /
    * conference tool arguments. */
   language: Language;
-  /**
-   * Request-scoped query resolver. It is a passthrough by default because the
-   * main model emits corpus-language arguments; the legacy router can be enabled
-   * for rollback, with identical queries memoized within the turn.
-   */
-  resolver: RetrievalQueryResolver;
   /** Sources selected in the chat UI for this turn. */
   sources: SourceType[];
   /** topK selected in the chat UI for this turn. */
@@ -58,7 +51,6 @@ export interface CreateRagToolsOptions {
 export function createRagTools(options: CreateRagToolsOptions) {
   const {
     language,
-    resolver,
     sources,
     topK,
     initialChunks,
@@ -73,14 +65,13 @@ export function createRagTools(options: CreateRagToolsOptions) {
   const tools = {
     semantic_search: createSemanticSearchTool({
       language,
-      resolver,
       defaultSources: sources,
       defaultTopK: topK,
       context,
       onProgress,
     }),
     lookup_scripture_passage: createLookupScripturePassageTool({ context, onProgress }),
-    search_conference_talks: createSearchConferenceTalksTool({ language, resolver, context, onProgress }),
+    search_conference_talks: createSearchConferenceTalksTool({ language, context, onProgress }),
   };
 
   return withToolCallBudget(

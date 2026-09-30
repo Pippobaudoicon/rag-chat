@@ -31,7 +31,6 @@ import { fileURLToPath } from "node:url";
 import { buildSystemPrompt, buildUserMessage } from "@/lib/rag/system-prompt";
 import { createRagTools } from "@/lib/rag/tools";
 import { prepareChatToolStep } from "@/lib/rag/tool-loop-policy";
-import { createRetrievalQueryResolver } from "@/lib/rag/retrieval-query-resolver";
 import { getIndexLanguage } from "@/lib/rag/language-routing";
 import { retrievalFlagsSignature } from "@/lib/rag/flags";
 import { extractCitationMarkers } from "@/lib/rag/citation-markers";
@@ -86,7 +85,6 @@ async function runTurn(question: string, variant: Variant) {
   const retrievals: Array<{ tool: string; ms?: number; n?: number }> = [];
   const ragTools = createRagTools({
     language: getIndexLanguage(),
-    resolver: createRetrievalQueryResolver(),
     sources: DEFAULT_SOURCES,
     topK: 20,
     initialChunks: [],

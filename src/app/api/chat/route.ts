@@ -20,7 +20,6 @@ import {
 import { getUserPreferences } from "@/lib/db/user-settings";
 import { deriveConversationTitle } from "@/lib/rag/cache";
 import { createRagTools } from "@/lib/rag/tools";
-import { createRetrievalQueryResolver } from "@/lib/rag/retrieval-query-resolver";
 import { createLatencyTrace, withToolTiming } from "@/lib/observability/latency";
 import { getIndexLanguage } from "@/lib/rag/language-routing";
 import { retrievalFlagsSignature } from "@/lib/rag/flags";
@@ -378,9 +377,6 @@ export async function POST(req: Request) {
   }
 
   const indexLanguage = getIndexLanguage();
-  // Request-scoped resolver. With the default main-model routing path it is a
-  // zero-call passthrough; enabling the legacy router restores translation here.
-  const retrievalResolver = createRetrievalQueryResolver();
 
   if (!conversation) {
     return new Response("Conversation not found", { status: 404 });
@@ -499,7 +495,6 @@ export async function POST(req: Request) {
     {
       ...createRagTools({
         language: indexLanguage,
-        resolver: retrievalResolver,
         sources,
         topK: effectiveTopK,
         initialChunks,
@@ -657,9 +652,7 @@ export async function POST(req: Request) {
         finishReason,
         toolNames: getToolNames(steps),
         // Retrieval trace: how this turn retrieved (flags + per-tool stats), so
-        // real conversations can be mined into the eval gold set. When the
-        // optional legacy router is enabled, its language telemetry is recorded
-        // on the relevant tool event.
+        // real conversations can be mined into the eval gold set.
         retrieval: {
           indexLanguage,
           sources,

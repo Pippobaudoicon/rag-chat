@@ -1,16 +1,14 @@
 /**
- * Language-policy suite for tool-specific language routing.
+ * Language-policy suite: local prompt-language detection, the /api/search
+ * query router (`routeQueryLanguage`), and the chat rule that tools use the
+ * main model's corpus-language arguments with no translation step.
  *
  * Run: `pnpm run test:language-policy`
  *
- * Pure and deterministic — no LLM/network. The routing model call and the
- * resolver's router are injected, so these assert the routing *contract*:
- * the local fast path skips the model, cross-language prompts translate exactly
- * once through the dedicated routing model, the one-shot fallback fires at most
- * once, and the request-scoped resolver memoizes by (query, target).
- *
- * (Phase A of docs/TOOL_SPECIFIC_LANGUAGE_ROUTING_PLAN.md. Tool-policy and route
- * integration cases are added as later phases land.)
+ * Pure and deterministic — no LLM/network. The routing model call is injected,
+ * so these assert the routing *contract*: the local fast path skips the model,
+ * cross-language prompts translate exactly once through the dedicated routing
+ * model, and the one-shot fallback fires at most once.
  */
 import { readFileSync } from "node:fs";
 import {
@@ -20,28 +18,7 @@ import {
   getRoutingFallbackModel,
   type RoutingModelRequest,
 } from "@/lib/rag/language-routing";
-import {
-  createRetrievalQueryResolver,
-  aggregateRoutingTelemetry,
-} from "@/lib/rag/retrieval-query-resolver";
-import type { QueryLanguageRouting } from "@/lib/rag/language-routing";
 import { buildUserMessage } from "@/lib/rag/system-prompt";
-
-// Build a QueryLanguageRouting for the aggregation tests.
-function routing(over: Partial<QueryLanguageRouting>): QueryLanguageRouting {
-  return {
-    originalQuery: "q",
-    searchQuery: "q",
-    inputLanguageCode: "und",
-    inputLanguageName: "the user's language",
-    indexLanguage: "eng",
-    indexLanguageName: "English",
-    translated: false,
-    routingMs: 0,
-    routingFallbackUsed: false,
-    ...over,
-  };
-}
 
 let failures = 0;
 function check(label: string, cond: boolean, detail = "") {
@@ -183,43 +160,15 @@ async function main() {
     check("both fail -> fail open with original query + und", r.translated === false && r.searchQuery === original && r.inputLanguageCode === "und" && r.routingModel === undefined);
   }
 
-  // ── Resolver memoization: repeated identical (query, target) -> one call ───
-  {
-    let calls = 0;
-    const router = (async (query: string) => {
-      calls += 1;
-      return {
-        originalQuery: query,
-        searchQuery: "translated",
-        inputLanguageCode: "it",
-        inputLanguageName: "Italian",
-        indexLanguage: "eng" as const,
-        indexLanguageName: "English",
-        translated: true,
-        routingMs: 5,
-        routingModel: "openai/gpt-oss-120b",
-        routingFallbackUsed: false,
-      };
-    }) as unknown as typeof routeQueryLanguage;
-    const resolver = createRetrievalQueryResolver({ router });
-    const a = await resolver.resolve("Domanda topica", "eng");
-    const b = await resolver.resolve("  domanda topica  ", "eng"); // normalized to same key
-    await resolver.resolve("altra domanda", "eng"); // distinct -> separate call
-    check("resolver memoizes identical (query, target) -> one translation", calls === 2, `calls=${calls}`);
-    check("resolver returns the same memoized routing object", a === b);
-  }
-
-  // ── Phase B: no-tool turn makes zero routing-model calls ──────────────────
-  // The chat preamble no longer routes globally: it detects prompt language
-  // locally (pure, no model) and never calls routeQueryLanguage. A no-tool turn
-  // (e.g. "Ciao, come stai?") therefore issues no routing-model call at all —
-  // routing is lazy, inside the English-corpus tools, which a no-tool turn never
-  // invokes. Proven statically against the route source plus the user-message
+  // ── Chat route: no routing-model call on any turn ─────────────────────────
+  // Chat never calls routeQueryLanguage, so no chat turn issues a routing-model
+  // call. Proven statically against the route source plus the user-message
   // contract (the route handler can't be imported here — it pulls Clerk/DB).
   const routeSrc = readFileSync("src/app/api/chat/route.ts", "utf8");
   check("chat route no longer calls routeQueryLanguage (no global routing)", !routeSrc.includes("routeQueryLanguage"));
   check("chat route does not use TinyLD for answer language", !routeSrc.includes("detectPromptLanguage("));
   check("chat route records no `routing` latency phase", !routeSrc.includes('phase("routing"'));
+  check("/api/search still routes its query", readFileSync("src/app/api/search/route.ts", "utf8").includes("routeQueryLanguage("));
 
   // The no-tool greeting "Ciao, come stai?" is low-confidence (und): the user
   // message must NOT assert a concrete language, it falls back to "match the
@@ -240,75 +189,16 @@ async function main() {
   );
   check("misdetected Italian prompt carries no French answer hint", !/French|\\(fr\\)/i.test(misdetectedMsg));
 
-  // ── Phase C: tool-specific lazy translation + scripture language ──────────
-  // Identity fast path through the resolver with the REAL router: an English
-  // semantic query resolves to itself with no model call (network-free), so
-  // English semantic retrieval is byte-identical to before.
-  {
-    const resolver = createRetrievalQueryResolver();
-    const r = await resolver.resolve("What does the Church teach about humility?", "eng");
-    check("English semantic query -> identity routing inside the resolver (no translation)", r.translated === false && r.routingMs === 0 && r.searchQuery === "What does the Church teach about humility?");
-  }
-  // A cross-language tool query translates once and is memoized across repeats —
-  // the contract semantic_search / search_conference_talks rely on.
-  {
-    let calls = 0;
-    const router = (async (q: string, opts: { indexLanguage: "eng" | "ita" }) => {
-      calls += 1;
-      return { originalQuery: q, searchQuery: "humility", inputLanguageCode: "it", inputLanguageName: "Italian", indexLanguage: opts.indexLanguage, indexLanguageName: "English", translated: true, routingMs: 7, routingModel: "openai/gpt-oss-120b", routingFallbackUsed: false };
-    }) as unknown as typeof routeQueryLanguage;
-    const resolver = createRetrievalQueryResolver({ router });
-    await resolver.resolve("Cosa insegna la Chiesa sull'umiltà?", "eng");
-    await resolver.resolve("Cosa insegna la Chiesa sull'umiltà?", "eng");
-    check("repeated identical tool query -> one memoized translation", calls === 1, `calls=${calls}`);
-  }
-
-  // Aggregated routing telemetry: a tool that routes more than one field (the
-  // conference query + title) must report the WHOLE cost, not just the first call.
-  {
-    const both = aggregateRoutingTelemetry([
-      routing({ translated: true, routingMs: 30, routingModel: "openai/gpt-oss-120b", inputLanguageCode: "it" }),
-      routing({ translated: true, routingMs: 12, routingModel: "openai/gpt-oss-120b", inputLanguageCode: "it" }),
-    ]);
-    check("aggregate sums routingMs across both calls", both.routingMs === 42);
-    check("aggregate ORs translated + counts both model calls", both.translated === true && both.routingCalls === 2);
-    check("aggregate dedupes a single routing model", both.routingModel === "openai/gpt-oss-120b");
-  }
-  {
-    // One translated (model) + one identity (fast path): cost + call count reflect only the model call.
-    const mixed = aggregateRoutingTelemetry([
-      routing({ translated: true, routingMs: 25, routingModel: "openai/gpt-oss-120b", inputLanguageCode: "it" }),
-      routing({ translated: false, routingMs: 0 }),
-    ]);
-    check("aggregate counts only model-invoking resolutions", mixed.routingCalls === 1 && mixed.routingMs === 25 && mixed.translated === true);
-    check("aggregate carries the confident input language code", mixed.inputLanguageCode === "it");
-  }
-  {
-    // Both local fast path: no model, no fallback, no model recorded.
-    const none = aggregateRoutingTelemetry([routing({}), routing({})]);
-    check("aggregate of fast-path-only -> 0 calls, undefined model", none.routingCalls === 0 && none.routingMs === 0 && none.translated === false && none.routingModel === undefined);
-  }
-  {
-    // Distinct models (query primary, title fallback): record both + OR fallback flag.
-    const fb = aggregateRoutingTelemetry([
-      routing({ translated: true, routingMs: 20, routingModel: "openai/gpt-oss-120b" }),
-      routing({ translated: true, routingMs: 50, routingModel: "openai/gpt-5.4-mini", routingFallbackUsed: true }),
-    ]);
-    check("aggregate ORs fallback + records distinct models", fb.routingFallbackUsed === true && fb.routingModel === "openai/gpt-oss-120b, openai/gpt-5.4-mini" && fb.routingCalls === 2);
-  }
-
+  // ── Chat tools: the main model writes corpus-language arguments ─────────
   // Static wiring: each tool owns the right language policy.
   const semanticSrc = readFileSync("src/lib/rag/tools/semantic-search/tool.ts", "utf8");
   const conferenceSrc = readFileSync("src/lib/rag/tools/search-conference-talks/tool.ts", "utf8");
   const scriptureSrc = readFileSync("src/lib/rag/tools/lookup-scripture-passage/tool.ts", "utf8");
   check("semantic_search asks the main model for corpus-language query", semanticSrc.includes("translate it yourself"));
   check("search_conference_talks asks the main model for corpus-language query + title", conferenceSrc.includes("translate them yourself"));
-  check("lookup_scripture_passage performs NO translation", !scriptureSrc.includes("resolver") && !scriptureSrc.includes("routeQueryLanguage") && !scriptureSrc.includes("RetrievalQueryResolver"));
+  check("chat retrieval tools perform NO translation", [semanticSrc, conferenceSrc, scriptureSrc].every((src) => !src.includes("routeQueryLanguage") && !src.includes("resolver")));
   check("lookup_scripture_passage requires main-model language selection", scriptureSrc.includes('.enum(["eng", "ita"])') && scriptureSrc.includes('retrieve(reference, ["scriptures"], language'));
 
-  // Static wiring: the route no longer derives answer/scripture language with
-  // TinyLD, while the optional legacy resolver remains available behind its flag.
-  check("route creates a request-scoped resolver and passes it to the tools", routeSrc.includes("createRetrievalQueryResolver()") && routeSrc.includes("resolver: retrievalResolver"));
   check("route no longer overwrites the retrieval cache with the final answer", !routeSrc.includes("setInCache("));
 
   console.log(`\n${failures === 0 ? "All language-policy checks passed" : `${failures} check(s) failed`}`);

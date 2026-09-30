@@ -62,11 +62,11 @@ export function isMultiQueryEnabled(): boolean {
 }
 
 /**
- * Retrieval-query language routing/translation.
+ * Retrieval-query language routing/translation for /api/search only.
  *
- * Default: OFF. The main chat model emits retrieval queries in the corpus
- * language as part of its existing tool call. Set `RAG_LANGUAGE_ROUTING=true`
- * only to restore the legacy dedicated routing-model path.
+ * Default: OFF. Chat never routes: the main chat model emits retrieval queries
+ * in the corpus language as part of its tool call. Set `RAG_LANGUAGE_ROUTING=true`
+ * to have /api/search translate queries with the dedicated routing model.
  */
 export function isLanguageRoutingEnabled(): boolean {
   return envBool(process.env.RAG_LANGUAGE_ROUTING, false);

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.12.76
+
+- **Chat-side language routing removed.** `semantic_search` and `search_conference_talks` passed their `query`/`title` through a request-scoped resolver (`retrieval-query-resolver.ts`) that called `routeQueryLanguage()`. With `RAG_LANGUAGE_ROUTING=false` in production it was a passthrough, since the main model already writes tool arguments in the corpus language. The resolver is deleted, the tools use the model's arguments directly, and the never-populated per-tool routing telemetry (`routingMs`, `translated`, `inputLanguageCode`, `routingModel`, `routingFallbackUsed`, `routingCalls`) plus the dead `RetrievalTrace.inputLanguageCode`/`searchQuery` are gone from `ChatProgressData`, `RetrievalToolEvent` and the retrieval trace. `retrievalLanguage` stays. `GET /api/search` still uses `routeQueryLanguage()`; `RAG_LANGUAGE_ROUTING` now only affects it. Net −284 lines of code and tests. Old `details_json` rows may still hold the removed fields; nothing reads them. The mobile types still list them as optional fields, which is harmless.
+
 ## 0.12.75
 
 - **Fix: "Try again" after a failed follow-up saved the answer as a version of the previous answer.** Retry resends the history (`sendMessage(undefined)`), so the request carries the last message's `messageId` with `trigger: "submit-message"`. The route treated any `messageId` as a regenerate, and the regenerate target lookup falls back to the last assistant message. Only `trigger === "regenerate-message"` now marks a regenerate. Web and mobile retries both benefit; no client change.

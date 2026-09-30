@@ -107,14 +107,6 @@ export function toRetrievalToolEvent(progress: ChatProgressData): RetrievalToolE
     sourceCount: progress.sourceCount,
     cacheHit: progress.cacheHit,
     elapsedMs: progress.elapsedMs,
-    // Tool-local language routing (present for semantic_search /
-    // search_conference_talks; absent for lookup_scripture_passage).
-    routingMs: progress.routingMs,
-    translated: progress.translated,
-    inputLanguageCode: progress.inputLanguageCode,
     retrievalLanguage: progress.retrievalLanguage,
-    routingModel: progress.routingModel,
-    routingFallbackUsed: progress.routingFallbackUsed,
-    routingCalls: progress.routingCalls,
   };
 }

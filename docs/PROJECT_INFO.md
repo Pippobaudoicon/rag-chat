@@ -184,7 +184,7 @@ Read this first before deep code exploration.
    Once past the gate, mutually independent reads run concurrently: messages, the
    memory brief, and user preferences. There is no answer-language or translation
    model call in the preamble.
-5. The main chat model infers the answer language directly from the original user message. TinyLD does not supply an answer-language hint or scripture-language preference. During the same tool-decision step, the model translates `semantic_search` and `search_conference_talks` query/title arguments into the corpus language stated in each tool description, while preserving names and references. Both `semantic_search` and `lookup_scripture_passage` require the model to select the prompt's indexed scripture language (`"ita"` or `"eng"`; English fallback for unsupported languages). `RagToolContext` locks the first selection across the whole turn, and semantic retrieval filters primary, related, and cached chunks, so scripture source cards can never mix languages. `RAG_LANGUAGE_ROUTING` defaults to `false`; setting it to `true` restores the legacy per-tool dedicated routing model.
+5. The main chat model infers the answer language directly from the original user message. TinyLD does not supply an answer-language hint or scripture-language preference. During the same tool-decision step, the model translates `semantic_search` and `search_conference_talks` query/title arguments into the corpus language stated in each tool description, while preserving names and references. Both `semantic_search` and `lookup_scripture_passage` require the model to select the prompt's indexed scripture language (`"ita"` or `"eng"`; English fallback for unsupported languages). `RagToolContext` locks the first selection across the whole turn, and semantic retrieval filters primary, related, and cached chunks, so scripture source cards can never mix languages. The tools use those arguments as-is: there is no chat-side translation step. `RAG_LANGUAGE_ROUTING` only affects `GET /api/search`.
 6. Server constructs an AI SDK `streamText` call with the RAG tool set and lets the model decide how to retrieve.
 8. The model calls retrieval tools and supplies corpus-ready arguments in the same step:
    - `semantic_search` for general topical queries (caches via Upstash Redis).
@@ -330,16 +330,10 @@ Notes:
   route; regenerating the answer replaces the details and drops them). It also stores a
   `retrieval` trace (`RetrievalTrace`): index language, source filters, topK,
   the retrieval-flag signature, and per-tool
-  stats (`RetrievalToolEvent`: sourceCount / cacheHit / elapsedMs, plus tool-local
-  language routing — `routingMs` / `translated` / `inputLanguageCode` /
-  `retrievalLanguage` / `routingModel` / `routingFallbackUsed` / `routingCalls` —
-  present for `semantic_search` & `search_conference_talks`, absent for the
-  non-translating `lookup_scripture_passage`). `search_conference_talks` may route
-  two fields (query + title), so the telemetry is **aggregated** across both
-  resolutions: `routingMs` summed, `translated`/`routingFallbackUsed` OR'd,
-  `routingCalls` = number of model-invoking resolutions, `routingModel` = the
-  distinct model(s) used. There is no longer a single global translated
-  search query; translation is per-tool. The retrieved chunks live in
+  stats (`RetrievalToolEvent`: toolName / sourceCount / cacheHit / elapsedMs /
+  `retrievalLanguage`). Rows written before 0.12.76 may also carry per-tool
+  routing fields (`routingMs`, `translated`, `routingModel`, …) from the removed
+  chat-side resolver; nothing reads them. The retrieved chunks live in
   `sources_json`; the trace captures the *how* so real conversations can be mined
   into the eval gold set.
 - The persisted assistant `content` (and its `versions_json` entry) is the text of
@@ -454,7 +448,7 @@ Notes:
     language routing or ranking flags is not masked by a stale cache (graph rerank
     excluded — it runs after the cache read in the tools).
 - The language selector controls only UI labels. It does not affect search language or final answer language.
-- In chat, the main model emits corpus-language semantic/conference queries as part of its existing tool call and infers answer language directly from the original prompt. The optional legacy resolver remains behind `RAG_LANGUAGE_ROUTING=true`. `GET /api/search` still uses `routeQueryLanguage()`; with routing disabled it sends the original query unchanged.
+- In chat, the main model emits corpus-language semantic/conference queries as part of its existing tool call and infers answer language directly from the original prompt. Chat has no translation step. Only `GET /api/search` uses `routeQueryLanguage()`: with `RAG_LANGUAGE_ROUTING=true` it translates the query with the routing model; with routing disabled (the default) it sends the original query unchanged.
 - `RAG_INDEX_LANGUAGE` controls the single-language semantic retrieval target. It defaults to English (`eng`) for `lds-rag-v1` (English-main corpus; scriptures also carry Italian chunks). Set to `ita` only to target the legacy `lds-rag` index.
 - Retrieval preserves source-language metadata. Scriptures are bilingual; the main model selects `"ita"` or `"eng"` for every scripture-producing tool. A per-turn lock forces all tools to the same selection, semantic fan-out queries only that scripture language, and post-expansion filtering removes any opposite-language scripture chunk. Production callers disable cross-language scripture fallback: an empty result is returned instead of showing scriptures in the wrong language. Only the `scriptures` namespace has Italian vectors; every other namespace is English-only, so the semantic fan-out (`retrieve`) and `retrieveConferenceCandidates` query them in the index language only (one Pinecone query per namespace per query vector). Because each source is queried in a single language, a turn never holds an English/Italian pair of one passage, so there is no cross-language collapse step. Regression for the scripture-language guards: `pnpm run test:cross-language`.
 - **Single-language direct-passage contract.** `lookup_scripture_passage` returns one language. The cross-reference graph's `related_ids` are stored as English ids, so `expandRelatedContext` **localizes** scripture cross-refs to the passage language: it rewrites the id's language segment (`scriptures:eng:<slug>:… → scriptures:ita:…`, `localizeScriptureId` — pure slug remap, no LLM) and fetches by id; any ref whose exact verse-range chunk doesn't exist in the target language (the languages chunked the same verses differently) is recovered by `fetchLocalizedScriptureRefs` — list that book+chapter in the target language by id prefix, keep chunks whose verse range overlaps (canonical slug+chapter resolution, still no LLM). `filterRelatedToLanguage` then drops anything still cross-language (e.g. English-only study helps). So an Italian `Giovanni 3:16` returns the Italian passage **plus its Italian cross-reference chunks**, never mixed English. Result is re-capped to `RELATED_CONTEXT_CAP` (exact-id matches first). The requested passage stays pinned first; the eval golden set has permanent `Giovanni 3` / `Giovanni 3:16` / `John 3` / `John 3:16` fixtures asserting first-result book/passage and scripture language (`expectFirstRefAnyOf` + `expectScriptureLanguage`).
@@ -567,9 +561,9 @@ Notes:
 - `PINECONE_INDEX` (optional; defaults to `lds-rag-v1`; set to `lds-rag` for the legacy index)
 - `RAG_INDEX_LANGUAGE` (optional; defaults to `eng` for `lds-rag-v1`; set to `ita` for the legacy index)
 - `CHAT_MODEL` (optional; defaults to `deepseek/deepseek-v4.1-flash`)
-- `RAG_ROUTING_MODEL` (optional; defaults to `openai/gpt-oss-120b`) — dedicated retrieval-query routing/translation model, independent from `CHAT_MODEL` (`reasoningEffort: low`, 600-token ceiling)
+- `RAG_ROUTING_MODEL` (optional; defaults to `openai/gpt-oss-120b`) — dedicated `/api/search` query routing/translation model (used only when `RAG_LANGUAGE_ROUTING=true`), independent from `CHAT_MODEL` (`reasoningEffort: low`, 600-token ceiling)
 - `RAG_ROUTING_FALLBACK_MODEL` (optional; defaults to `openai/gpt-5.4-mini`) — one-shot fallback used once if the primary routing model returns no structured output
-- `RAG_LANGUAGE_ROUTING` (optional; defaults to `false`) — set to `true` only to restore the legacy dedicated routing-model path
+- `RAG_LANGUAGE_ROUTING` (optional; defaults to `false`) — `GET /api/search` only: set to `true` to translate search queries with the routing model. Chat never routes
 - `FOLLOW_UP_MODEL` (optional; defaults to `google/gemini-2.5-flash-lite`, pinned independently from `CHAT_MODEL`) — small non-reasoning structured-output model for the suggested next questions: one call per answer, 300-token ceiling, answer trimmed to 2500 characters, 10 s timeout (no suggestions on timeout)
 - `RAG_GRAPH_RERANK` (optional; defaults to `true`) — graph-aware rerank kill-switch
 - `RAG_RERANK` (optional; defaults to `false`) — Voyage cross-encoder rerank
@@ -817,7 +811,7 @@ Reference template: `.env.example`.
   merged candidate pool (`reranker.ts`). Adds an external API call (cost + latency);
   validate against `pnpm run eval` before enabling per-deployment. Applies uniformly
   to all languages — in production the query reaching the cross-encoder is already
-  translated into the index language by the tool's lazy language routing, so there is no
+  in the index language (the main model writes the tool arguments in it), so there is no
   per-input-language axis to gate on. Net-positive on the gold set (recall
   0.629 → 0.696). Caveat: the win is uneven per query — the reranker still demotes
   Alma 32 on faith queries (`italian-topic-faith` recall 1.0 → 0.0 even with the
@@ -833,8 +827,9 @@ Reference template: `.env.example`.
 
 - `docs/TOOL_SPECIFIC_LANGUAGE_ROUTING_PLAN.md` records the earlier dedicated
   routing design. The active chat path now performs answer-language inference and
-  retrieval-query translation in `CHAT_MODEL`'s existing tool-decision step;
-  `RAG_LANGUAGE_ROUTING=true` retains the previous router only as a rollback path.
+  retrieval-query translation in `CHAT_MODEL`'s existing tool-decision step. The
+  chat-side resolver was removed in 0.12.76; `RAG_LANGUAGE_ROUTING` now only
+  affects `GET /api/search`.
 
 When changing architecture, behavior, integrations, API contracts, or major UX flow:
 
