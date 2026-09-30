@@ -130,7 +130,7 @@ export function createLookupScripturePassageTool({
         ? graphRerank(passage, relatedContext, { rerankSeeds: false })
         : [...passage, ...relatedContext];
 
-      const indexedChunks = context.registerChunks(finalChunks);
+      const indexedChunks = await context.claimChunks(finalChunks, 0);
       onProgress?.({
         phase: "tools",
         toolName: "lookup_scripture_passage",

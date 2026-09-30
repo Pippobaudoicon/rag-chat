@@ -190,11 +190,14 @@ Read this first before deep code exploration.
    - `semantic_search` for general topical queries (caches via Upstash Redis).
    - `lookup_scripture_passage` for scripture references (also cached via Upstash Redis).
    - `search_conference_talks` for talks by title / speaker / year (also cached via Upstash Redis).
-    A turn permits one retrieval round with at most two retrieval executions
-    (Pro); free and guest turns get one, since their 10-source cap would only let
-    a second parallel call race the first for the same slots. An over-budget call
-    returns `limitReached` before doing any retrieval work. Genuinely multi-source
-    Pro questions may call two tools together in that round.
+    A turn permits one retrieval round. Within it `semantic_search` runs at most
+    twice (Pro) or once (free/guest); an extra call returns `limitReached` before
+    doing any retrieval work. Scripture and talk lookups are what the user asked
+    for, so they always run. Parallel calls in the round wait for each other and
+    share the source cap round-robin (scripture, then talks, then topical): under
+    the free/guest 10-source cap two calls keep their top five each instead of the
+    first to finish taking all ten (0.12.79, `claimChunks` in
+    `src/lib/rag/tools/shared/tool-context.ts`).
     Afterward every tool is disabled (`toolChoice: "none"`) and the model writes
     the final answer.
 9. Tool results register chunks in a shared per-turn `RagToolContext` so all
@@ -461,8 +464,8 @@ Notes:
   - boosts chapter coverage in returned chunks.
 - Retrieval is **tool-driven** end-to-end: the model decides which retrieval
   tools to invoke via the AI SDK tools API. To prevent runaway context growth,
-  a turn allows one retrieval round with at most two retrieval executions (one
-  for free/guest, see §4 step 8);
+  a turn allows one retrieval round with at most two `semantic_search` calls (one
+  for free/guest; specific lookups are not counted, see §4 step 8);
   `prepareStep` then disables every tool (`activeTools: []`, `toolChoice: "none"`)
   so the next step writes the final answer. Retrieval caching lives in the tool layer
   for `semantic_search`, `lookup_scripture_passage`, and `search_conference_talks`.

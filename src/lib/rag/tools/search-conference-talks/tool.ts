@@ -209,7 +209,7 @@ export function createSearchConferenceTalksTool({
       const completedTalk = fullTalk.length > 0;
 
       const returned = completedTalk ? fullTalk : final.slice(0, topK);
-      const indexedChunks = context.registerChunks(returned);
+      const indexedChunks = await context.claimChunks(returned, 1);
       onProgress?.({
         phase: "tools",
         toolName: "search_conference_talks",

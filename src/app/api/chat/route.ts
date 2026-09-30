@@ -499,7 +499,8 @@ export async function POST(req: Request) {
         topK: effectiveTopK,
         initialChunks,
         maxChunks: maxResponseSources,
-        // Free/guest turns share one small source cap; a second parallel call would only race the first for it.
+        // semantic_search calls per turn: one for free/guest. Specific scripture/talk lookups
+        // always run; parallel calls split the source cap (see claimChunks).
         maxRetrievalCalls: entitlements.isPro ? MAX_RETRIEVAL_CALLS : 1,
         onSources: addToolChunks,
         onProgress: (progress) => {

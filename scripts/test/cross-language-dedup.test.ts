@@ -70,6 +70,29 @@ check(
   initialLanguageLock.resolveScriptureLanguage("ita") === "eng"
 );
 
-const total = 4;
-console.log(`\n${total - failures}/${total} passed`);
-if (failures > 0) process.exit(1);
+// Source-cap sharing: a slower specific lookup and a faster semantic_search in
+// the same round split the cap round-robin, lookup first; neither is starved.
+async function priorityCheck() {
+  const ctx = createRagToolContext({ maxChunks: 4 });
+  const passage = ["21", "22", "23"].map((v) => chunk(`scriptures:ita:alma:32:${v}:v1`, "ita", 0.9));
+  const topical = ["a", "b", "c"].map((id) => ({ ...conference, id: `conference:eng:${id}` }));
+  const indices = (claimed: { citationIndex: number }[]) => claimed.map((c) => c.citationIndex).join();
+  const [lookupIdx, semanticIdx] = await Promise.all([
+    ctx.trackCall(async () => {
+      await new Promise((r) => setTimeout(r, 20));
+      return indices(await ctx.claimChunks(passage, 0));
+    }),
+    ctx.trackCall(async () => indices(await ctx.claimChunks(topical, 2))),
+  ]);
+  check(
+    "parallel calls share the cap: lookup first, semantic_search not starved",
+    lookupIdx === "1,2" && semanticIdx === "3,4",
+    `lookup=${lookupIdx} semantic=${semanticIdx}`
+  );
+}
+
+priorityCheck().then(() => {
+  const total = 5;
+  console.log(`\n${total - failures}/${total} passed`);
+  if (failures > 0) process.exit(1);
+});
