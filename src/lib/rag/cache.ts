@@ -44,12 +44,10 @@ type RedisConfig = {
 function resolveRedisConfig(): RedisConfig | null {
   const url =
     process.env.UPSTASH_REDIS_REST_URL ??
-    process.env.UPSTASH_KV_REST_API_URL ??
-    process.env.KV_REST_API_URL;
+    process.env.UPSTASH_KV_REST_API_URL;
   const token =
     process.env.UPSTASH_REDIS_REST_TOKEN ??
-    process.env.UPSTASH_KV_REST_API_TOKEN ??
-    process.env.KV_REST_API_TOKEN;
+    process.env.UPSTASH_KV_REST_API_TOKEN;
 
   return url && token ? { url, token } : null;
 }
@@ -63,7 +61,7 @@ export function getRedis(): Redis {
     const config = resolveRedisConfig();
     if (!config) {
       throw new Error(
-        "Redis configuration missing. Set UPSTASH_REDIS_REST_URL/TOKEN (or UPSTASH_KV_REST_API_URL/TOKEN, or KV_REST_API_URL/TOKEN)."
+        "Redis configuration missing. Set UPSTASH_REDIS_REST_URL/TOKEN (or UPSTASH_KV_REST_API_URL/TOKEN)."
       );
     }
 

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.12.77
+
+- **Redis config reads only the `UPSTASH_*` variables.** The unprefixed `KV_REST_API_URL` / `KV_REST_API_TOKEN` fallback pointed at an old database and is gone. Production moved to a new Upstash database with its primary in us-east-1, next to the iad1 functions and Neon, so rate-limit, usage and stream writes no longer cross the Atlantic. That is env only, no code change. Counters started empty once.
+
 ## 0.12.76
 
 - **Chat-side language routing removed.** `semantic_search` and `search_conference_talks` passed their `query`/`title` through a request-scoped resolver (`retrieval-query-resolver.ts`) that called `routeQueryLanguage()`. With `RAG_LANGUAGE_ROUTING=false` in production it was a passthrough, since the main model already writes tool arguments in the corpus language. The resolver is deleted, the tools use the model's arguments directly, and the never-populated per-tool routing telemetry (`routingMs`, `translated`, `inputLanguageCode`, `routingModel`, `routingFallbackUsed`, `routingCalls`) plus the dead `RetrievalTrace.inputLanguageCode`/`searchQuery` are gone from `ChatProgressData`, `RetrievalToolEvent` and the retrieval trace. `retrievalLanguage` stays. `GET /api/search` still uses `routeQueryLanguage()`; `RAG_LANGUAGE_ROUTING` now only affects it. Net −284 lines of code and tests. Old `details_json` rows may still hold the removed fields; nothing reads them. The mobile types still list them as optional fields, which is harmless.

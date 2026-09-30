@@ -554,8 +554,11 @@ Notes:
 - `NEXT_PUBLIC_CLERK_SIGN_IN_URL`
 - `NEXT_PUBLIC_CLERK_SIGN_UP_URL`
 - `DATABASE_URL`
-- `UPSTASH_REDIS_REST_URL`
-- `UPSTASH_REDIS_REST_TOKEN`
+- `UPSTASH_KV_REST_API_URL` / `UPSTASH_KV_REST_API_TOKEN` (set by the Vercel
+  Upstash integration; `UPSTASH_REDIS_REST_URL` / `_TOKEN` take precedence when
+  set). Since 2026-09-30 production uses a database whose primary is in
+  us-east-1, next to the iad1 functions. The unprefixed `KV_REST_API_*`
+  fallback was removed in 0.12.77.
 - `VOYAGE_API_KEY`
 - `PINECONE_API_KEY`
 - `PINECONE_INDEX` (optional; defaults to `lds-rag-v1`; set to `lds-rag` for the legacy index)
