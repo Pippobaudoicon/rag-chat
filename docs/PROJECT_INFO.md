@@ -645,7 +645,7 @@ Reference template: `.env.example`.
   - `scripts/test/chat-turn.test.ts` (per-turn helpers; `pnpm run test:chat-turn`)
 - Onboarding tour (first-visit guided tutorial, issue #12):
   - `src/lib/onboarding/steps.ts` (pure step/anchor/auto-start logic; tested by `test:onboarding`)
-  - `src/components/onboarding/OnboardingTour.tsx` (anchored callouts, replay, persistence, a11y)
+  - `src/components/onboarding/OnboardingTour.tsx` (anchored callouts, replay, persistence, a11y; also a `localStorage` `onboarding:dismissed` flag that blocks auto-start on that device once closed)
   - mounted in `src/components/layout/AppShell.tsx`; anchors are `data-tour` attributes in
     `ChatInterface` (composer, `super-toggle`, `response-style`)/`SourcesPanel`/`ChatSidebar`;
     replay entry in `ChatSidebar`. The `source-toggles` step was removed with the chat's

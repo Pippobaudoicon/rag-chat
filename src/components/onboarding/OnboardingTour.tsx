@@ -21,6 +21,9 @@ const ANCHOR_RETRY_FRAMES = 12; // ~200ms; covers the lazy-mounted mobile drawer
 const SIDEBAR_SETTLE_FRAMES = 14; // wait for the 200ms drawer slide transition
 const SPOTLIGHT_PADDING = 8;
 const MEMORY_SPOTLIGHT_PADDING = 14;
+// Client-side "closed once" flag so the tour never re-pops on this device even
+// if the server-side status write was lost or expired.
+const DISMISSED_KEY = "onboarding:dismissed";
 const REPLAY_READY_MAX_FRAMES = 180; // ~3s at 60fps for route/client hydration
 const REPLAY_READY_SELECTORS = [
   '[data-tour="composer"]',
@@ -228,6 +231,9 @@ export function OnboardingTour() {
   const finalize = useCallback(
     async (status: OnboardingStatus) => {
       cancelStepSave();
+      try {
+        localStorage.setItem(DISMISSED_KEY, "1");
+      } catch {}
       // Genuine first run (still pending): persist terminal state and keep the
       // callout open if the write fails, so we never silently claim success.
       if (persistedStatus.current === "pending") {
@@ -292,6 +298,9 @@ export function OnboardingTour() {
     // A replay requested from another route owns startup. Waiting here avoids a
     // pending user's normal auto-start racing before ChatInterface has mounted.
     if (isReplayRequestedAfterNavigation()) return;
+    try {
+      if (localStorage.getItem(DISMISSED_KEY)) return;
+    } catch {}
     if (shouldAutoStart(persistedStatus.current, pathname)) {
       startedAuto.current = true;
       start(persistedStep.current, false);

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.12.78
+
+- **The onboarding tour stays closed once dismissed.** Closing it (skip, finish, Escape or outside click) now also sets `onboarding:dismissed` in `localStorage`, and auto-start checks that flag first. Before, only the server-side `onboardingStatus` was checked, so the tour came back whenever that write was lost. Replay from the sidebar still works.
+
 ## 0.12.77
 
 - **Redis config reads only the `UPSTASH_*` variables.** The unprefixed `KV_REST_API_URL` / `KV_REST_API_TOKEN` fallback pointed at an old database and is gone. Production moved to a new Upstash database with its primary in us-east-1, next to the iad1 functions and Neon, so rate-limit, usage and stream writes no longer cross the Atlantic. That is env only, no code change. Counters started empty once.
