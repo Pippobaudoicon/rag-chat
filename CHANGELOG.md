@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.12.67
+
+- **Suggested questions use a small model of their own.** `FOLLOW_UP_MODEL` now defaults to `openai/gpt-oss-120b` with low reasoning effort (the same setup as the retrieval-query router) instead of falling back to `CHAT_MODEL`: writing three short questions doesn't need the answer model, and this is cheaper and faster. The model reads at most the first 2500 characters of the answer (was 4000) and the call gives up after 10 seconds, in which case no suggestions are shown. `FOLLOW_UP_MODEL` still overrides it.
+
 ## 0.12.66
 
 - **Suggested next questions after each answer.** Once an answer is finished and saved, the chat asks `POST /api/conversations/[id]/follow-ups` for up to 3 short questions the user might send next (one small model call per answer, `FOLLOW_UP_MODEL`, default `CHAT_MODEL`, written in the question's language). They are stored in the answer's `details_json.followUps`, so reopening the conversation shows them without a new call. The answer itself is never delayed.

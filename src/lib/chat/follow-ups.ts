@@ -5,14 +5,17 @@
 import { generateText, gateway, Output } from "ai";
 import { z } from "zod";
 
-const DEFAULT_FOLLOW_UP_MODEL = "deepseek/deepseek-v4.1-flash";
-const FOLLOW_UP_MODEL =
-  process.env.FOLLOW_UP_MODEL ?? process.env.CHAT_MODEL ?? DEFAULT_FOLLOW_UP_MODEL;
+// A small, fast model with low reasoning effort: writing three short questions
+// needs no more (same setup as the retrieval-query router). Not CHAT_MODEL.
+const DEFAULT_FOLLOW_UP_MODEL = "openai/gpt-oss-120b";
+const FOLLOW_UP_MODEL = process.env.FOLLOW_UP_MODEL?.trim() || DEFAULT_FOLLOW_UP_MODEL;
+// Suggestions arriving later than this are no longer useful; give up instead.
+const FOLLOW_UP_TIMEOUT_MS = 10_000;
 
 export const MAX_FOLLOW_UPS = 3;
 export const MAX_FOLLOW_UP_LENGTH = 120;
 // Only the answer's opening matters for picking next questions; keeps the call cheap.
-const MAX_ANSWER_CHARS = 4000;
+const MAX_ANSWER_CHARS = 2500;
 
 const followUpsSchema = z.object({
   questions: z.array(z.string()).max(6),
@@ -59,7 +62,10 @@ export async function generateFollowUps(
         "Do not repeat the user's question and do not answer anything.",
       ].join("\n"),
       prompt: `User question:\n${question.trim()}\n\nAssistant answer:\n${answer.trim().slice(0, MAX_ANSWER_CHARS)}`,
-      maxOutputTokens: 300,
+      // Includes the (low-effort) reasoning tokens, not just the ~3 short lines.
+      maxOutputTokens: 600,
+      providerOptions: { openai: { reasoningEffort: "low" } },
+      abortSignal: AbortSignal.timeout(FOLLOW_UP_TIMEOUT_MS),
       output: Output.object({ schema: followUpsSchema }),
     });
     return normalizeFollowUps(result.output.questions, question);

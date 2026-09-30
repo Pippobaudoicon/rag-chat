@@ -285,7 +285,7 @@ Read this first before deep code exploration.
   - Auth or guest cookie required, conversation ownership checked.
   - Returns `{ messageId, followUps }` for the latest assistant message; `409`
     while the conversation is still generating. Generated once per answer
-    (small `FOLLOW_UP_MODEL` call, written in the question's language) and
+    (small `FOLLOW_UP_MODEL` call, `openai/gpt-oss-120b` by default, written in the question's language) and
     merged into that message's `details_json.followUps`; later calls return the
     stored list, so model cost is bounded by the chat quota. Not written if the
     answer was regenerated during the call.
@@ -569,7 +569,7 @@ Notes:
 - `RAG_LANGUAGE_ROUTING` (optional; defaults to `false`) — set to `true` only to restore the legacy dedicated routing-model path
 - `RAG_CLAIM_SUPPORT_AUDIT` (optional; defaults to `false`) — enables the nested LLM claim-support pass inside `citation_verifier`; structural citation validation always remains active
 - `CITATION_AUDIT_MODEL` (optional; defaults to `openai/gpt-5.4-mini`) — structured-output model used only when claim-support auditing is enabled
-- `FOLLOW_UP_MODEL` (optional; defaults to `CHAT_MODEL`) — structured-output model for the suggested next questions (one call per answer)
+- `FOLLOW_UP_MODEL` (optional; defaults to `openai/gpt-oss-120b`, independent from `CHAT_MODEL`) — small structured-output model for the suggested next questions: one call per answer, `reasoningEffort: low`, 600-token ceiling, answer trimmed to 2500 characters, 10 s timeout (no suggestions on timeout)
 - `RAG_GRAPH_RERANK` (optional; defaults to `true`) — graph-aware rerank kill-switch
 - `RAG_RERANK` (optional; defaults to `false`) — Voyage cross-encoder rerank
 - `RAG_MULTI_QUERY` (optional; defaults to `false`) — multi-query expansion
