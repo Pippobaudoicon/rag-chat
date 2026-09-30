@@ -90,6 +90,7 @@ export const maxDuration = 180;
 
 const DEFAULT_MAX_OUTPUT_TOKENS = 6000;
 const DEFAULT_MAX_RESPONSE_SOURCES = 50;
+const DEFAULT_FREE_MAX_RESPONSE_SOURCES = 10;
 const MAX_RETRIEVAL_CALLS = 2;
 
 const getPositiveInt = (value: string | undefined, fallback: number): number => {
@@ -105,6 +106,10 @@ const MAX_OUTPUT_TOKENS = getPositiveInt(
 const MAX_RESPONSE_SOURCES = getPositiveInt(
   process.env.CHAT_MAX_RESPONSE_SOURCES,
   DEFAULT_MAX_RESPONSE_SOURCES
+);
+const FREE_MAX_RESPONSE_SOURCES = getPositiveInt(
+  process.env.SUBSCRIPTION_FREE_MAX_RESPONSE_SOURCES,
+  DEFAULT_FREE_MAX_RESPONSE_SOURCES
 );
 
 export async function POST(req: Request) {
@@ -153,6 +158,10 @@ export async function POST(req: Request) {
       throw error;
     });
   const effectiveTopK = Math.min(topK, entitlements.limits.maxTopK);
+  // Free and guest answers show at most FREE_MAX_RESPONSE_SOURCES sources in total, across every retrieval in the turn.
+  const maxResponseSources = entitlements.isPro
+    ? MAX_RESPONSE_SOURCES
+    : Math.min(MAX_RESPONSE_SOURCES, FREE_MAX_RESPONSE_SOURCES);
   // "Super" (every namespace) is a signed-in feature; guests stay on the standard set.
   const sources =
     entitlements.plan === "guest"
@@ -213,7 +222,7 @@ export async function POST(req: Request) {
   const hasFixedChunks =
     Array.isArray(fixedChunks) && fixedChunks.length > 0;
   const validatedFixedChunks: SourceChunk[] = hasFixedChunks
-    ? fixedChunks.slice(0, MAX_RESPONSE_SOURCES)
+    ? fixedChunks.slice(0, maxResponseSources)
     : [];
 
   // Chunks injected into the user message. Empty in the default flow unless P1
@@ -229,7 +238,7 @@ export async function POST(req: Request) {
   };
 
   const getResponseSources = (): SourceChunk[] =>
-    uniqueSources([...initialChunks, ...toolChunksUsed], MAX_RESPONSE_SOURCES);
+    uniqueSources([...initialChunks, ...toolChunksUsed], maxResponseSources);
 
   // ── 4. Preamble: ownership gate, then independent reads concurrently ───────
   // The 401/429 gates (auth, ratelimit) already resolved above. We resolve the
@@ -583,7 +592,7 @@ export async function POST(req: Request) {
         scriptureLanguage: indexLanguage,
       })
     );
-    initialChunks = eager.chunks;
+    initialChunks = eager.chunks.slice(0, maxResponseSources);
   }
 
   // ── 6. Build (optionally) RAG-augmented message ───────────────────────────
@@ -628,7 +637,7 @@ export async function POST(req: Request) {
         sources,
         topK: effectiveTopK,
         initialChunks,
-        maxChunks: MAX_RESPONSE_SOURCES,
+        maxChunks: maxResponseSources,
         maxRetrievalCalls: MAX_RETRIEVAL_CALLS,
         onSources: addToolChunks,
         onProgress: (progress) => {

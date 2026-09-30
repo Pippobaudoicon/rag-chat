@@ -589,6 +589,7 @@ Notes:
 - `SUBSCRIPTION_PRO_SEARCH_RATE_LIMIT` (optional; defaults to 600)
 - `SUBSCRIPTION_FREE_MAX_TOP_K` (optional; defaults to 10)
 - `SUBSCRIPTION_PRO_MAX_TOP_K` (optional; defaults to 20)
+- `SUBSCRIPTION_FREE_MAX_RESPONSE_SOURCES` (optional; defaults to 10) — total sources per answer for free and guest users, across all retrievals in the turn (Pro uses `CHAT_MAX_RESPONSE_SOURCES`)
 
 Reference template: `.env.example`.
 
