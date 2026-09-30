@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.12.70
+
+- **Free and guest turns make one retrieval call.** The 10-source cap for free/guest (0.12.68) was filled first-come by whichever parallel retrieval call finished first, so the second call did full Voyage/Pinecone work for nothing and the sources depended on a race. Non-Pro turns now get a retrieval budget of 1; an over-budget call returns before any retrieval work with "Retrieval limit reached. Answer using the sources already returned." Pro keeps 2.
+- **English-only namespaces are queried once.** Only `scriptures` has Italian vectors in `lds-rag-v1`; the other 10 namespaces were still queried in both languages, so half of those Pinecone queries returned nothing by construction. The semantic fan-out and the conference-talk candidates now query non-scripture namespaces in the index language only, and scriptures in the turn's scripture language. The cross-language collapse step (`collapseCrossLanguage`) is gone, since no English/Italian pair can reach the merge anymore; `test:cross-language` keeps the scripture-language guards.
+
 ## 0.12.67
 
 - **Suggested questions use a small model of their own.** `FOLLOW_UP_MODEL` now defaults to `google/gemini-2.5-flash-lite` (small, fast, no reasoning step, multilingual, structured output), pinned in `src/lib/chat/follow-ups.ts` instead of following `CHAT_MODEL`, so switching the chat to a pricier model doesn't make suggestions pricier. Output ceiling 300 tokens (was 600). The model reads at most the first 2500 characters of the answer (was 4000) and the call gives up after 10 seconds, in which case no suggestions are shown. `FOLLOW_UP_MODEL` still overrides it.

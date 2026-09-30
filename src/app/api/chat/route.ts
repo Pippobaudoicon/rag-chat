@@ -638,7 +638,8 @@ export async function POST(req: Request) {
         topK: effectiveTopK,
         initialChunks,
         maxChunks: maxResponseSources,
-        maxRetrievalCalls: MAX_RETRIEVAL_CALLS,
+        // Free/guest turns share one small source cap; a second parallel call would only race the first for it.
+        maxRetrievalCalls: entitlements.isPro ? MAX_RETRIEVAL_CALLS : 1,
         onSources: addToolChunks,
         onProgress: (progress) => {
           // A tool's terminal "tools" event carries its result stats — capture
