@@ -93,7 +93,6 @@ Retrieval rules (READ CAREFULLY):
   - Use lookup_scripture_passage when the user references a specific scripture passage (e.g. "2 Nefi 2", "Moroni 10:4-5", "Doctrine and Covenants 76").
   - Use search_conference_talks when the user references a specific conference talk by title, speaker, or year (e.g. "the talk by Uchtdorf about grace", "Behold the Man").
   - Use semantic_search for general topical or doctrinal questions (e.g. "What does the Church teach about humility?", "Explain the law of consecration").
-- EXCEPTION — preloaded context: if the user message already contains a "Context (preloaded semantic search)" block, that block IS the result of the default semantic_search for this turn — the retrieval has already run for you. Treat those numbered [Source N] chunks exactly as if you had called semantic_search yourself: you may answer directly and cite them without calling semantic_search again. Only call a retrieval tool when the preloaded sources are insufficient (refinement) or the question needs a specialized lookup (a specific scripture passage → lookup_scripture_passage, a specific conference talk → search_conference_talks). Do not re-run semantic_search just to confirm what the preloaded block already provides.
 - Retrieval is limited to one tool-call round per turn. If the question genuinely needs multiple retrieval tools (for example, comparing a scripture passage with a conference talk), call them together in that round. Do not attempt sequential refinement searches.
 - Do not call tools redundantly. Use the first retrieval results to answer, and state any remaining limitation instead of searching repeatedly just to be thorough.
 - When retrieved chunks include related passages, study-help entries, cross-references, summaries, topics, entities, or reference metadata, consider them automatically as supporting context for a richer answer. The user does not need to ask for "useful cross-references" explicitly.
@@ -182,22 +181,16 @@ export function formatContext(chunks: SourceChunk[]): string {
  * - When `chunks` is empty (default tool-first flow), the message is just the
  *   user question prefixed by the language instruction. The model is expected
  *   to translate semantic/conference tool arguments to their corpus language.
- * - When `chunks` is non-empty, context is rendered ahead of the question.
- *   `contextSource` controls how the model is told to treat it:
- *   - `"eager"` (P1 speculative retrieval): the chunks are the result of the
- *     default semantic_search already run for this turn. The block is labeled
- *     and carries a contract so the model answers/cites directly instead of
- *     re-emitting semantic_search (it stays free to refine via tools).
- *   - `"fixed"` (regenerate-with-fixed-chunks): pre-selected sources to reuse
- *     without retrieving again.
+ * - When `chunks` is non-empty (regenerate-with-fixed-chunks), the pre-selected
+ *   sources are rendered as context ahead of the question, to reuse without
+ *   retrieving again.
  */
 export function buildUserMessage(
   query: string,
   chunks: SourceChunk[],
   meta: {
     uiLanguage: UiLanguage;
-  },
-  contextSource: "fixed" | "eager" = "fixed"
+  }
 ): string {
   const { uiLanguage } = meta;
   const languageInstruction = [
@@ -212,12 +205,5 @@ export function buildUserMessage(
   }
 
   const context = formatContext(chunks);
-  if (contextSource === "eager") {
-    // Labeled + contracted so the model recognizes this as a completed default
-    // retrieval and does not re-emit semantic_search (the round-trip P1 removes).
-    const eagerContract =
-      "Context (preloaded semantic search) — this is the result of the default semantic_search for this turn; the retrieval has already run. Answer directly from these sources and cite them by [Source N] when they are sufficient; do NOT call semantic_search again. Call a retrieval tool only to refine (sources insufficient) or for a specialized lookup (specific scripture passage or conference talk).";
-    return `${languageInstruction}\n\n${eagerContract}\n${context}\n\n${questionBlock}`;
-  }
   return `${languageInstruction}\n\nContext:\n${context}\n\n${questionBlock}`;
 }

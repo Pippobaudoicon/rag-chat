@@ -7,13 +7,6 @@ import {
   updateConversationSchema,
   uuidSchema,
 } from "@/lib/api/validation";
-import {
-  getConversationTitleFromCache,
-  setConversationTitleInCache,
-  conversationTitleCacheKey,
-  invalidateConversationCaches,
-  invalidateConversationTitleCache,
-} from "@/lib/rag/cache";
 import { isChatGenerationStale } from "@/lib/chat/generation";
 
 export const runtime = "nodejs";
@@ -74,7 +67,6 @@ export async function GET(req: Request, { params }: Params) {
       .returning();
     if (recovered) {
       convo = recovered;
-      void invalidateConversationCaches(userId);
     } else {
       const currentConversation = await getOwnedConversation(id, userId);
       if (!currentConversation) return new Response("Not Found", { status: 404 });
@@ -93,11 +85,6 @@ export async function GET(req: Request, { params }: Params) {
     );
   }
 
-  const titleCacheKey = conversationTitleCacheKey(userId, convo.id);
-  const cachedTitle = await getConversationTitleFromCache(titleCacheKey);
-  const conversationWithCachedTitle =
-    cachedTitle === undefined ? convo : { ...convo, title: cachedTitle };
-
   const db = getDb();
   const msgs = await db
     .select()
@@ -105,11 +92,7 @@ export async function GET(req: Request, { params }: Params) {
     .where(eq(messages.conversationId, convo.id))
     .orderBy(asc(messages.createdAt), asc(messages.id));
 
-  if (cachedTitle === undefined) {
-    void setConversationTitleInCache(titleCacheKey, convo.title);
-  }
-
-  return Response.json({ ...conversationWithCachedTitle, messages: msgs });
+  return Response.json({ ...convo, messages: msgs });
 }
 
 // PATCH /api/conversations/[id] — rename and/or change the response-style
@@ -141,17 +124,6 @@ export async function PATCH(req: Request, { params }: Params) {
     .where(eq(conversations.id, convo.id))
     .returning();
 
-  const invalidations: Promise<unknown>[] = [invalidateConversationCaches(userId)];
-  if (title !== undefined) {
-    invalidations.push(
-      setConversationTitleInCache(
-        conversationTitleCacheKey(userId, convo.id),
-        updated.title
-      )
-    );
-  }
-  void Promise.all(invalidations);
-
   return Response.json(updated);
 }
 
@@ -166,11 +138,6 @@ export async function DELETE(_: Request, { params }: Params) {
 
   const db = getDb();
   await db.delete(conversations).where(eq(conversations.id, convo.id));
-
-  void Promise.all([
-    invalidateConversationTitleCache(userId, convo.id),
-    invalidateConversationCaches(userId),
-  ]);
 
   return new Response(null, { status: 204 });
 }

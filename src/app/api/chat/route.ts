@@ -18,33 +18,19 @@ import {
   coerceResponseStyle,
 } from "@/lib/rag/system-prompt";
 import { getUserPreferences } from "@/lib/db/user-settings";
-import {
-  conversationTitleCacheKey,
-  deriveConversationTitle,
-  getSessionAnswerFromCache,
-  invalidateConversationCaches,
-  sessionAnswerCacheKey,
-  setConversationTitleInCache,
-  setSessionAnswerInCache,
-} from "@/lib/rag/cache";
+import { deriveConversationTitle } from "@/lib/rag/cache";
 import { createRagTools } from "@/lib/rag/tools";
 import { createRetrievalQueryResolver } from "@/lib/rag/retrieval-query-resolver";
 import { createLatencyTrace, withToolTiming } from "@/lib/observability/latency";
-import {
-  getIndexLanguage,
-  detectIndexLanguageMatch,
-} from "@/lib/rag/language-routing";
-import { isEagerRetrievalEnabled, retrievalFlagsSignature } from "@/lib/rag/flags";
-import { parseScriptureSelection } from "@/lib/rag/scripture-reference";
-import { isEagerTopicalQuery } from "@/lib/rag/eager-eligibility";
+import { getIndexLanguage } from "@/lib/rag/language-routing";
+import { retrievalFlagsSignature } from "@/lib/rag/flags";
 import { prepareChatToolStep } from "@/lib/rag/tool-loop-policy";
-import { runSemanticRetrieval } from "@/lib/rag/tools/shared/semantic-retrieval";
 import { badRequestFromZod, chatRequestSchema } from "@/lib/api/validation";
 import {
   createMemoryTools,
   getUserMemoryBrief,
 } from "@/lib/memory/conversation-memory";
-import { getBillingEntitlements } from "@/lib/billing/entitlements";
+import { getSessionEntitlements } from "@/lib/billing/entitlements";
 import {
   recordBillingUsage,
   setBillingUsageSnapshot,
@@ -58,7 +44,6 @@ import {
 import {
   getChatStreamContext,
 } from "@/lib/chat/resumable-stream";
-import { cachedAnswerResponse } from "@/lib/chat/cached-replay";
 import { getChatRateLimiter, rateLimitedResponse } from "@/lib/chat/rate-limit";
 import {
   claimGeneration,
@@ -147,16 +132,7 @@ export async function POST(req: Request) {
   const releasePendingInitialTurn = () =>
     releasePendingTurn(conversationId, persistedUserMessageId, userId);
 
-  const entitlements = await latency
-    .phase("entitlements", () =>
-      getBillingEntitlements(userId, {
-        hasPlan: (plan) => has({ plan }),
-      })
-    )
-    .catch(async (error) => {
-      await releasePendingInitialTurn();
-      throw error;
-    });
+  const entitlements = getSessionEntitlements(userId, (plan) => has({ plan }));
   const effectiveTopK = Math.min(topK, entitlements.limits.maxTopK);
   // Free and guest answers show at most FREE_MAX_RESPONSE_SOURCES sources in total, across every retrieval in the turn.
   const maxResponseSources = entitlements.isPro
@@ -225,10 +201,10 @@ export async function POST(req: Request) {
     ? fixedChunks.slice(0, maxResponseSources)
     : [];
 
-  // Chunks injected into the user message. Empty in the default flow unless P1
-  // eager retrieval populates them below; otherwise the model populates the
-  // source list by calling tools during streaming.
-  let initialChunks: SourceChunk[] = hasFixedChunks ? validatedFixedChunks : [];
+  // Chunks injected into the user message: only the fixed-chunks regenerate
+  // case; otherwise the model populates the source list by calling tools
+  // during streaming.
+  const initialChunks: SourceChunk[] = hasFixedChunks ? validatedFixedChunks : [];
   const toolChunksUsed: SourceChunk[] = [];
   const retrievalToolEvents: RetrievalToolEvent[] = [];
   let writeProgress: ((progress: ChatProgressData) => void) | null = null;
@@ -402,27 +378,6 @@ export async function POST(req: Request) {
   // zero-call passthrough; enabling the legacy router restores translation here.
   const retrievalResolver = createRetrievalQueryResolver();
 
-  const historySignature = JSON.stringify(
-    priorStoredMessages.map((message) => ({
-      id: message.id,
-      role: message.role,
-      content: message.content,
-    }))
-  );
-  const answerCacheKey = conversation
-    ? sessionAnswerCacheKey(userId, conversation.id, question, {
-        language: [
-          `ui:${uiLanguage}`,
-          `index:${indexLanguage}`,
-          `flags:${retrievalFlagsSignature()}`,
-        ].join("|"),
-        sources,
-        topK: effectiveTopK,
-        historySignature,
-        memorySignature: memoryBrief.signature,
-      })
-    : null;
-
   if (!conversation) {
     return new Response("Conversation not found", { status: 404 });
   }
@@ -446,8 +401,6 @@ export async function POST(req: Request) {
     markGenerationError(conversation.id, userId, turnId);
 
   try {
-    await invalidateConversationCaches(userId);
-
     // Persist this turn's style override only after the generation claim, so a
     // concurrent request that loses the claim cannot mutate the conversation.
     if (
@@ -470,7 +423,7 @@ export async function POST(req: Request) {
   if (conversation) {
     if (!isRegenerateRequest) {
       // Persist the user turn and make the conversation visible in the sidebar
-      // before cache lookup, retrieval, or model generation can delay the request.
+      // before retrieval or model generation can delay the request.
       if (!persistedUserMessage) {
         await latency.phase("userMsgInsert", () =>
           db.insert(messages).values({
@@ -489,57 +442,10 @@ export async function POST(req: Request) {
       if (!conversation.title) {
         conversation.title = title;
         createdConversationTitle = title;
-        void setConversationTitleInCache(
-          conversationTitleCacheKey(userId, conversation.id),
-          title
-        );
       }
-      await invalidateConversationCaches(userId);
 
       const historyWindow = priorStoredMessages.slice(-20);
       modelHistory.push(...(historyWindow as ChatMessage[]));
-    }
-
-    if (!isRegenerateRequest && answerCacheKey && !hasFixedChunks) {
-      const cachedAnswer = await latency.phase("answerCacheLookup", () =>
-        getSessionAnswerFromCache(answerCacheKey)
-      );
-      if (cachedAnswer) {
-        // Cached answer resolved; the inserts/updates below are not included here.
-        latency.milestone("answerReadyMs");
-        const cachedDetails: MessageDetails = {
-          model: cachedAnswer.details?.model,
-          finishReason: cachedAnswer.details?.finishReason,
-          toolNames: cachedAnswer.details?.toolNames ?? [],
-          latencyMs: Date.now() - startTime,
-          // Replay the original turn's retrieval trace so cache-hit messages are
-          // still mineable into the eval gold set.
-          retrieval: cachedAnswer.details?.retrieval,
-          // Freshly measured timings for *this* (cache-hit) turn — not replayed
-          // from the original generation.
-          latency: latency.build("answer-cache"),
-        };
-
-        await db.batch([
-          db.insert(messages).values({
-            conversationId: conversation.id,
-            role: "assistant",
-            content: cachedAnswer.text,
-            sourcesJson: cachedAnswer.sources,
-            versionsJson: [{ text: cachedAnswer.text, sources: cachedAnswer.sources }],
-            detailsJson: cachedDetails,
-          }),
-          completeGenerationUpdate(conversation.id, userId, turnId),
-        ]);
-
-        void invalidateConversationCaches(userId);
-
-        return cachedAnswerResponse(
-          cachedAnswer.text,
-          { sources: cachedAnswer.sources, details: cachedDetails },
-          cachedAnswer.details?.finishReason
-        );
-      }
     }
 
     if (isRegenerateRequest && targetAssistantMessage) {
@@ -552,60 +458,16 @@ export async function POST(req: Request) {
     }
   }
 
-  // ── 5b. P1 eager retrieval ────────────────────────────────────────────────
-  // Reaching here implies an answer-cache miss (a hit returns early above).
-  // For high-confidence topical questions, run the default semantic_search
-  // retrieval now — during the preamble — and seed the chunks as `initialChunks`
-  // so the model can answer on turn 1, eliminating the empty tool-decision
-  // round-trip. Eligibility is a conservative positive allowlist (false negatives
-  // preferred): skipped for fixed-chunks regenerate (already seeded), empty
-  // sources, scripture references (→ lookup_scripture_passage), and — via
-  // `isEagerTopicalQuery` — chit-chat, response-edit / conversational follow-ups,
-  // and specific conference-talk requests (→ search_conference_talks). Restricted
-  // to the English index so the classifier sees the already-translated English
-  // `searchQuery` (no multilingual heuristics). Warms the SAME cacheKey the tool
-  // uses, so a redundant tool call is a cache hit. Default OFF; opt in with
-  // RAG_EAGER_RETRIEVAL=true after trace validation.
-  // Eager runs on the ORIGINAL prompt and only when it is confidently English
-  // (§4.6): we never translate a cross-language prompt in the preamble just to
-  // make it eager-eligible — those take the normal tool-first path, where the
-  // main model emits a corpus-language query. With an English prompt the original
-  // query is already English, so the existing eligibility heuristics hold.
-  const promptMatchesIndex =
-    detectIndexLanguageMatch(question, indexLanguage) !== null;
-  const scriptureSelection = parseScriptureSelection(question, indexLanguage);
-  const eagerEligible =
-    isEagerRetrievalEnabled() &&
-    indexLanguage === "eng" &&
-    promptMatchesIndex &&
-    !hasFixedChunks &&
-    !scriptureSelection &&
-    sources.length > 0 &&
-    isEagerTopicalQuery(question);
-  if (eagerEligible) {
-    const eager = await latency.phase("eagerRetrieval", () =>
-      runSemanticRetrieval({
-        query: question,
-        sources,
-        topK: effectiveTopK,
-        language: indexLanguage,
-        scriptureLanguage: indexLanguage,
-      })
-    );
-    initialChunks = eager.chunks.slice(0, maxResponseSources);
-  }
-
   // ── 6. Build (optionally) RAG-augmented message ───────────────────────────
-  // In the default flow `initialChunks` is empty unless eager retrieval seeded
-  // it above; otherwise the model is expected to call a retrieval tool. The
-  // regenerate-with-fixed-chunks path injects pre-selected context up front.
+  // In the default flow `initialChunks` is empty and the model is expected to
+  // call a retrieval tool. The regenerate-with-fixed-chunks path injects
+  // pre-selected context up front.
   const augmentedQuestion = buildUserMessage(
     question,
     initialChunks,
     {
       uiLanguage,
-    },
-    eagerEligible ? "eager" : "fixed"
+    }
   );
 
   const chatMessages: ChatMessage[] = [...modelHistory, { role: "user", content: augmentedQuestion }];
@@ -620,8 +482,8 @@ export async function POST(req: Request) {
     conversationStyle ?? userPreferences.defaultResponseStyle;
 
   const baseSystemPrompt = buildSystemPrompt(effectiveStyle);
-  const systemPrompt = memoryBrief.prompt
-    ? `${baseSystemPrompt}\n\nMemory brief:\n${memoryBrief.prompt}`
+  const systemPrompt = memoryBrief
+    ? `${baseSystemPrompt}\n\nMemory brief:\n${memoryBrief}`
     : baseSystemPrompt;
 
   // ── 7. Stream with AI SDK v6 ──────────────────────────────────────────────
@@ -796,25 +658,6 @@ export async function POST(req: Request) {
         latency: latencyTrace,
       };
 
-      // The retrieval cache is owned entirely by the tools now: each translates
-      // its query internally and warms its OWN canonical key (the translated
-      // query). The route no longer overwrites a retrieval-cache entry with the
-      // final answer — that would key on the original question and diverge from
-      // the tool's translated key, leaving two entries. Repeat answers are served
-      // by the separate session answer cache below.
-      if (answerCacheKey && !isRegenerateRequest && conversation && !hasFixedChunks) {
-        await setSessionAnswerInCache(answerCacheKey, {
-          text,
-          sources: getResponseSources(),
-          details: {
-            model: CHAT_MODEL,
-            finishReason,
-            toolNames: getToolNames(steps),
-            retrieval: details.retrieval,
-          },
-        });
-      }
-
       // Persist assistant response + update conversation metadata.
       const responseSources = getResponseSources();
       const completeConversation = completeGenerationUpdate(conversation.id, userId, turnId);
@@ -860,8 +703,6 @@ export async function POST(req: Request) {
           completeConversation,
         ]);
       }
-
-      await invalidateConversationCaches(userId);
       } catch (error) {
         await markGenerationErrorSafely();
         throw error;

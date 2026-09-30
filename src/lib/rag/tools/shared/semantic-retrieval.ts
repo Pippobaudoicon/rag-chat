@@ -30,16 +30,10 @@ export interface SemanticRetrievalResult {
 }
 
 /**
- * The shared retrieval pipeline behind `semantic_search` and P1 eager
- * retrieval: `cacheKey → getFromCache → (retrieve + expandRelatedContext +
- * warm setInCache) → graphRerank`. Everything the tool does EXCEPT
- * `context.registerChunks`, which stays with the caller so the same chunks can
- * be registered into the tool context (lazy path) or seeded as `initialChunks`
- * (eager path) with identical ordering and citation indices.
- *
- * Eager and lazy callers MUST pass the same resolved `query`/`sources`/`topK`/
- * `language` so they hit the SAME cacheKey — a redundant tool call after eager
- * retrieval then resolves as a cache hit instead of re-retrieving.
+ * The retrieval pipeline behind `semantic_search`: `cacheKey → getFromCache →
+ * (retrieve + expandRelatedContext + warm setInCache) → graphRerank`.
+ * Everything the tool does EXCEPT `context.registerChunks`, which stays with
+ * the caller.
  */
 export async function runSemanticRetrieval({
   query,
@@ -79,9 +73,7 @@ export async function runSemanticRetrieval({
       [...primary, ...relatedContext],
       scriptureLanguage
     );
-    // Best-effort warm cache write; the chat route will overwrite later
-    // with the assistant's final answer text.
-    void setInCache(key, { chunks: combined, answer: "" });
+    void setInCache(key, { chunks: combined });
   }
 
   // Graph-aware rerank (flag-gated): a chunk cross-referenced by several

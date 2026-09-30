@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.12.71
+
+- **Less work before the answer starts streaming** (measured `preStreamMs` p50 was 867 ms, with Redis ~96 ms per round trip from the functions):
+  - **Session answer cache removed.** It had 0 hits in 30 days (its key included the full history signature) but cost a Redis GET before every stream and a ~60 KB write after it. Gone with it: `cached-replay.ts`, `historySignature`, the memory-brief signature, and the `answer-cache` latency path.
+  - **Redis conversation-list and title caches removed**, with every `invalidateConversationCaches` / `invalidateConversationTitleCache` call (each one a sequential SCAN over the keyspace, awaited twice before the stream and once after). The list and titles now read straight from Postgres (Neon is ~31 ms away, Redis ~96 ms). The chat, stream, conversations and guest-claim routes no longer invalidate anything. Retrieval/tool caches, rate limits and resumable streams are unchanged.
+  - **Plan from session claims on the hot path.** `POST /api/chat` and `GET /api/search` use the new `getSessionEntitlements(userId, has)`: guest, Pro when `has({ plan })` matches a configured Pro plan key, otherwise free. There's no Clerk Backend API call per request (the `entitlements` phase was ~153 ms p50). `getBillingEntitlements` (full subscription lookup) stays for the billing, settings and memory pages.
+- **P1 eager retrieval removed.** `RAG_EAGER_RETRIEVAL` was never enabled, and it only fired for English prompts (60 of 61 recent turns were Italian). Removed: route section 5b, `eager-eligibility.ts`, `test:eager`, the eager variant of `buildUserMessage`, and its preloaded-context prompt rule. The fixed-chunks regenerate path is unchanged.
+- Retrieval cache entries drop the dead `answer: ""` field.
+
 ## 0.12.70
 
 - **Free and guest turns make one retrieval call.** The 10-source cap for free/guest (0.12.68) was filled first-come by whichever parallel retrieval call finished first, so the second call did full Voyage/Pinecone work for nothing and the sources depended on a race. Non-Pro turns now get a retrieval budget of 1; an over-budget call returns before any retrieval work with "Retrieval limit reached. Answer using the sources already returned." Pro keeps 2.

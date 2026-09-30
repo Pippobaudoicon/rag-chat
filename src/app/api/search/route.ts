@@ -10,7 +10,7 @@ import {
   parseSourcesParam,
   searchParamsSchema,
 } from "@/lib/api/validation";
-import { getBillingEntitlements } from "@/lib/billing/entitlements";
+import { getSessionEntitlements } from "@/lib/billing/entitlements";
 import {
   recordBillingUsage,
   setBillingUsageSnapshot,
@@ -39,9 +39,7 @@ export async function GET(req: Request) {
   }
 
   const { q: query, sources, language: uiLanguage, topK } = parsedParams.data;
-  const entitlements = await getBillingEntitlements(userId, {
-    hasPlan: (plan) => has({ plan }),
-  });
+  const entitlements = getSessionEntitlements(userId, (plan) => has({ plan }));
   const effectiveTopK = Math.min(topK, entitlements.limits.maxTopK);
   const rateLimit = getSlidingWindowRateLimit(
     `search:${entitlements.plan}`,

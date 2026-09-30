@@ -1,7 +1,6 @@
 import { and, eq, isNull, ne } from "drizzle-orm";
 import { getDb } from "@/lib/db";
 import { conversations, type Conversation } from "@/lib/db/schema";
-import { invalidateConversationCaches } from "@/lib/rag/cache";
 
 // Conversation generation-state writes made by POST /api/chat. The pure rules
 // (active/stale/ownership) live in `generation.ts`.
@@ -35,7 +34,7 @@ export async function releasePendingInitialTurn(
 ): Promise<void> {
   if (!conversationId || !persistedUserMessageId) return;
   try {
-    const [released] = await getDb()
+    await getDb()
       .update(conversations)
       .set({
         generationStatus: "error",
@@ -48,9 +47,7 @@ export async function releasePendingInitialTurn(
           eq(conversations.generationStatus, "streaming"),
           isNull(conversations.activeTurnId)
         )
-      )
-      .returning({ id: conversations.id });
-    if (released) await invalidateConversationCaches(userId);
+      );
   } catch (error) {
     console.error("Failed to release pending initial chat turn", error);
   }
@@ -140,7 +137,7 @@ export async function markGenerationError(
   turnId: string
 ): Promise<void> {
   try {
-    const [markedConversation] = await getDb()
+    await getDb()
       .update(conversations)
       .set({
         generationStatus: "error",
@@ -149,11 +146,7 @@ export async function markGenerationError(
         generationStartedAt: null,
         updatedAt: new Date(),
       })
-      .where(ownedActiveTurn(conversationId, userId, turnId))
-      .returning({ id: conversations.id });
-    if (markedConversation) {
-      await invalidateConversationCaches(userId);
-    }
+      .where(ownedActiveTurn(conversationId, userId, turnId));
   } catch (markError) {
     console.error("Failed to persist chat generation error state", markError);
   }

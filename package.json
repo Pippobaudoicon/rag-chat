@@ -1,6 +1,6 @@
 {
   "name": "rag-chat",
-  "version": "0.12.70",
+  "version": "0.12.71",
   "private": true,
   "packageManager": "pnpm@10.34.5",
   "scripts": {
@@ -9,7 +9,7 @@
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
-    "test": "pnpm run test:routing && pnpm run test:eager && pnpm run test:language-policy && pnpm run test:onboarding && pnpm run test:cross-language && pnpm run test:chat-lifecycle && pnpm run test:chat-turn && pnpm run test:guest && pnpm run test:follow-ups",
+    "test": "pnpm run test:routing && pnpm run test:language-policy && pnpm run test:onboarding && pnpm run test:cross-language && pnpm run test:chat-lifecycle && pnpm run test:chat-turn && pnpm run test:guest && pnpm run test:follow-ups",
     "check": "pnpm run typecheck && pnpm run lint && pnpm run test",
     "prepare": "git config core.hooksPath .githooks || true",
     "db:generate": "dotenv -o -e .env -e .env.local -- drizzle-kit generate",
@@ -17,7 +17,6 @@
     "docs:guard": "bash scripts/docs-guard.sh",
     "eval": "dotenv -o -e .env -e .env.local -- tsx scripts/eval/run.ts",
     "test:routing": "tsx scripts/test/language-routing.test.ts",
-    "test:eager": "tsx scripts/test/eager-eligibility.test.ts",
     "test:language-policy": "tsx scripts/test/language-policy.test.ts",
     "test:onboarding": "tsx scripts/test/onboarding-steps.test.ts",
     "test:cross-language": "tsx scripts/test/cross-language-dedup.test.ts",

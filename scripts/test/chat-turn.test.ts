@@ -3,7 +3,6 @@
  *
  * Run: `pnpm run test:chat-turn`
  */
-import { chunkCachedText } from "@/lib/chat/cached-replay";
 import {
   findRegenerateTarget,
   getToolNames,
@@ -88,11 +87,6 @@ check(
     { toolName: "semantic_search", sourceCount: 4, cacheHit: true, elapsedMs: 12 }
   )
 );
-
-// chunkCachedText
-check("cached text replays in 3-word chunks", same(chunkCachedText("one two three four five"), ["one two three ", "four five"]));
-check("cached replay preserves the full text", chunkCachedText("a  b\nc d. e").join("") === "a  b\nc d. e");
-check("empty cached text has no chunks", chunkCachedText("").length === 0);
 
 console.log(`\n${total - failures}/${total} passed`);
 if (failures > 0) process.exit(1);

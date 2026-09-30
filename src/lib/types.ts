@@ -189,8 +189,8 @@ export interface RetrievalTrace {
  */
 export interface LatencyTrace {
   version: 1;
-  /** "generated" = full cold generation; cache-hit and regenerate paths differ. */
-  path: "generated" | "answer-cache" | "regenerate";
+  /** "generated" = full cold generation; "regenerate" = answer regeneration. */
+  path: "generated" | "regenerate";
   /** Deploy identifier for before/after comparison (VERCEL_GIT_COMMIT_SHA). */
   release?: string;
   /** Independent durations (ms) per pre-stream phase, measured in isolation. */
@@ -206,10 +206,9 @@ export interface LatencyTrace {
     /** First text-delta emitted by the server (post-smoothStream, not browser paint). */
     serverFirstTextMs?: number;
     /**
-     * When the answer text became fully available — generation finished (generated
-     * path) or the cached answer resolved (answer-cache path). Captured BEFORE the
-     * cache/DB writes, conversation updates, and cache invalidation that follow, so
-     * it is NOT total handler wall time.
+     * When generation finished and the answer text became fully available.
+     * Captured BEFORE the DB writes and conversation updates that follow, so it is
+     * NOT total handler wall time.
      */
     answerReadyMs?: number;
   };
