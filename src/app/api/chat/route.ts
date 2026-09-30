@@ -179,7 +179,9 @@ export async function POST(req: Request) {
     )
   );
 
-  const isRegenerateRequest = trigger === "regenerate-message" || !!messageId;
+  // Only the trigger marks a regenerate: "Try again" resends the history with the
+  // last message's id as a submit, and must answer that question as a new turn.
+  const isRegenerateRequest = trigger === "regenerate-message";
 
   // Extract latest user question from UIMessage parts (AI SDK v6 format)
   const lastMessage = uiMessages.at(-1);

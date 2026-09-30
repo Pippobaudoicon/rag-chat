@@ -237,6 +237,9 @@ Read this first before deep code exploration.
     user turn being re-answered) — history comes from the DB. Web and mobile send
     `messages: [latestMessage]`, not the full transcript; the schema still accepts
     any array.
+  - Only `trigger: "regenerate-message"` marks a regenerate (with `messageId`
+    naming the answer). A `messageId` on a plain submit, as sent by "Try again",
+    is ignored (0.12.75).
   - Claims persisted generation ownership before streaming, returns `409` while
     another non-stale turn is active, and commits only for the owning turn.
 - `GET /api/chat/[id]/stream`

@@ -21,6 +21,9 @@ Why Expo, architecture, and the roadmap: `docs/MOBILE_APP_PLAN.md` and
   `messages.at(-1)` and loads history from the DB, while every message's
   `metadata` carries its full sources/versions. The schema is unchanged
   (`messages` is any array), so older clients that send everything still work.
+  Only `trigger: "regenerate-message"` regenerates an answer; a retry that
+  resends the history as a submit becomes a new turn, even when it carries a
+  `messageId` (0.12.75).
 - **GET `/api/conversations`**, **GET `/api/conversations/[id]`** — list / history (M2).
 - **GET `/api/chat/[id]/stream`** — resume in-flight answer (M2).
 - Optional, not used by the app yet: **POST `/api/conversations/[id]/follow-ups`**

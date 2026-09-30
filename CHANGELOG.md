@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.12.75
+
+- **Fix: "Try again" after a failed follow-up saved the answer as a version of the previous answer.** Retry resends the history (`sendMessage(undefined)`), so the request carries the last message's `messageId` with `trigger: "submit-message"`. The route treated any `messageId` as a regenerate, and the regenerate target lookup falls back to the last assistant message. Only `trigger === "regenerate-message"` now marks a regenerate. Web and mobile retries both benefit; no client change.
+
 ## 0.12.74
 
 - **Shorter default answers.** Balanced style targets 80–150 words for ordinary questions, with essential source support and no automatic recap or takeaway. Explicit requests for detail or brevity override the selected style's default length; Scholar remains in depth by default. Related sources no longer imply a longer answer just because they were retrieved. Eval (8 Italian questions, `scripts/eval/answers.ts`): output tokens p50 626→500, total time p50 21.6→17.9 s, cost/turn −17%, blind judge 4–3 for the old prompt (within noise). The `reasoningEffort: "low"` option from the same draft is not included: the gateway accepts only none/high/max for DeepSeek, so `low` was ignored.
