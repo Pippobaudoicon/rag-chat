@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.12.73
+
+- **Clients send only the latest message to `/api/chat`.** The web transport sent the whole UI history on every request, and each message's `metadata` carried its full sources, versions and details: 80 KB p50 per conversation, 350 KB p90, 1.26 MB max. The server only reads `messages.at(-1)` and loads the history from the DB. `prepareSendMessagesRequest` now sends `messages.slice(-1)` with the SDK's default body otherwise unchanged (`id`, `trigger`, `messageId` and the request `body`). Submit, retry, regenerate and stream resume behave as before.
+- Mobile app: the same change on `chatlds-mobile` branch `perf/send-last-message`. `docs/MOBILE.md` documents the contract. The server schema is unchanged, so older clients that send everything still work.
+
 ## 0.12.72
 
 - **`citation_verifier` removed from the chat loop.** It ran on about half of the turns and roughly doubled their tokens: 46.8k input / 3.5k output vs 20.5k / 1.65k for retrieval turns without it. Its step alone took 12.6 s p50, because the model wrote the whole draft into the tool arguments and then rewrote it. With the claim audit off, it only regex-checked `[N]` ranges, and 0 out-of-range citations were found in 46 production answers. It also flagged valid markdown links like `[Alma 32:15-22](url)` as "malformed", forcing needless rewrites. After retrieval, `prepareStep` now turns every tool off (`activeTools: []`, `toolChoice: "none"`) and the model writes the answer.

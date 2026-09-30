@@ -16,7 +16,11 @@ Why Expo, architecture, and the roadmap: `docs/MOBILE_APP_PLAN.md` and
 - **POST `/api/conversations`** — create; app reads `id` + `initialMessageId`.
 - **POST `/api/chat`** — **AI SDK v6 UI Message Stream** (SSE); app parses with
   `useChat`. Don't change the stream protocol without bumping the mobile client's
-  `ai` / `@ai-sdk/react` pins to match.
+  `ai` / `@ai-sdk/react` pins to match. **Request contract:** send only the
+  latest UI message (`messages: messages.slice(-1)`) — the server reads only
+  `messages.at(-1)` and loads history from the DB, while every message's
+  `metadata` carries its full sources/versions. The schema is unchanged
+  (`messages` is any array), so older clients that send everything still work.
 - **GET `/api/conversations`**, **GET `/api/conversations/[id]`** — list / history (M2).
 - **GET `/api/chat/[id]/stream`** — resume in-flight answer (M2).
 - Optional, not used by the app yet: **POST `/api/conversations/[id]/follow-ups`**

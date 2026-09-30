@@ -233,6 +233,10 @@ Read this first before deep code exploration.
   - Accepts an owned `conversationId` and optional `persistedUserMessageId`.
     When that id is present, it must be the matching tail user row for the current
     turn; the route reuses it instead of inserting a duplicate.
+  - Reads only the last entry of `messages` (the new user turn; on regenerate, the
+    user turn being re-answered) — history comes from the DB. Web and mobile send
+    `messages: [latestMessage]`, not the full transcript; the schema still accepts
+    any array.
   - Claims persisted generation ownership before streaming, returns `409` while
     another non-stale turn is active, and commits only for the owning turn.
 - `GET /api/chat/[id]/stream`
