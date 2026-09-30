@@ -25,7 +25,7 @@ export interface CreateRagToolsOptions {
   initialChunks?: SourceChunk[];
   /** Maximum number of unique chunks exposed to the model in this turn. */
   maxChunks?: number;
-  /** Maximum retrieval executions allowed across the turn. */
+  /** Maximum `semantic_search` executions in the turn (specific lookups are not counted). */
   maxRetrievalCalls?: number;
   /** Notified whenever a tool registers new chunks for the response. */
   onSources?: ToolSourceListener;
@@ -62,21 +62,33 @@ export function createRagTools(options: CreateRagToolsOptions) {
 
   const context = createRagToolContext({ initialChunks, maxChunks, onSources });
 
-  const tools = {
-    semantic_search: createSemanticSearchTool({
-      language,
-      defaultSources: sources,
-      defaultTopK: topK,
-      context,
-      onProgress,
-    }),
-    lookup_scripture_passage: createLookupScripturePassageTool({ context, onProgress }),
-    search_conference_talks: createSearchConferenceTalksTool({ language, context, onProgress }),
+  // Parallel calls in the round share the source cap (see claimChunks). The round
+  // waits for every tool anyway, so this adds no latency. ponytail: only calls
+  // already started are awaited; a call emitted after the others claimed gets
+  // what is left (tool calls stream in milliseconds apart, retrieval takes ~1 s).
+  const tracked = <T extends { execute?: unknown }>(toolDef: T): T => {
+    const execute = toolDef.execute as (...args: unknown[]) => Promise<unknown>;
+    return { ...toolDef, execute: (...args: unknown[]) => context.trackCall(() => execute(...args)) };
   };
 
-  return withToolCallBudget(
-    tools,
-    ["semantic_search", "lookup_scripture_passage", "search_conference_talks"],
-    maxRetrievalCalls
-  );
+  const tools = {
+    semantic_search: tracked(
+      createSemanticSearchTool({
+        language,
+        defaultSources: sources,
+        defaultTopK: topK,
+        context,
+        onProgress,
+      })
+    ),
+    lookup_scripture_passage: tracked(createLookupScripturePassageTool({ context, onProgress })),
+    search_conference_talks: tracked(
+      createSearchConferenceTalksTool({ language, context, onProgress })
+    ),
+  };
+
+  // Only topical search counts against the budget: a specific lookup is what the
+  // user asked for, so it always runs (still within the single retrieval round)
+  // and gets its share of the cap.
+  return withToolCallBudget(tools, ["semantic_search"], maxRetrievalCalls);
 }

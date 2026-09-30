@@ -103,7 +103,7 @@ export function createSemanticSearchTool({
         scriptureLanguage: effectiveScriptureLanguage,
       });
 
-      const indexedChunks = context.registerChunks(chunks);
+      const indexedChunks = await context.claimChunks(chunks, 2);
       onProgress?.({
         phase: "tools",
         toolName: "semantic_search",

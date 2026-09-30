@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.12.79
+
+- **Parallel retrieval calls share the source cap instead of the first one taking it all.** Free and guest turns allowed a single retrieval call of any kind, so "Ether 12:27 and what leaders have said about it" refused the second tool and answered half the question. Now `maxRetrievalCalls` limits only `semantic_search` (Pro 2, free/guest 1); scripture and talk lookups always run, still in the single retrieval round. Parallel calls wait for each other (`trackCall`) and split the cap round-robin (`claimChunks`: scripture, then talks, then topical), so two calls keep their top five each under the free 10-source cap. A plain "lookups first" ordering was tried first and dropped: lookups pad to 10 chunks, so topical search always got 0, and a talk search finishing ~1 s before a passage lookup took all 10 slots and dropped the requested verse. Eval (11 Italian questions, free settings, old rule vs new): judge 7–4 for the new rule; multi-tool turns now register 5+5 instead of 10+0; retrieval time is unchanged (~2.5–3 s, the round already waited for every tool); cost/turn about the same ($0.00050 p50).
+
 ## 0.12.78
 
 - **The onboarding tour stays closed once dismissed.** Closing it (skip, finish, Escape or outside click) now also sets `onboarding:dismissed` in `localStorage`, and auto-start checks that flag first. Before, only the server-side `onboardingStatus` was checked, so the tour came back whenever that write was lost. Replay from the sidebar still works.

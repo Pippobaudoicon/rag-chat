@@ -24,7 +24,7 @@ export interface RunSemanticRetrievalParams {
 
 export interface SemanticRetrievalResult {
   /** Ranked chunks, post-expansion and (flag-gated) graph rerank. NOT yet
-   * registered for citation indices — the caller owns `context.registerChunks`. */
+   * registered for citation indices — the caller owns `context.claimChunks`. */
   chunks: SourceChunk[];
   cacheHit: boolean;
 }
@@ -32,7 +32,7 @@ export interface SemanticRetrievalResult {
 /**
  * The retrieval pipeline behind `semantic_search`: `cacheKey → getFromCache →
  * (retrieve + expandRelatedContext + warm setInCache) → graphRerank`.
- * Everything the tool does EXCEPT `context.registerChunks`, which stays with
+ * Everything the tool does EXCEPT `context.claimChunks`, which stays with
  * the caller.
  */
 export async function runSemanticRetrieval({
