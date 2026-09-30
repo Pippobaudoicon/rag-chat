@@ -181,6 +181,11 @@ export const eng = {
     errorQuotaGuest: "You've used the messages available without an account. Sign up free to keep chatting with much higher limits.",
     errorQuota: "You've reached your message limit for now. Upgrade to Pro or try again later.",
     errorRetry: "Try again",
+    followUps: {
+      label: "Suggested questions",
+      tabUse: "to use the suggestion",
+      tabNext: "next suggestion",
+    },
   },
   billing: {
     title: "Plan and usage",

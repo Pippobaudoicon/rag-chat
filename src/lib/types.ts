@@ -245,6 +245,9 @@ export interface MessageDetails {
   toolNames?: string[];
   retrieval?: RetrievalTrace;
   latency?: LatencyTrace;
+  /** Suggested next questions, added after the turn by
+   *  POST /api/conversations/[id]/follow-ups. */
+  followUps?: string[];
 }
 
 export type ChatProgressPhase =

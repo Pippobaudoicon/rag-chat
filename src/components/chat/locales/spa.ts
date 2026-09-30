@@ -180,6 +180,11 @@ export const spa = {
     errorQuotaGuest: "Has usado los mensajes disponibles sin cuenta. Regístrate gratis para seguir con límites mucho más amplios.",
     errorQuota: "Has alcanzado tu límite de mensajes por ahora. Pásate a Pro o inténtalo más tarde.",
     errorRetry: "Reintentar",
+    followUps: {
+      label: "Preguntas sugeridas",
+      tabUse: "para usar la sugerencia",
+      tabNext: "siguiente sugerencia",
+    },
   },
   billing: {
     title: "Plan y uso",

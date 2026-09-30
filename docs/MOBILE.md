@@ -19,6 +19,10 @@ Why Expo, architecture, and the roadmap: `docs/MOBILE_APP_PLAN.md` and
   `ai` / `@ai-sdk/react` pins to match.
 - **GET `/api/conversations`**, **GET `/api/conversations/[id]`** — list / history (M2).
 - **GET `/api/chat/[id]/stream`** — resume in-flight answer (M2).
+- Optional, not used by the app yet: **POST `/api/conversations/[id]/follow-ups`**
+  returns `{ messageId, followUps: string[] }` (suggested next questions for the
+  latest answer), also stored as `details.followUps` on that message in
+  GET `/api/conversations/[id]`. Both are additive; ignoring them is fine.
 - On the M2 radar: `/api/feedback`, `/api/memory`, `/api/settings`, `/api/search`.
 
 ## Copied types

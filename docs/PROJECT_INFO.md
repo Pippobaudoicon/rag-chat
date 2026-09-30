@@ -1,6 +1,6 @@
 # ChatLDS Project Knowledge Base
 
-Last updated: 2026-09-25
+Last updated: 2026-09-29
 
 This document is the single source of truth for project context.
 Read this first before deep code exploration.
@@ -142,6 +142,18 @@ Read this first before deep code exploration.
   that page's real layout (chat: `ChatLoadingSkeleton`, with an `empty` variant
   for `/chat`); keep them in sync when a page layout changes.
 - Free-plan warning banner in chat when the user approaches the chat request limit.
+- Suggested next questions: after an answer finishes, the client calls
+  `POST /api/conversations/[id]/follow-ups` (it never delays the answer) and
+  shows up to 3 questions for the latest answer (`src/lib/chat/follow-ups.ts`,
+  `src/components/chat/interface/useFollowUps.ts` + `FollowUpSuggestions.tsx`).
+  Touch screens (`pointer: coarse`): a thin scrollable row of chips above the
+  composer; a tap fills the composer (it does not send). Mouse/trackpad
+  (`pointer: fine`): the first suggestion is the composer placeholder, Tab fills
+  it, Tab again on an untouched suggestion cycles to the next; Shift+Tab and Tab
+  in a typed draft keep their normal behavior. A small clickable `Tab` hint in
+  the composer footer spells out the action until the user has pressed Tab 3
+  times (`localStorage` `chat:follow-up-tab-uses`), then shows only the key.
+  Hidden while generating, after a failed turn, and while the user has a draft.
 - Tool-assisted answer refinement for:
   - scripture passage lookup
   - conference talk lookup with optional speaker/year constraints
@@ -269,6 +281,14 @@ Read this first before deep code exploration.
     field required).
 - `DELETE /api/conversations/[id]`
   - Delete conversation and cascading messages.
+- `POST /api/conversations/[id]/follow-ups`
+  - Auth or guest cookie required, conversation ownership checked.
+  - Returns `{ messageId, followUps }` for the latest assistant message; `409`
+    while the conversation is still generating. Generated once per answer
+    (small `FOLLOW_UP_MODEL` call, written in the question's language) and
+    merged into that message's `details_json.followUps`; later calls return the
+    stored list, so model cost is bounded by the chat quota. Not written if the
+    answer was regenerated during the call.
 - `GET /api/settings`
   - Auth required. Returns the user's persistent preferences
     (`defaultResponseStyle`, `onboardingStatus`, `onboardingStep`).
@@ -302,7 +322,9 @@ Notes:
 
 - Assistant messages may include `sources_json` used by UI source panel.
 - Assistant `details_json` stores response details and the `toolNames` list so
-  tool-use badges remain visible after reloading a conversation. It also stores a
+  tool-use badges remain visible after reloading a conversation, and optional
+  `followUps` (suggested next questions, added after the turn by the follow-ups
+  route; regenerating the answer replaces the details and drops them). It also stores a
   `retrieval` trace (`RetrievalTrace`): index language, source filters, topK,
   the retrieval-flag signature, and per-tool
   stats (`RetrievalToolEvent`: sourceCount / cacheHit / elapsedMs, plus tool-local
@@ -547,6 +569,7 @@ Notes:
 - `RAG_LANGUAGE_ROUTING` (optional; defaults to `false`) — set to `true` only to restore the legacy dedicated routing-model path
 - `RAG_CLAIM_SUPPORT_AUDIT` (optional; defaults to `false`) — enables the nested LLM claim-support pass inside `citation_verifier`; structural citation validation always remains active
 - `CITATION_AUDIT_MODEL` (optional; defaults to `openai/gpt-5.4-mini`) — structured-output model used only when claim-support auditing is enabled
+- `FOLLOW_UP_MODEL` (optional; defaults to `CHAT_MODEL`) — structured-output model for the suggested next questions (one call per answer)
 - `RAG_GRAPH_RERANK` (optional; defaults to `true`) — graph-aware rerank kill-switch
 - `RAG_RERANK` (optional; defaults to `false`) — Voyage cross-encoder rerank
 - `RAG_MULTI_QUERY` (optional; defaults to `false`) — multi-query expansion

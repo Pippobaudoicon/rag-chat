@@ -181,6 +181,11 @@ export const ita = {
     errorQuotaGuest: "Hai usato i messaggi disponibili senza account. Registrati gratis per continuare con limiti molto più ampi.",
     errorQuota: "Hai raggiunto il limite di messaggi per ora. Passa a Pro o riprova più tardi.",
     errorRetry: "Riprova",
+    followUps: {
+      label: "Domande suggerite",
+      tabUse: "per usare il suggerimento",
+      tabNext: "suggerimento successivo",
+    },
   },
   billing: {
     title: "Piano e utilizzo",

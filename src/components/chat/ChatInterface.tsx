@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
+import type { KeyboardEvent } from "react";
 import { flushSync } from "react-dom";
 import { useChat } from "@ai-sdk/react";
 import { useUser } from "@clerk/nextjs";
@@ -55,6 +56,12 @@ import { useGenerationState, useGenerationSync } from "./interface/useGeneration
 import { useMessageVersions } from "./interface/useMessageVersions";
 import { useResponseStyle } from "./interface/useResponseStyle";
 import { useSearchScope } from "./interface/useSearchScope";
+import {
+  useFollowUps,
+  usePointerFine,
+  useTabShortcutLearned,
+} from "./interface/useFollowUps";
+import { FollowUpChips, FollowUpTabHint } from "./interface/FollowUpSuggestions";
 
 interface ChatInterfaceProps {
   conversationId?: string;
@@ -169,6 +176,8 @@ export function ChatInterface({
     resetGeneration,
   } = generation;
 
+  const { followUpsFor, loadFollowUps, resetFollowUps } = useFollowUps();
+
   const chatTransport = useMemo(
     () => new DefaultChatTransport({ api: "/api/chat" }),
     []
@@ -228,7 +237,7 @@ export function ChatInterface({
       // A quota rejection (429) should update the remaining-messages banner.
       void refreshBillingOverview();
     },
-    onFinish: ({ isAbort, isDisconnect, isError }) => {
+    onFinish: ({ message, isAbort, isDisconnect, isError }) => {
       if (isAbort || isDisconnect || isError) return;
 
       settleClaim();
@@ -237,6 +246,7 @@ export function ChatInterface({
 
       const convId = conversationIdRef.current;
       if (convId) {
+        void loadFollowUps(convId, message.id);
         window.dispatchEvent(
           new CustomEvent("chat:conversation-updated", {
             detail: {
@@ -298,6 +308,55 @@ export function ChatInterface({
   const errorKind = chatError ? chatErrorKind(chatError, navigator.onLine) : "generic";
   const failedQuestion =
     failedTurn && lastMessage?.role === "user" ? getPlainText(lastMessage) : null;
+
+  // Suggested next questions: chips above the composer on touch screens; on
+  // desktop the first one is the placeholder and Tab fills it (Tab again cycles).
+  const pointerFine = usePointerFine();
+  const { learned: tabShortcutLearned, recordTabUse } = useTabShortcutLearned();
+  const [hasDraft, setHasDraft] = useState(false);
+  // Which suggestion is in the composer, until the user edits it.
+  const [filledFollowUp, setFilledFollowUp] = useState<number | null>(null);
+  const followUps = isStreaming || failedTurn ? [] : followUpsFor(lastMessage);
+  const fillFollowUp = (index: number, focus: boolean) => {
+    const composer = composerRef.current;
+    const question = followUps[index];
+    if (!composer || !question) return;
+    composer.value = question;
+    setHasDraft(true);
+    setFilledFollowUp(index);
+    if (focus) {
+      composer.focus({ preventScroll: true });
+      composer.setSelectionRange(question.length, question.length);
+    }
+  };
+  // Empty composer → first suggestion; untouched suggestion → the next one.
+  const acceptFollowUp = () => {
+    const value = composerRef.current?.value;
+    if (value === "") {
+      fillFollowUp(0, true);
+    } else if (filledFollowUp !== null && value === followUps[filledFollowUp]) {
+      fillFollowUp((filledFollowUp + 1) % followUps.length, true);
+    } else {
+      return false;
+    }
+    return true;
+  };
+  const handleComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (
+      event.key !== "Tab" ||
+      event.shiftKey ||
+      event.altKey ||
+      event.ctrlKey ||
+      event.metaKey ||
+      followUps.length === 0
+    ) {
+      return;
+    }
+    if (acceptFollowUp()) {
+      event.preventDefault();
+      recordTabUse();
+    }
+  };
 
   const ensureConversation = useCallback(async (initialTurn?: {
     title: string;
@@ -569,8 +628,14 @@ export function ChatInterface({
 
   const handlePromptSubmit = useCallback(
     (message: PromptInputMessage) => {
+      // PromptInput has already cleared the textarea (and restores it on failure).
+      setHasDraft(false);
+      setFilledFollowUp(null);
       // Return the promise so PromptInput can await it before clearing the form
-      return handleSubmit(message.text);
+      return handleSubmit(message.text).catch((error) => {
+        setHasDraft(true);
+        throw error;
+      });
     },
     [handleSubmit]
   );
@@ -608,6 +673,7 @@ export function ChatInterface({
         resetFeedback();
         resetVersions();
         resetGeneration();
+        resetFollowUps();
       });
 
       if (window.location.pathname !== "/chat") {
@@ -625,7 +691,7 @@ export function ChatInterface({
     return () => {
       window.removeEventListener("chat:new-conversation", onNewConversation);
     };
-  }, [resetFeedback, resetGeneration, resetVersions, setMessages, stop]);
+  }, [resetFeedback, resetFollowUps, resetGeneration, resetVersions, setMessages, stop]);
 
   const isEmptyChat = messages.length === 0;
 
@@ -642,7 +708,12 @@ export function ChatInterface({
         ref={composerRef}
         className="min-h-14 max-h-52 px-4 pt-4 pb-1 text-base md:text-[15px] leading-6 placeholder:text-muted-foreground/70"
         enterKeyHint="send"
-        placeholder={text.chat.placeholder}
+        placeholder={pointerFine && followUps[0] ? followUps[0] : text.chat.placeholder}
+        onChange={(event) => {
+          setHasDraft(event.currentTarget.value !== "");
+          setFilledFollowUp(null);
+        }}
+        onKeyDown={handleComposerKeyDown}
       />
       <PromptInputFooter className="px-2.5 pt-1 pb-2.5">
         <PromptInputTools className="gap-1.5">
@@ -662,17 +733,28 @@ export function ChatInterface({
             disabled={isStreaming}
           />
         </PromptInputTools>
-        <PromptInputSubmit
-          status={composerStatus}
-          disabled={isStreaming}
-          {...(isStreaming
-            ? {
-                "aria-label": text.chat.pendingDrafting,
-                title: text.chat.pendingDrafting,
-              }
-            : {})}
-          className="size-9 md:size-8 rounded-full bg-foreground text-background transition-opacity hover:bg-foreground hover:opacity-85 disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100"
-        />
+        <div className="flex items-center gap-1.5">
+          {followUps.length > 0 && (!hasDraft || filledFollowUp !== null) && (
+            <FollowUpTabHint
+              text={text.chat.followUps}
+              learned={tabShortcutLearned}
+              filled={hasDraft}
+              canCycle={followUps.length > 1}
+              onAccept={acceptFollowUp}
+            />
+          )}
+          <PromptInputSubmit
+            status={composerStatus}
+            disabled={isStreaming}
+            {...(isStreaming
+              ? {
+                  "aria-label": text.chat.pendingDrafting,
+                  title: text.chat.pendingDrafting,
+                }
+              : {})}
+            className="size-9 md:size-8 rounded-full bg-foreground text-background transition-opacity hover:bg-foreground hover:opacity-85 disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100"
+          />
+        </div>
       </PromptInputFooter>
     </PromptInput>
   );
@@ -761,6 +843,13 @@ export function ChatInterface({
         }
       >
         <div className="mx-auto max-w-3xl">
+          {!isEmptyChat && !hasDraft && followUps.length > 0 && (
+            <FollowUpChips
+              followUps={followUps}
+              text={text.chat.followUps}
+              onSelect={(question) => fillFollowUp(followUps.indexOf(question), false)}
+            />
+          )}
           {composer}
           <p
             className={`mt-1.5 text-center text-[11px] text-muted-foreground/60 ${

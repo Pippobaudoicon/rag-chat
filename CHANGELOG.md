@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.12.66
+
+- **Suggested next questions after each answer.** Once an answer is finished and saved, the chat asks `POST /api/conversations/[id]/follow-ups` for up to 3 short questions the user might send next (one small model call per answer, `FOLLOW_UP_MODEL`, default `CHAT_MODEL`, written in the question's language). They are stored in the answer's `details_json.followUps`, so reopening the conversation shows them without a new call. The answer itself is never delayed.
+- **Phone / tablet:** a thin scrollable row of chips appears above the composer; tapping one fills the composer, so it can be edited before sending.
+- **Desktop:** the first suggestion becomes the composer placeholder; Tab fills it and Tab again cycles to the next one (Shift+Tab, and Tab while typing, work as before). A small clickable `Tab` hint next to the send button says "to use the suggestion" until the user has pressed Tab 3 times, then shows only the key.
+- Suggestions are hidden while an answer is generating, after a failed turn, and while the user is typing. They are shown only for the latest answer.
+- Mobile app: no change needed. The endpoint and `details.followUps` are additive (documented in `docs/MOBILE.md`).
+- New check `test:follow-ups` (cleaning of the model's suggestions).
+
 ## 0.12.65
 
 - **Mobile drawer logo shows up right away.** The sidebar loaded the 2000×2000, 1.4 MB `logo-no-bg.png` lazily and recolored it with a CSS filter, so on mobile it was missing when the drawer opened. It now uses `public/icons/logo-mark-white.png`, a pre-rendered 96×96 white silhouette (2.6 KB), loaded eagerly without the filter.
