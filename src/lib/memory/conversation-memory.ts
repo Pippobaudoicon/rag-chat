@@ -374,19 +374,14 @@ export async function getUserMemoryContext(clerkUserId: string): Promise<string>
 
 export async function getUserMemoryBrief(
   clerkUserId: string
-): Promise<{ prompt: string; signature: string }> {
-  if (!MEMORY_ENABLED) return { prompt: "", signature: "disabled" };
+): Promise<string> {
+  if (!MEMORY_ENABLED) return "";
 
   const db = getDb();
   const [profile, periods, recentConversationMemory] = await Promise.all([
     loadProfile(clerkUserId),
     db
-      .select({
-        cadence: userMemoryPeriods.cadence,
-        summary: userMemoryPeriods.summary,
-        refreshedAt: userMemoryPeriods.refreshedAt,
-        updatedAt: userMemoryPeriods.updatedAt,
-      })
+      .select({ summary: userMemoryPeriods.summary })
       .from(userMemoryPeriods)
       .where(eq(userMemoryPeriods.clerkUserId, clerkUserId))
       .orderBy(desc(userMemoryPeriods.periodStart))
@@ -405,7 +400,7 @@ export async function getUserMemoryBrief(
       recentConversationMemory?.summary.trim()
   );
 
-  if (!hasMemory) return { prompt: "", signature: "empty" };
+  if (!hasMemory) return "";
 
   const hints: string[] = [];
   if (profile?.preferencesJson.length) {
@@ -418,7 +413,7 @@ export async function getUserMemoryBrief(
     hints.push(`Recent topics: ${recentConversationMemory.topicsJson.slice(0, 5).join(", ")}`);
   }
 
-  const prompt = truncate(
+  return truncate(
     [
       "Personalization memory is available but intentionally summarized to save tokens.",
       hints.length ? hints.join("\n") : "Use it only when relevant to tone, continuity, or explicit user preferences.",
@@ -426,33 +421,6 @@ export async function getUserMemoryBrief(
     ].join("\n"),
     MAX_MEMORY_BRIEF_CHARS
   );
-
-  const signature = JSON.stringify({
-    profileUpdatedAt: profile?.updatedAt?.toISOString?.() ?? null,
-    profileCounts: profile
-      ? [
-          profile.profileSummary.length,
-          profile.preferencesJson.length,
-          profile.factsJson.length,
-          profile.feedbackPatternsJson.length,
-        ]
-      : null,
-    periodVersions: periods.map((period) => [
-      period.cadence,
-      period.summary.length,
-      period.refreshedAt.toISOString(),
-      period.updatedAt.toISOString(),
-    ]),
-    conversationMemoryVersion: recentConversationMemory
-      ? [
-          recentConversationMemory.summary.length,
-          recentConversationMemory.topicsJson.length,
-          recentConversationMemory.updatedAt.toISOString(),
-        ]
-      : null,
-  });
-
-  return { prompt, signature };
 }
 
 export async function getUserMemorySnapshot(clerkUserId: string) {

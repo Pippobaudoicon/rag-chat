@@ -1,6 +1,6 @@
 # ChatLDS Project Knowledge Base
 
-Last updated: 2026-09-29
+Last updated: 2026-09-30
 
 This document is the single source of truth for project context.
 Read this first before deep code exploration.
@@ -170,8 +170,9 @@ Read this first before deep code exploration.
 2. The client immediately exposes that conversation in the sidebar, switches the
    URL to `/chat/[id]`, and calls `POST /api/chat` with the same user content,
    `conversationId`, and `persistedUserMessageId`.
-3. The chat route verifies auth (Clerk user or guest cookie), extracts the latest user question, loads Clerk
-   Billing entitlements, checks Clerk plan access via `auth().has({ plan })`, and
+3. The chat route verifies auth (Clerk user or guest cookie), extracts the latest user question, derives
+   the plan from the session claims alone (`getSessionEntitlements`: `auth().has({ plan })`
+   against the configured Pro plan keys, no Clerk Backend API call), and
    applies plan-aware chat rate limits plus a `topK` cap. These auth/ratelimit gates
    resolve first so a rejected request never pays for model/retrieval work; a rejected
    pending first turn is moved to `error` instead of remaining active.
@@ -183,21 +184,22 @@ Read this first before deep code exploration.
    Once past the gate, mutually independent reads run concurrently: messages, the
    memory brief, and user preferences. There is no answer-language or translation
    model call in the preamble.
-5. The main chat model infers the answer language directly from the original user message. TinyLD does not supply an answer-language hint or scripture-language preference. During the same tool-decision step, the model translates `semantic_search` and `search_conference_talks` query/title arguments into the corpus language stated in each tool description, while preserving names and references. Both `semantic_search` and `lookup_scripture_passage` require the model to select the prompt's indexed scripture language (`"ita"` or `"eng"`; English fallback for unsupported languages). `RagToolContext` locks the first selection across the whole turn, and semantic retrieval filters primary, related, and cached chunks, so scripture source cards can never mix languages. `RAG_LANGUAGE_ROUTING` defaults to `false`; setting it to `true` restores the legacy per-tool dedicated routing model.
+5. The main chat model infers the answer language directly from the original user message. TinyLD does not supply an answer-language hint or scripture-language preference. During the same tool-decision step, the model translates `semantic_search` and `search_conference_talks` query/title arguments into the corpus language stated in each tool description, while preserving names and references. Both `semantic_search` and `lookup_scripture_passage` require the model to select the prompt's indexed scripture language (`"ita"` or `"eng"`; English fallback for unsupported languages). `RagToolContext` locks the first selection across the whole turn, and semantic retrieval filters primary, related, and cached chunks, so scripture source cards can never mix languages. The tools use those arguments as-is: there is no chat-side translation step. `RAG_LANGUAGE_ROUTING` only affects `GET /api/search`.
 6. Server constructs an AI SDK `streamText` call with the RAG tool set and lets the model decide how to retrieve.
-7. **Eager retrieval (P1, flag-gated, default OFF — opt-in):** on an answer-cache miss, for a high-confidence same-language topical question the server can run the default `semantic_search` retrieval during the preamble and seed the chunks into the user message. Its TinyLD check is only an eager-retrieval safety gate; it never controls answer or scripture language.
 8. The model calls retrieval tools and supplies corpus-ready arguments in the same step:
    - `semantic_search` for general topical queries (caches via Upstash Redis).
    - `lookup_scripture_passage` for scripture references (also cached via Upstash Redis).
    - `search_conference_talks` for talks by title / speaker / year (also cached via Upstash Redis).
-   A turn permits one retrieval round with at most two retrieval executions;
-   genuinely multi-source questions may call two tools together in that round.
-   Afterward only optional citation verification remains available before the
-   final answer.
+    A turn permits one retrieval round with at most two retrieval executions
+    (Pro); free and guest turns get one, since their 10-source cap would only let
+    a second parallel call race the first for the same slots. An over-budget call
+    returns `limitReached` before doing any retrieval work. Genuinely multi-source
+    Pro questions may call two tools together in that round.
+    Afterward every tool is disabled (`toolChoice: "none"`) and the model writes
+    the final answer.
 9. Tool results register chunks in a shared per-turn `RagToolContext` so all
    citation indices remain stable across multiple tool calls.
-10. The model generates the final answer in the original language of the user's prompt and may call `citation_verifier`
-   before completing.
+10. The model generates the final answer in the original language of the user's prompt.
 11. Before generation starts, the route claims the conversation with an atomic
    compare-and-set: a pending first row (`streaming` + null `active_turn_id`) or a
    terminal/idle row receives a unique `active_turn_id`, optional Redis
@@ -211,19 +213,13 @@ Read this first before deep code exploration.
    `after()` task so generation can continue while that function remains alive.
    Clients poll `GET /api/conversations/[id]?status=1` and reload persisted messages
    when the status stops being `streaming`; partial tokens cannot be replayed.
-14. The chat route loads a compact personalization memory brief by default,
-   plus a memory version signature for cache invalidation. The full saved
+14. The chat route loads a compact personalization memory brief by default.
+   The full saved
    memory is available only through the `read_personal_memory` tool when the
    model decides the current turn needs it.
-15. For normal non-regenerate conversation turns, the chat route checks a
-   session-scoped answer cache keyed by user, conversation, normalized question,
-   turn settings, recent history, and memory signature. Cache hits skip the full
-   retrieval + model pipeline while still persisting the user/assistant messages.
 16. Assistant text + collected tool chunks + tool names used during the turn are
    persisted to DB and returned as metadata. The owning turn changes generation
-   status to `complete` (or `error`) and clears the active ids/timestamp. Redis
-   cache entries are updated with retrieval outputs, session answer payloads, and
-   sidebar title/list data.
+   status to `complete` (or `error`) and clears the active ids/timestamp.
 17. UI renders message, inline citations, and source cards. Conversation-level
    polling plus the sidebar spinner keep in-progress work visible across route or
    conversation changes.
@@ -237,6 +233,13 @@ Read this first before deep code exploration.
   - Accepts an owned `conversationId` and optional `persistedUserMessageId`.
     When that id is present, it must be the matching tail user row for the current
     turn; the route reuses it instead of inserting a duplicate.
+  - Reads only the last entry of `messages` (the new user turn; on regenerate, the
+    user turn being re-answered) — history comes from the DB. Web and mobile send
+    `messages: [latestMessage]`, not the full transcript; the schema still accepts
+    any array.
+  - Only `trigger: "regenerate-message"` marks a regenerate (with `messageId`
+    naming the answer). A `messageId` on a plain submit, as sent by "Try again",
+    is ignored (0.12.75).
   - Claims persisted generation ownership before streaming, returns `409` while
     another non-stale turn is active, and commits only for the owning turn.
 - `GET /api/chat/[id]/stream`
@@ -246,7 +249,7 @@ Read this first before deep code exploration.
 - `GET /api/search`
   - Auth required.
   - Retrieval only, no generation.
-  - Plan-aware rate limiting and `topK` caps.
+  - Plan-aware rate limiting and `topK` caps (plan from session claims, like chat).
 - `GET /api/billing/subscription`
   - Auth required.
   - Returns normalized Free/Pro entitlements from Clerk Billing plus Redis-backed usage snapshots.
@@ -327,33 +330,39 @@ Notes:
   route; regenerating the answer replaces the details and drops them). It also stores a
   `retrieval` trace (`RetrievalTrace`): index language, source filters, topK,
   the retrieval-flag signature, and per-tool
-  stats (`RetrievalToolEvent`: sourceCount / cacheHit / elapsedMs, plus tool-local
-  language routing — `routingMs` / `translated` / `inputLanguageCode` /
-  `retrievalLanguage` / `routingModel` / `routingFallbackUsed` / `routingCalls` —
-  present for `semantic_search` & `search_conference_talks`, absent for the
-  non-translating `lookup_scripture_passage`). `search_conference_talks` may route
-  two fields (query + title), so the telemetry is **aggregated** across both
-  resolutions: `routingMs` summed, `translated`/`routingFallbackUsed` OR'd,
-  `routingCalls` = number of model-invoking resolutions, `routingModel` = the
-  distinct model(s) used. There is no longer a single global translated
-  search query; translation is per-tool. The retrieved chunks live in
+  stats (`RetrievalToolEvent`: toolName / sourceCount / cacheHit / elapsedMs /
+  `retrievalLanguage`). Rows written before 0.12.76 may also carry per-tool
+  routing fields (`routingMs`, `translated`, `routingModel`, …) from the removed
+  chat-side resolver; nothing reads them. The retrieved chunks live in
   `sources_json`; the trace captures the *how* so real conversations can be mined
   into the eval gold set.
+- The persisted assistant `content` (and its `versions_json` entry) is the text of
+  every step joined with a blank line — the pre-tool progress sentence plus the
+  answer — so a reload shows what streamed (`onFinish`'s own `text` is only the
+  final step).
+- Assistant `details_json` (written in `onFinish`) also stores cost/citation
+  telemetry: `cachedInputTokens` (`usage.inputTokenDetails.cacheReadTokens`),
+  `costUsd` (AI Gateway `providerMetadata.gateway.cost`, summed over steps;
+  excludes gateway surcharges), `provider` / `resolvedModel` (final step's
+  `gateway.routing.finalProvider` / `canonicalSlug`, since `model` is only the
+  `CHAT_MODEL` alias), and `citations: { cited, outOfRange }` — a zero-token
+  check of the final text's `[N]` markers (`extractCitationMarkers` in
+  `src/lib/rag/citation-markers.ts`) against the persisted source count. It
+  only monitors; the text is never rewritten.
 - Assistant `details_json` also stores a versioned `latency` trace
   (`LatencyTrace` in `types.ts`) for quantifying chat-response latency from real
   traffic. It records independent pre-stream phase durations (auth, entitlements,
-  ratelimit, convLoad, messagesLoad, routing, memoryBrief, answerCacheLookup,
-  userMsgInsert, prefs), ordered milestones (`preStreamMs`, `firstModelChunkMs`,
+  ratelimit, convLoad, messagesLoad, routing, memoryBrief, userMsgInsert, prefs;
+  `entitlements` is no longer recorded — it is now a no-network claims check), ordered milestones (`preStreamMs`, `firstModelChunkMs`,
   `firstToolCallMs`, `serverFirstTextMs`, `answerReadyMs` — generation/cache
   resolved, captured before the trailing DB/cache writes, so not total handler
   time), per-step **inclusive** wall time (`steps[].wallMs` covers model + any
   in-step tool execution, since `onStepFinish` fires after tools run), and
   per-tool `{name, durationMs, ok, cacheHit}`. The empty tool-decision turn is
   derived as `firstToolCallMs − preStreamMs` (not the gap from `firstToolCallMs`
-  to `serverFirstTextMs`, which is retrieval plus later model/verifier work).
-  `path` (`generated` |
-  `answer-cache` | `regenerate`) separates cache-hit returns from cold-path
-  percentiles, and `release` (`VERCEL_GIT_COMMIT_SHA`) enables before/after
+  to `serverFirstTextMs`, which is retrieval plus later model work).
+  `path` (`generated` | `regenerate`; older rows may carry the removed
+  `answer-cache` path) separates regenerations from cold-path percentiles, and `release` (`VERCEL_GIT_COMMIT_SHA`) enables before/after
   comparison. Built by `src/lib/observability/latency.ts` (`createLatencyTrace`
   for independent `performance.now()` durations + `withToolTiming` to wrap the
   tool set). Written on completed responses only (failed/aborted requests are
@@ -361,9 +370,9 @@ Notes:
   `serverFirstTextMs` is the server's first emitted text after `smoothStream`,
   not browser first paint.
 - Conversation auto-title is derived from the first user message.
-- Conversation titles are cached in Redis and the conversation list endpoint is
-  cached per user/page cursor with invalidation on create, rename, delete, and
-  chat activity that updates `updatedAt`.
+- Conversation lists and titles are read straight from Postgres; there is no
+  server-side conversation cache to invalidate (the removed Redis list cache
+  cost a full-keyspace SCAN per invalidation on the chat hot path).
 - A blank `/chat` view does not create an empty conversation merely because the
   sidebar opened. The first non-empty submit creates it, persists the initial user
   message before generation, inserts it into the sidebar immediately as pending,
@@ -435,14 +444,13 @@ Notes:
   - The reranker ranks the **globally strongest** candidates (the pool is sorted
     before the 100-candidate cap) and demotes any unreranked tail below all
     reranked chunks (cosine and Voyage relevance are different scales).
-  - Retrieval/answer **cache keys include `retrievalFlagsSignature()`** so toggling
+  - Retrieval **cache keys include `retrievalFlagsSignature()`** so toggling
     language routing or ranking flags is not masked by a stale cache (graph rerank
     excluded — it runs after the cache read in the tools).
 - The language selector controls only UI labels. It does not affect search language or final answer language.
-- In chat, the main model emits corpus-language semantic/conference queries as part of its existing tool call and infers answer language directly from the original prompt. The optional legacy resolver remains behind `RAG_LANGUAGE_ROUTING=true`. `GET /api/search` still uses `routeQueryLanguage()`; with routing disabled it sends the original query unchanged.
+- In chat, the main model emits corpus-language semantic/conference queries as part of its existing tool call and infers answer language directly from the original prompt. Chat has no translation step. Only `GET /api/search` uses `routeQueryLanguage()`: with `RAG_LANGUAGE_ROUTING=true` it translates the query with the routing model; with routing disabled (the default) it sends the original query unchanged.
 - `RAG_INDEX_LANGUAGE` controls the single-language semantic retrieval target. It defaults to English (`eng`) for `lds-rag-v1` (English-main corpus; scriptures also carry Italian chunks). Set to `ita` only to target the legacy `lds-rag` index.
-- Retrieval preserves source-language metadata. Scriptures are bilingual; the main model selects `"ita"` or `"eng"` for every scripture-producing tool. A per-turn lock forces all tools to the same selection, semantic fan-out queries only that scripture language, and post-expansion filtering removes any opposite-language scripture chunk. Production callers disable cross-language scripture fallback: an empty result is returned instead of showing scriptures in the wrong language. Other namespaces remain in their indexed corpus languages.
-- **Cross-language de-duplication (topical fan-out).** The general `retrieve` path fans each query across every indexed language for recall, so bilingual content (scriptures, translated talks) came back twice — e.g. *Exodus 18* (eng) **and** *Esodo 18* (ita) — since `mergeChunks` only dedupes by exact id (which differs by language segment). After `mergeChunks`, `collapseCrossLanguage()` groups chunks by their **language-invariant id** (namespace + slug/chapter/verse, dropping the language segment) and keeps one per group: the answer-language copy at the group's best score (rank preserved). This runs before rerank/diversify/slice so the top-k holds distinct passages, not translation pairs. Passages present in only one language, or chunked into different verse ranges across languages, have no partner and pass through. (Verse/chapter-selection paths already pick a single language via `retrievePreferredLanguage`, so they are unaffected.) Regression: `pnpm run test:cross-language`.
+- Retrieval preserves source-language metadata. Scriptures are bilingual; the main model selects `"ita"` or `"eng"` for every scripture-producing tool. A per-turn lock forces all tools to the same selection, semantic fan-out queries only that scripture language, and post-expansion filtering removes any opposite-language scripture chunk. Production callers disable cross-language scripture fallback: an empty result is returned instead of showing scriptures in the wrong language. Only the `scriptures` namespace has Italian vectors; every other namespace is English-only, so the semantic fan-out (`retrieve`) and `retrieveConferenceCandidates` query them in the index language only (one Pinecone query per namespace per query vector). Because each source is queried in a single language, a turn never holds an English/Italian pair of one passage, so there is no cross-language collapse step. Regression for the scripture-language guards: `pnpm run test:cross-language`.
 - **Single-language direct-passage contract.** `lookup_scripture_passage` returns one language. The cross-reference graph's `related_ids` are stored as English ids, so `expandRelatedContext` **localizes** scripture cross-refs to the passage language: it rewrites the id's language segment (`scriptures:eng:<slug>:… → scriptures:ita:…`, `localizeScriptureId` — pure slug remap, no LLM) and fetches by id; any ref whose exact verse-range chunk doesn't exist in the target language (the languages chunked the same verses differently) is recovered by `fetchLocalizedScriptureRefs` — list that book+chapter in the target language by id prefix, keep chunks whose verse range overlaps (canonical slug+chapter resolution, still no LLM). `filterRelatedToLanguage` then drops anything still cross-language (e.g. English-only study helps). So an Italian `Giovanni 3:16` returns the Italian passage **plus its Italian cross-reference chunks**, never mixed English. Result is re-capped to `RELATED_CONTEXT_CAP` (exact-id matches first). The requested passage stays pinned first; the eval golden set has permanent `Giovanni 3` / `Giovanni 3:16` / `John 3` / `John 3:16` fixtures asserting first-result book/passage and scripture language (`expectFirstRefAnyOf` + `expectScriptureLanguage`).
 - Structured scripture retrieval (verse + chapter, including bare chapter refs like "Alma 32") filters Pinecone on **language-invariant** signals (`language` + `chapter`) and enforces the requested book via its **slug** (chunk id 3rd segment `scriptures:<lang>:<bookSlug>:…` / URL path), NOT the display book name. This is deliberate: `parseScriptureSelection().canonicalBook` is Italian (legacy table — "Giovanni", "Salmi", "2 Nefi") and does not match the English `book` metadata, so a `book: { $eq }` filter would silently return nothing and fall back to Italian or to unfiltered semantic results. (If the canonicalBook table is ever localized to English, the slug-based matching still holds.)
 - Enrichment metadata is consumed (present on enriched namespaces — scriptures + conference): the retriever maps `summary`, `topics`, `entities` (people/places/doctrines), and `references` onto each chunk. These are (a) sent to the model as per-source context via `toToolChunk` (context only — not citable sources), (b) shown as tags/reference chips on source cards, and (c) used for a small, capped topic/entity rerank boost when query terms overlap a chunk's topics/entities.
@@ -453,22 +461,14 @@ Notes:
   - boosts chapter coverage in returned chunks.
 - Retrieval is **tool-driven** end-to-end: the model decides which retrieval
   tools to invoke via the AI SDK tools API. To prevent runaway context growth,
-  a turn allows one retrieval round with at most two retrieval executions;
-  `prepareStep` then disables retrieval tools, leaving optional citation
-  verification followed by the final answer. Retrieval caching lives in the tool layer
+  a turn allows one retrieval round with at most two retrieval executions (one
+  for free/guest, see §4 step 8);
+  `prepareStep` then disables every tool (`activeTools: []`, `toolChoice: "none"`)
+  so the next step writes the final answer. Retrieval caching lives in the tool layer
   for `semantic_search`, `lookup_scripture_passage`, and `search_conference_talks`.
   `stopWhen: stepCountIs(4)` is the emergency cap for model + tool steps per
-  turn. **Exception — P1 eager retrieval (flag-gated, default OFF):** for
-  high-confidence topical questions on an answer-cache miss, the route can run the
-  default `semantic_search` retrieval during the preamble and seed it as
-  `initialChunks` (see §4 step 5b) with a preloaded-context contract so the model
-  answers without an opening tool round-trip. This is NOT the old unconditional
-  double-retrieval: eager warms the same tool cacheKey via the shared
-  `runSemanticRetrieval()` helper, so a refinement `semantic_search` is a cache hit,
-  and a conservative allowlist (`isEagerTopicalQuery`, on the original
-  confidently-English question, English index only) skips scripture refs / fixed chunks / empty
-  sources / chit-chat / follow-ups / specific-talk requests. Opt-in with
-  `RAG_EAGER_RETRIEVAL=true` after trace validation.
+  turn. The only pre-seeded context is the regenerate-with-fixed-chunks path
+  (P1 eager retrieval was removed: it only fired on English prompts).
 - AI function tools available in the chat runtime:
   - `semantic_search` — general topical retrieval over the sources implied by
     the chat search scope, with Upstash Redis caching. The model may override
@@ -494,14 +494,6 @@ Notes:
     the COMPLETE talk in reading order via prefix listing (`fetchConferenceTalkChunks`),
     so the model sees the whole talk rather than whichever chunks semantic search
     surfaced (`matchType` exact/confirmed, `completedTalk: true`).
-  - `citation_verifier` — always performs deterministic structural validation:
-    inline numeric citations must map to chunks accumulated during the turn and
-    malformed markers are flagged. The nested claim-support LLM audit is default
-    OFF (`RAG_CLAIM_SUPPORT_AUDIT=false`) to avoid latency/cost and structured-
-    output failures. When enabled, it uses `CITATION_AUDIT_MODEL` (default
-    `openai/gpt-5.4-mini`) and remains fail-open. With the audit disabled, a
-    structurally valid result reports only that markers are valid; it does not
-    instruct the main model to perform another retrieval.
   - `read_personal_memory` — reads the user's full saved personalization memory
     on demand when the compact memory brief is insufficient for the current turn.
   - `update_personal_memory` — stores durable personalization memory only when
@@ -513,7 +505,7 @@ Notes:
   `src/lib/rag/tools/index.ts` which exposes `createRagTools()`.
 - All tools share a per-turn `RagToolContext` so citation indices are stable
   across multiple tool calls. Persisted/UI source ordering matches the
-  citation-verifier order: chunks are listed in the order they were first
+  citation indices: chunks are listed in the order they were first
   registered by tools.
 - System prompt enforces:
   - tool-first retrieval (at least one retrieval tool for any substantive
@@ -526,17 +518,22 @@ Notes:
   - no fabricated citations,
   - citation mapping to tool-returned chunks only,
   - include canonical links only when present in chunk metadata.
-  - religious-scholar depth with clear, plain explanations suitable for adults,
-    youth, and new learners.
+  - careful source-grounded explanations, with length and depth matched to the
+    requested style and user instructions.
 - The system prompt is composed from a constant CORE (identity + the retrieval,
   grounding, citation, and memory rules above) plus a swappable **response-style**
   block that controls only voice/altitude — never grounding or citations.
   `system-prompt.ts` exports `RESPONSE_STYLES` (`balanced` | `scholar` | `simple`
   | `concise`), `DEFAULT_RESPONSE_STYLE` (`balanced`), and
   `buildSystemPrompt(styleId)`. `SYSTEM_PROMPT` = `buildSystemPrompt(default)`.
-  The default "Balanced" style encodes an operational readability contract:
-  scholar-level depth in the substance, child-followable wording, define-on-first-
-  use for doctrinal terms, and a child-and-scholar dual self-check.
+  The default "Balanced" style targets 80–150 words in one or two short
+  paragraphs for ordinary questions, with essential supporting points and
+  citations (0.12.74). Simple questions can be shorter; requested coverage and
+  necessary qualifications take precedence over the target. Explicit requests
+  for length, depth, or format override the selected style's default length.
+  Scholar remains in depth by default. Related source context is included only
+  when it helps answer the question, rather than automatically expanding the
+  response.
 - **Style resolution** (chat route): effective style =
   conversation `response_style` override → user `default_response_style`
   (`rag_user_settings`, via `getUserPreferences`) → `DEFAULT_RESPONSE_STYLE`
@@ -557,18 +554,19 @@ Notes:
 - `NEXT_PUBLIC_CLERK_SIGN_IN_URL`
 - `NEXT_PUBLIC_CLERK_SIGN_UP_URL`
 - `DATABASE_URL`
-- `UPSTASH_REDIS_REST_URL`
-- `UPSTASH_REDIS_REST_TOKEN`
+- `UPSTASH_KV_REST_API_URL` / `UPSTASH_KV_REST_API_TOKEN` (set by the Vercel
+  Upstash integration; `UPSTASH_REDIS_REST_URL` / `_TOKEN` take precedence when
+  set). Since 2026-09-30 production uses a database whose primary is in
+  us-east-1, next to the iad1 functions. The unprefixed `KV_REST_API_*`
+  fallback was removed in 0.12.77.
 - `VOYAGE_API_KEY`
 - `PINECONE_API_KEY`
 - `PINECONE_INDEX` (optional; defaults to `lds-rag-v1`; set to `lds-rag` for the legacy index)
 - `RAG_INDEX_LANGUAGE` (optional; defaults to `eng` for `lds-rag-v1`; set to `ita` for the legacy index)
 - `CHAT_MODEL` (optional; defaults to `deepseek/deepseek-v4.1-flash`)
-- `RAG_ROUTING_MODEL` (optional; defaults to `openai/gpt-oss-120b`) — dedicated retrieval-query routing/translation model, independent from `CHAT_MODEL` (`reasoningEffort: low`, 600-token ceiling)
+- `RAG_ROUTING_MODEL` (optional; defaults to `openai/gpt-oss-120b`) — dedicated `/api/search` query routing/translation model (used only when `RAG_LANGUAGE_ROUTING=true`), independent from `CHAT_MODEL` (`reasoningEffort: low`, 600-token ceiling)
 - `RAG_ROUTING_FALLBACK_MODEL` (optional; defaults to `openai/gpt-5.4-mini`) — one-shot fallback used once if the primary routing model returns no structured output
-- `RAG_LANGUAGE_ROUTING` (optional; defaults to `false`) — set to `true` only to restore the legacy dedicated routing-model path
-- `RAG_CLAIM_SUPPORT_AUDIT` (optional; defaults to `false`) — enables the nested LLM claim-support pass inside `citation_verifier`; structural citation validation always remains active
-- `CITATION_AUDIT_MODEL` (optional; defaults to `openai/gpt-5.4-mini`) — structured-output model used only when claim-support auditing is enabled
+- `RAG_LANGUAGE_ROUTING` (optional; defaults to `false`) — `GET /api/search` only: set to `true` to translate search queries with the routing model. Chat never routes
 - `FOLLOW_UP_MODEL` (optional; defaults to `google/gemini-2.5-flash-lite`, pinned independently from `CHAT_MODEL`) — small non-reasoning structured-output model for the suggested next questions: one call per answer, 300-token ceiling, answer trimmed to 2500 characters, 10 s timeout (no suggestions on timeout)
 - `RAG_GRAPH_RERANK` (optional; defaults to `true`) — graph-aware rerank kill-switch
 - `RAG_RERANK` (optional; defaults to `false`) — Voyage cross-encoder rerank
@@ -641,7 +639,6 @@ Reference template: `.env.example`.
   - `src/lib/chat/turn.ts` (pure per-turn helpers: tool names, source de-dup,
     regenerate target/history, usage details, retrieval-trace events)
   - `src/lib/chat/rate-limit.ts` (plan-aware chat limiter + guest per-IP cap, 429 response)
-  - `src/lib/chat/cached-replay.ts` (streams a session-answer cache hit)
   - `src/lib/chat/resumable-stream.ts` (`resumable-stream/generic` Upstash adapter)
   - `migrations/0010_sad_pestilence.sql` (conversation generation-state columns)
   - `scripts/test/chat-lifecycle.test.ts` (pure lifecycle regression suite)
@@ -663,12 +660,12 @@ Reference template: `.env.example`.
   - `src/lib/rag/cache.ts`
   - `src/lib/rag/scripture-reference.ts`
   - `src/lib/rag/citation-links.ts`
+  - `src/lib/rag/citation-markers.ts` (post-answer `[N]` citation check)
   - `src/lib/rag/tools/index.ts` (factory)
   - `src/lib/rag/tools/shared/` (tool-context, chunk-formatting, text-normalize)
   - `src/lib/rag/tools/semantic-search/`
   - `src/lib/rag/tools/lookup-scripture-passage/`
   - `src/lib/rag/tools/search-conference-talks/`
-  - `src/lib/rag/tools/citation-verifier/`
 - Observability:
   - `src/lib/observability/latency.ts` (per-turn `LatencyTrace` builder + tool-timing wrapper)
 - DB:
@@ -688,6 +685,13 @@ Reference template: `.env.example`.
 - Current generation model defaults to `deepseek/deepseek-v4.1-flash` and can be overridden with `CHAT_MODEL`.
 - Clerk Billing is the subscription source of truth. Clerk Billing Plans and Subscriptions are not synced to Stripe; Stripe is only the payment processor. The default Pro plan key is `pro_user`.
 - Clerk Billing is beta/experimental, so `@clerk/nextjs` is pinned in `package.json` instead of using a semver range.
+- Chat and search take the plan from the session token's `pla` claim via
+  `has({ plan })` (`getSessionEntitlements`), never the Clerk Backend API; only
+  billing/usage display (`/api/billing/subscription`, `/billing`, `/memory`) does the
+  full subscription lookup. The claim holds plan **keys** (`u:pro_user`), never a
+  `cplan_…` ID, so the Pro plan's key must be `CLERK_BILLING_PRO_PLAN_KEY`/`_SLUG`
+  or a `pro_user`/`pro` default, and a plan change can take up to ~60 s (token
+  refresh) to reach chat limits.
 - Clerk's subscription detail API is best-effort. If user billing is not enabled in the Clerk instance, the app falls back to Free entitlements without logging noisy expected 403 errors.
 - Chat and search usage display uses Redis sorted-set counters keyed per user and rolling window. If Redis is unavailable, enforcement and usage display gracefully degrade.
 - Chat generation and stream-resume routes have a 180-second execution limit.
@@ -791,6 +795,12 @@ Reference template: `.env.example`.
   constant across both arms; multi-query/diversity follow their env flags and apply
   to both arms — toggle their env and re-run to measure those). Two retrieval calls
   per case. Hits live Pinecone + Voyage. Add a filter: `pnpm run eval -- faith`.
+- Answer-level A/B eval: `pnpm exec dotenv -o -e .env -e .env.local -- tsx
+  scripts/eval/answers.ts [idFilter]` runs 8 Italian questions through the real
+  tool loop over the AI Gateway (no Redis/DB) in two variants — `base` and
+  `nothink` (DeepSeek `thinking: { type: "disabled" }`) — and a blind pairwise
+  LLM judge. It reports first-answer-text time, tokens, gateway cost and citations,
+  and writes JSON to `scripts/eval/results/`. It costs well under $1 per run.
 - Routing fast-path test: `pnpm run test:routing` (`scripts/test/language-routing.test.ts`)
   — pure, network-free assertions that the local same-language short-circuit
   (`detectIndexLanguageMatch`) fires only for confidently, dominantly index-language
@@ -804,7 +814,7 @@ Reference template: `.env.example`.
   merged candidate pool (`reranker.ts`). Adds an external API call (cost + latency);
   validate against `pnpm run eval` before enabling per-deployment. Applies uniformly
   to all languages — in production the query reaching the cross-encoder is already
-  translated into the index language by the tool's lazy language routing, so there is no
+  in the index language (the main model writes the tool arguments in it), so there is no
   per-input-language axis to gate on. Net-positive on the gold set (recall
   0.629 → 0.696). Caveat: the win is uneven per query — the reranker still demotes
   Alma 32 on faith queries (`italian-topic-faith` recall 1.0 → 0.0 even with the
@@ -813,17 +823,6 @@ Reference template: `.env.example`.
 - `RAG_MULTI_QUERY` (default **off**) — multi-query expansion (`query-expansion.ts`).
   Adds one small LLM call per search.
 - `RAG_MMR` (default **off**) — per-source / per-title diversity caps on the top-k.
-- `RAG_EAGER_RETRIEVAL` (default **off**, opt-in) — P1 eager/speculative retrieval.
-  Runs the default `semantic_search` during the preamble on an answer-cache miss and
-  seeds the chunks (with a preloaded-context contract) as `initialChunks` so the model
-  answers on turn 1 (kills the empty tool-decision round-trip). Conservative allowlist
-  (`isEagerTopicalQuery`, false-negatives preferred, classifying the original
-  confidently-English question on the English index only): skips scripture refs / fixed chunks / empty
-  sources / chit-chat / response-edit follow-ups / specific-talk requests. Warms the
-  same tool cacheKey (a refinement tool call is then a cache hit). Deliberately NOT part
-  of `retrievalFlagsSignature()` — it changes *when* retrieval runs, not the cached
-  results. Enable with `true` only after latency-trace + output/citation parity
-  validation (go/no-go: topical p50 `serverFirstTextMs` ≥ ~1s or ~20% better, else remove).
 
 ## 12) Update policy for agents
 
@@ -831,8 +830,9 @@ Reference template: `.env.example`.
 
 - `docs/TOOL_SPECIFIC_LANGUAGE_ROUTING_PLAN.md` records the earlier dedicated
   routing design. The active chat path now performs answer-language inference and
-  retrieval-query translation in `CHAT_MODEL`'s existing tool-decision step;
-  `RAG_LANGUAGE_ROUTING=true` retains the previous router only as a rollback path.
+  retrieval-query translation in `CHAT_MODEL`'s existing tool-decision step. The
+  chat-side resolver was removed in 0.12.76; `RAG_LANGUAGE_ROUTING` now only
+  affects `GET /api/search`.
 
 When changing architecture, behavior, integrations, API contracts, or major UX flow:
 

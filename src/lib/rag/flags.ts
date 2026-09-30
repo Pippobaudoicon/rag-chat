@@ -62,45 +62,14 @@ export function isMultiQueryEnabled(): boolean {
 }
 
 /**
- * Eager (speculative) retrieval: for a high-confidence topical, non-scripture
- * turn the route runs the default `semantic_search` retrieval during the
- * pre-stream preamble and injects the chunks into the user message, so the model
- * answers on its first turn instead of spending an empty model turn just to emit
- * a `semantic_search` tool call. The retrieval tools stay exposed for refinement,
- * and the eager call warms the same Upstash cache a redundant tool call would
- * read, so there is no double-retrieval.
+ * Retrieval-query language routing/translation for /api/search only.
  *
- * Default: OFF (opt-in). Enable only once latency traces AND representative
- * output/citation comparisons confirm a net win without quality drift — set
- * `RAG_EAGER_RETRIEVAL=true`. Eligibility is a conservative positive allowlist
- * (`isEagerTopicalQuery`, plus the route's scripture / fixed-chunks / sources
- * gates): chit-chat, response-edit / conversational follow-ups, scripture
- * references, and specific conference-talk requests are all excluded, so the
- * speculative path only fires on genuine topical questions.
- */
-export function isEagerRetrievalEnabled(): boolean {
-  return envBool(process.env.RAG_EAGER_RETRIEVAL, false);
-}
-
-/**
- * Retrieval-query language routing/translation.
- *
- * Default: OFF. The main chat model emits retrieval queries in the corpus
- * language as part of its existing tool call. Set `RAG_LANGUAGE_ROUTING=true`
- * only to restore the legacy dedicated routing-model path.
+ * Default: OFF. Chat never routes: the main chat model emits retrieval queries
+ * in the corpus language as part of its tool call. Set `RAG_LANGUAGE_ROUTING=true`
+ * to have /api/search translate queries with the dedicated routing model.
  */
 export function isLanguageRoutingEnabled(): boolean {
   return envBool(process.env.RAG_LANGUAGE_ROUTING, false);
-}
-
-/**
- * Nested LLM claim-support audit inside citation_verifier.
- *
- * Default: OFF. Deterministic citation-index validation remains active. Enable
- * only when the extra model call's latency/cost is acceptable.
- */
-export function isClaimSupportAuditEnabled(): boolean {
-  return envBool(process.env.RAG_CLAIM_SUPPORT_AUDIT, false);
 }
 
 /**
@@ -113,7 +82,5 @@ export function isClaimSupportAuditEnabled(): boolean {
 export function retrievalFlagsSignature(): string {
   return `lr${isLanguageRoutingEnabled() ? 1 : 0}rr${
     isRerankEnabled() ? 1 : 0
-  }mq${isMultiQueryEnabled() ? 1 : 0}mmr${isDiversityEnabled() ? 1 : 0}ca${
-    isClaimSupportAuditEnabled() ? 1 : 0
-  }`;
+  }mq${isMultiQueryEnabled() ? 1 : 0}mmr${isDiversityEnabled() ? 1 : 0}`;
 }

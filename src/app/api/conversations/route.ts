@@ -12,12 +12,6 @@ import {
   createConversationSchema,
   uuidSchema,
 } from "@/lib/api/validation";
-import {
-  conversationListCacheKey,
-  getConversationListFromCache,
-  invalidateConversationCaches,
-  setConversationListInCache,
-} from "@/lib/rag/cache";
 import { isChatGenerationStale } from "@/lib/chat/generation";
 
 export const runtime = "nodejs";
@@ -58,17 +52,6 @@ export async function GET(req: NextRequest) {
 
   const limit = clampLimit(req.nextUrl.searchParams.get("limit"));
   const cursor = parseCursor(req.nextUrl.searchParams.get("cursor"));
-  const cacheKey = conversationListCacheKey(userId, limit, cursor ? encodeCursor(cursor) : null);
-  const cached = await getConversationListFromCache(cacheKey);
-  if (
-    cached &&
-    !cached.items.some((conversation) => conversation.generationStatus === "streaming")
-  ) {
-    return Response.json(cached, {
-      headers: { "Cache-Control": "private, no-store" },
-    });
-  }
-
   const pageSize = limit + 1;
 
   const where = cursor
@@ -139,10 +122,6 @@ export async function GET(req: NextRequest) {
     recoveryResults.flatMap((rows) => rows.map((row) => row.id))
   );
 
-  if (recoveredIds.size > 0) {
-    await invalidateConversationCaches(userId);
-  }
-
   const items = rawItems.map(
     ({ generationStartedAt: _, activeTurnId: __, ...conversation }) => ({
       ...conversation,
@@ -154,18 +133,12 @@ export async function GET(req: NextRequest) {
   const nextCursor =
     list.length > limit ? encodeCursor(rawItems[rawItems.length - 1]) : null;
 
-  const payload = {
-    items,
-    nextCursor,
-    hasMore: nextCursor !== null,
-  };
-
-  if (!items.some((conversation) => conversation.generationStatus === "streaming")) {
-    void setConversationListInCache(cacheKey, payload);
-  }
-
   return Response.json(
-    payload,
+    {
+      items,
+      nextCursor,
+      hasMore: nextCursor !== null,
+    },
     {
       headers: { "Cache-Control": "private, no-store" },
     }
@@ -227,8 +200,6 @@ export async function POST(req: Request) {
       .values(conversationValues)
       .returning();
   }
-
-  void invalidateConversationCaches(userId);
 
   return Response.json({ ...convo, initialMessageId }, { status: 201 });
 }

@@ -3,9 +3,9 @@
  *
  * Run: `pnpm run test:chat-turn`
  */
-import { chunkCachedText } from "@/lib/chat/cached-replay";
 import {
   findRegenerateTarget,
+  gatewayDetails,
   getToolNames,
   toRetrievalToolEvent,
   uniqueSources,
@@ -29,9 +29,9 @@ check(
   same(
     getToolNames([
       { toolCalls: [{ toolName: "semantic_search" }, { toolName: "lookup_scripture_passage" }] },
-      { toolCalls: [{ toolName: "semantic_search" }, { toolName: "citation_verifier" }] },
+      { toolCalls: [{ toolName: "semantic_search" }, { toolName: "search_conference_talks" }] },
     ]),
-    ["semantic_search", "lookup_scripture_passage", "citation_verifier"]
+    ["semantic_search", "lookup_scripture_passage", "search_conference_talks"]
   )
 );
 check(
@@ -71,13 +71,26 @@ check("no user turn for an unknown id", userTurnIndexBefore(stored, 99) === -1);
 check(
   "usage maps to message details",
   same(
-    usageDetails({ inputTokens: 10, outputTokens: 5, totalTokens: 15, outputTokenDetails: { reasoningTokens: 2 } }),
-    { inputTokens: 10, outputTokens: 5, totalTokens: 15, reasoningTokens: 2 }
+    usageDetails({ inputTokens: 10, outputTokens: 5, totalTokens: 15, inputTokenDetails: { cacheReadTokens: 4 }, outputTokenDetails: { reasoningTokens: 2 } }),
+    { inputTokens: 10, cachedInputTokens: 4, outputTokens: 5, totalTokens: 15, reasoningTokens: 2 }
   )
 );
 check(
   "missing usage stays undefined",
   Object.values(usageDetails({})).every((value) => value === undefined)
+);
+
+// gatewayDetails
+check(
+  "gateway cost sums the per-step USD strings; provider/model come from the final step",
+  same(
+    gatewayDetails([
+      { providerMetadata: { gateway: { cost: "0.00025", routing: { finalProvider: "relace" } } } },
+      {},
+      { providerMetadata: { gateway: { cost: "0.0005", routing: { finalProvider: "baseten", canonicalSlug: "deepseek/deepseek-v4.1-flash" } } } },
+    ]),
+    { costUsd: 0.00075, provider: "baseten", resolvedModel: "deepseek/deepseek-v4.1-flash" }
+  )
 );
 
 // toRetrievalToolEvent
@@ -88,11 +101,6 @@ check(
     { toolName: "semantic_search", sourceCount: 4, cacheHit: true, elapsedMs: 12 }
   )
 );
-
-// chunkCachedText
-check("cached text replays in 3-word chunks", same(chunkCachedText("one two three four five"), ["one two three ", "four five"]));
-check("cached replay preserves the full text", chunkCachedText("a  b\nc d. e").join("") === "a  b\nc d. e");
-check("empty cached text has no chunks", chunkCachedText("").length === 0);
 
 console.log(`\n${total - failures}/${total} passed`);
 if (failures > 0) process.exit(1);

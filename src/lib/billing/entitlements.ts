@@ -146,12 +146,17 @@ function isBillingNotEnabledError(error: unknown): boolean {
   );
 }
 
-export async function getBillingEntitlements(
+/**
+ * Plan and limits from the session claims alone (`has({ plan })`), with no
+ * Clerk Backend API call, for the per-request hot paths (chat, search). Pages
+ * that display subscription details use getBillingEntitlements.
+ */
+export function getSessionEntitlements(
   userId: string,
-  options: BillingEntitlementOptions = {}
-): Promise<BillingEntitlements> {
+  hasPlan: (plan: string) => boolean
+): BillingEntitlements {
+  const free = freeEntitlements();
   if (isGuestId(userId)) {
-    const free = freeEntitlements();
     return {
       ...free,
       plan: "guest",
@@ -162,6 +167,17 @@ export async function getBillingEntitlements(
       },
     };
   }
+  return getConfiguredProPlanKeys().some(hasPlan)
+    ? { ...free, plan: "pro", isPro: true, limits: getLimits("pro") }
+    : free;
+}
+
+export async function getBillingEntitlements(
+  userId: string,
+  options: BillingEntitlementOptions = {}
+): Promise<BillingEntitlements> {
+  // Guests have no subscription to look up.
+  if (isGuestId(userId)) return getSessionEntitlements(userId, () => false);
 
   const cached = entitlementCache.get(userId);
   if (cached && cached.expiresAt > Date.now()) {

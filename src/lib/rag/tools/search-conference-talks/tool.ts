@@ -11,11 +11,6 @@ import {
   toolResultCacheKey,
 } from "@/lib/rag/cache";
 import type { ChatProgressData, Language, SourceChunk } from "@/lib/types";
-import {
-  aggregateRoutingTelemetry,
-  type RetrievalQueryResolver,
-} from "@/lib/rag/retrieval-query-resolver";
-import type { QueryLanguageRouting } from "@/lib/rag/language-routing";
 import { toToolChunk, uniqueById, uniqueStrings } from "../shared/chunk-formatting";
 import { normalizeForMatch } from "../shared/text-normalize";
 import type { RagToolContext } from "../shared/tool-context";
@@ -46,8 +41,6 @@ const inputSchema = z.object({
 export interface SearchConferenceTalksDeps {
   /** Semantic corpus language to retrieve against (English by default). */
   language: Language;
-  /** Query resolver: passthrough by default, legacy translation when enabled. */
-  resolver: RetrievalQueryResolver;
   context: RagToolContext;
   onProgress?: (progress: ChatProgressData) => void;
 }
@@ -70,7 +63,6 @@ type MatchType = "exact-title" | "confirmed-title" | "not-found" | "semantic";
  */
 export function createSearchConferenceTalksTool({
   language,
-  resolver,
   context,
   onProgress,
 }: SearchConferenceTalksDeps) {
@@ -84,19 +76,6 @@ export function createSearchConferenceTalksTool({
         phase: "sources",
         toolName: "search_conference_talks",
       });
-
-      // Resolve searchable text before inference/matching. This is a zero-call
-      // passthrough by default because the main model already emitted corpus-
-      // language arguments; the optional legacy router translates here.
-      const routings: QueryLanguageRouting[] = [];
-      const queryRouting = await resolver.resolve(query, language);
-      routings.push(queryRouting);
-      query = queryRouting.searchQuery;
-      if (title) {
-        const titleRouting = await resolver.resolve(title, language);
-        routings.push(titleRouting);
-        title = titleRouting.searchQuery;
-      }
 
       const inferredSpeaker = inferSpeakerFromQuery(query);
       const effectiveSpeaker = speaker ?? inferredSpeaker;
@@ -238,7 +217,6 @@ export function createSearchConferenceTalksTool({
         cacheHit: !!cached,
         elapsedMs: Date.now() - startedAt,
         retrievalLanguage: language,
-        ...aggregateRoutingTelemetry(routings),
       });
 
       return {

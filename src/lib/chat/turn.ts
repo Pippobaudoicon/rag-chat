@@ -64,18 +64,39 @@ type Usage = {
   inputTokens?: number;
   outputTokens?: number;
   totalTokens?: number;
+  inputTokenDetails?: { cacheReadTokens?: number };
   outputTokenDetails?: { reasoningTokens?: number };
 };
 
 /** Token counts for `MessageDetails` from an AI SDK usage object. */
 export function usageDetails(
   usage: Usage
-): Pick<MessageDetails, "inputTokens" | "outputTokens" | "totalTokens" | "reasoningTokens"> {
+): Pick<MessageDetails, "inputTokens" | "cachedInputTokens" | "outputTokens" | "totalTokens" | "reasoningTokens"> {
   return {
     inputTokens: usage.inputTokens ?? undefined,
+    cachedInputTokens: usage.inputTokenDetails?.cacheReadTokens ?? undefined,
     outputTokens: usage.outputTokens ?? undefined,
     totalTokens: usage.totalTokens ?? undefined,
     reasoningTokens: usage.outputTokenDetails?.reasoningTokens ?? undefined,
+  };
+}
+
+type GatewayMetadata = { gateway?: { cost?: unknown; routing?: unknown } };
+
+/**
+ * AI Gateway telemetry: `cost` (USD string per step) summed over the steps, and
+ * the final step's resolved provider/model from `routing`.
+ */
+export function gatewayDetails(
+  steps: readonly { providerMetadata?: GatewayMetadata }[]
+): Pick<MessageDetails, "costUsd" | "provider" | "resolvedModel"> {
+  const routing = steps.at(-1)?.providerMetadata?.gateway?.routing as
+    | { finalProvider?: string; canonicalSlug?: string }
+    | undefined;
+  return {
+    costUsd: steps.reduce((sum, step) => sum + Number(step.providerMetadata?.gateway?.cost ?? 0), 0),
+    provider: routing?.finalProvider,
+    resolvedModel: routing?.canonicalSlug,
   };
 }
 
@@ -86,14 +107,6 @@ export function toRetrievalToolEvent(progress: ChatProgressData): RetrievalToolE
     sourceCount: progress.sourceCount,
     cacheHit: progress.cacheHit,
     elapsedMs: progress.elapsedMs,
-    // Tool-local language routing (present for semantic_search /
-    // search_conference_talks; absent for lookup_scripture_passage).
-    routingMs: progress.routingMs,
-    translated: progress.translated,
-    inputLanguageCode: progress.inputLanguageCode,
     retrievalLanguage: progress.retrievalLanguage,
-    routingModel: progress.routingModel,
-    routingFallbackUsed: progress.routingFallbackUsed,
-    routingCalls: progress.routingCalls,
   };
 }

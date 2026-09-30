@@ -3,7 +3,6 @@ import { cookies } from "next/headers";
 import { eq } from "drizzle-orm";
 import { getDb } from "@/lib/db";
 import { conversations, messageFeedback } from "@/lib/db/schema";
-import { invalidateConversationCaches } from "@/lib/rag/cache";
 
 // Signed-out visitors get a random id in an httpOnly cookie (set by the proxy)
 // and use it as their `clerkUserId`, so conversations, caches and ownership
@@ -44,5 +43,4 @@ export async function claimGuestConversations(guestId: string, userId: string) {
       .set({ clerkUserId: userId })
       .where(eq(messageFeedback.clerkUserId, guestId)),
   ]);
-  await invalidateConversationCaches(userId);
 }

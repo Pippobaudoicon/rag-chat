@@ -140,38 +140,21 @@ export interface RetrievalToolEvent {
   sourceCount?: number;
   cacheHit?: boolean;
   elapsedMs?: number;
-  // Tool-local language routing (semantic_search / search_conference_talks).
-  // Absent for tools that never translate (e.g. lookup_scripture_passage).
-  /** Translation duration (ms); 0 when the local same-language fast path fired. */
-  routingMs?: number;
-  /** Whether the tool query was actually translated for retrieval. */
-  translated?: boolean;
-  /** Detected input language code for the tool query (BCP-47, or "und"). */
-  inputLanguageCode?: string;
-  /** Corpus language the query was resolved to (e.g. "eng"). */
+  /** Corpus language the tool retrieved against (e.g. "eng"). */
   retrievalLanguage?: string;
-  /** Routing model(s) that produced the translation; absent on the fast path. */
-  routingModel?: string;
-  /** Whether the one-shot routing fallback model produced the translation. */
-  routingFallbackUsed?: boolean;
-  /** Number of query resolutions that invoked a routing model (e.g. conference
-   *  routes both query and title); 0 when every resolution was local fast-path. */
-  routingCalls?: number;
 }
 
 /**
  * Retrieval trace persisted alongside an assistant message so real conversations
  * can be mined into the eval gold set and so retrieval behavior is debuggable
  * after the fact. The retrieved chunks themselves live in `sourcesJson`; this
- * captures the *how* (query routing, flags, per-tool timings/cache hits).
+ * captures the *how* (flags, per-tool timings/cache hits).
  */
 export interface RetrievalTrace {
-  inputLanguageCode?: string;
-  searchQuery?: string;
   indexLanguage?: string;
   sources: SourceType[];
   topK: number;
-  /** Retrieval-flag signature, e.g. "lr0rr1mq0mmr0ca0" (see flags.ts). */
+  /** Retrieval-flag signature, e.g. "lr0rr1mq0mmr0" (see flags.ts). */
   flags: string;
   tools: RetrievalToolEvent[];
 }
@@ -189,8 +172,8 @@ export interface RetrievalTrace {
  */
 export interface LatencyTrace {
   version: 1;
-  /** "generated" = full cold generation; cache-hit and regenerate paths differ. */
-  path: "generated" | "answer-cache" | "regenerate";
+  /** "generated" = full cold generation; "regenerate" = answer regeneration. */
+  path: "generated" | "regenerate";
   /** Deploy identifier for before/after comparison (VERCEL_GIT_COMMIT_SHA). */
   release?: string;
   /** Independent durations (ms) per pre-stream phase, measured in isolation. */
@@ -206,10 +189,9 @@ export interface LatencyTrace {
     /** First text-delta emitted by the server (post-smoothStream, not browser paint). */
     serverFirstTextMs?: number;
     /**
-     * When the answer text became fully available — generation finished (generated
-     * path) or the cached answer resolved (answer-cache path). Captured BEFORE the
-     * cache/DB writes, conversation updates, and cache invalidation that follow, so
-     * it is NOT total handler wall time.
+     * When generation finished and the answer text became fully available.
+     * Captured BEFORE the DB writes and conversation updates that follow, so it is
+     * NOT total handler wall time.
      */
     answerReadyMs?: number;
   };
@@ -236,9 +218,19 @@ export interface LatencyTrace {
 
 export interface MessageDetails {
   inputTokens?: number;
+  /** Input tokens served from the provider's prompt cache. */
+  cachedInputTokens?: number;
   outputTokens?: number;
   totalTokens?: number;
   reasoningTokens?: number;
+  /** AI Gateway `cost` (USD) summed over steps; excludes gateway surcharges. */
+  costUsd?: number;
+  /** Provider that served the final step (gateway `routing.finalProvider`). */
+  provider?: string;
+  /** Model behind the `model` alias (gateway `routing.canonicalSlug`). */
+  resolvedModel?: string;
+  /** Inline [N] citations in the final text: unique count + indices past the source list. */
+  citations?: { cited: number; outOfRange: number[] };
   latencyMs?: number;
   model?: string;
   finishReason?: string;
@@ -269,15 +261,9 @@ export interface ChatProgressData {
   elapsedMs?: number;
   /** A tool round finished and the model is preparing its next visible text. */
   toolCompleted?: boolean;
-  // Tool-local language routing, forwarded on a tool's terminal "tools" event so
-  // the route can fold it into the persisted RetrievalToolEvent.
-  routingMs?: number;
-  translated?: boolean;
-  inputLanguageCode?: string;
+  /** Corpus language, forwarded on a tool's terminal "tools" event so the route
+   *  can fold it into the persisted RetrievalToolEvent. */
   retrievalLanguage?: string;
-  routingModel?: string;
-  routingFallbackUsed?: boolean;
-  routingCalls?: number;
 }
 
 // Type for UIMessage metadata that includes sources

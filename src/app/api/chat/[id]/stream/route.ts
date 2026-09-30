@@ -12,7 +12,6 @@ import {
   getChatStreamContext,
   isChatStreamResumeConfigured,
 } from "@/lib/chat/resumable-stream";
-import { invalidateConversationCaches } from "@/lib/rag/cache";
 
 export const runtime = "nodejs";
 export const maxDuration = 180;
@@ -76,10 +75,7 @@ export async function GET(_: Request, { params }: Params) {
         )
       )
       .returning({ id: conversations.id });
-    if (recoveredConversation) {
-      await invalidateConversationCaches(userId);
-      return new Response(null, { status: 204 });
-    }
+    if (recoveredConversation) return new Response(null, { status: 204 });
 
     conversation = await db.query.conversations.findFirst({
       columns: {

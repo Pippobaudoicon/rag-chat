@@ -3,9 +3,8 @@ import type { SourceChunk, UiLanguage } from "@/lib/types";
 // The system prompt is composed from a constant CORE (identity, retrieval,
 // grounding, citation, and memory rules — non-negotiable in every mode) plus a
 // swappable RESPONSE STYLE block that controls only the *voice and altitude* of
-// the answer. Depth, grounding, and citations never change with style; only the
-// audience the answer is written for does. This lets the product offer a
-// user-selectable "how should the agent respond" setting without ever relaxing
+// the answer. Length and depth vary with style; grounding and citations do not.
+// This lets the product offer a user-selectable response style without relaxing
 // the rigor or the source-grounding guarantees.
 
 // Identity — constant across all styles.
@@ -40,15 +39,16 @@ export const RESPONSE_STYLES: Record<
 > = {
   balanced: {
     label: "Balanced",
-    description: "A clear, complete answer in plain words — not too short, not too long (default).",
-    voice: `Write like a kind, knowledgeable teacher: clear, accurate, and plain-spoken, at moderate length. \
-Answer the question well without turning it into a study.
+    description: "A short, clear answer in plain words, with the essential supporting sources (default).",
+    voice: `Write like a kind, knowledgeable teacher: clear, accurate, and plain-spoken. \
+Keep ordinary answers short; give a fuller study when the user explicitly requests detail.
 - Lead with one plain-language sentence that answers the question directly.
-- Add the few supporting points (usually two or three) that matter most, each grounded in the sources — not every angle the sources allow.
+- Add only the one or two supporting points needed to explain the answer, each grounded in the sources.
+- Prefer concise paraphrases with inline citations over quoting entire verses. Quote only a short phrase when its exact wording matters, and reproduce it exactly.
 - Keep sentences short and words everyday. If a doctrinal term is unavoidable, define it in a half-sentence on first use.
 - Use a short example or analogy only when it makes a hard idea easier to grasp.
-- Aim for roughly 2–4 short paragraphs (or a brief list). Skip extended historical background, cross-source analysis, and open questions — those belong to the in-depth style.
-- Close with a brief, practical takeaway when it fits.
+- Aim for roughly 80–150 words in one or two short paragraphs, or a brief list. Simple questions can take fewer words. This is a target, not a limit: cover every requested part and include necessary qualifications and citations.
+- Skip extended background, long quotations, headings, repeated conclusions, and automatic practical takeaways unless the question needs them.
 - Keep a warm, reverent, non-preachy tone.`,
   },
   scholar: {
@@ -93,14 +93,13 @@ Retrieval rules (READ CAREFULLY):
   - Use lookup_scripture_passage when the user references a specific scripture passage (e.g. "2 Nefi 2", "Moroni 10:4-5", "Doctrine and Covenants 76").
   - Use search_conference_talks when the user references a specific conference talk by title, speaker, or year (e.g. "the talk by Uchtdorf about grace", "Behold the Man").
   - Use semantic_search for general topical or doctrinal questions (e.g. "What does the Church teach about humility?", "Explain the law of consecration").
-- EXCEPTION — preloaded context: if the user message already contains a "Context (preloaded semantic search)" block, that block IS the result of the default semantic_search for this turn — the retrieval has already run for you. Treat those numbered [Source N] chunks exactly as if you had called semantic_search yourself: you may answer directly and cite them without calling semantic_search again. Only call a retrieval tool when the preloaded sources are insufficient (refinement) or the question needs a specialized lookup (a specific scripture passage → lookup_scripture_passage, a specific conference talk → search_conference_talks). Do not re-run semantic_search just to confirm what the preloaded block already provides.
 - Retrieval is limited to one tool-call round per turn. If the question genuinely needs multiple retrieval tools (for example, comparing a scripture passage with a conference talk), call them together in that round. Do not attempt sequential refinement searches.
 - Do not call tools redundantly. Use the first retrieval results to answer, and state any remaining limitation instead of searching repeatedly just to be thorough.
-- When retrieved chunks include related passages, study-help entries, cross-references, summaries, topics, entities, or reference metadata, consider them automatically as supporting context for a richer answer. The user does not need to ask for "useful cross-references" explicitly.
+- Consider related passages, study helps, cross-references, summaries, topics, entities, and reference metadata as supporting context. Include them in the answer only when they directly help answer the question; their availability alone is not a reason to expand the response.
 - Trivial chit-chat or pure conversational follow-ups that do not require new sources may skip retrieval entirely.
-- After retrieval, you may call citation_verifier before sending the final answer. It always validates numeric citation indices; deployments may optionally enable an additional claim-support audit.
 
 Answer rules:
+- The user's explicit requested length, depth, or format takes precedence over the response style's default length. Give a fuller study when asked for detail, analysis, or a thorough comparison, and a short answer when asked for brevity, even in Scholar style. Preserve the selected style's vocabulary and all grounding and citation rules.
 - Answer in the same language as the user's question.
 - The UI language is only an interface preference. It does not control retrieval language or final answer language.
 - Infer the answer language directly from the user's original message; do not rely on a separate language label.
@@ -119,8 +118,6 @@ Answer rules:
 - When a scripture chapter is requested (for example "2 Nefi 2"), summarize the chapter using the retrieved chapter context.
 - When multiple chapters or a whole scripture book are requested, synthesize across the retrieved chapters and mention the chapter coverage used. Treat the response as incomplete until all requested chapters covered by the retrieved context are addressed or any gaps are explicitly noted.
 - For search_conference_talks, distinguish confirmed title matches from not-found results: if matchType is not-found, do not assert that the exact requested talk was retrieved.
-- If citation_verifier reports invalid or malformed indices, fix all citation markers before sending the final answer.
-- If citation_verifier reports claim-support findings, correct unsupported claims and qualify or strengthen partially-supported claims before sending.
 - Do not invent information beyond what is in the retrieved chunks.
 - Follow the response-style block above for voice, structure, and reading level. The style controls how you say things; it never relaxes grounding, citation, or honesty.
 - Before finalizing, verify that each substantive claim is supported by retrieved chunks, citations map correctly to citationIndex values, and the answer remains in the user's language.
@@ -182,22 +179,16 @@ export function formatContext(chunks: SourceChunk[]): string {
  * - When `chunks` is empty (default tool-first flow), the message is just the
  *   user question prefixed by the language instruction. The model is expected
  *   to translate semantic/conference tool arguments to their corpus language.
- * - When `chunks` is non-empty, context is rendered ahead of the question.
- *   `contextSource` controls how the model is told to treat it:
- *   - `"eager"` (P1 speculative retrieval): the chunks are the result of the
- *     default semantic_search already run for this turn. The block is labeled
- *     and carries a contract so the model answers/cites directly instead of
- *     re-emitting semantic_search (it stays free to refine via tools).
- *   - `"fixed"` (regenerate-with-fixed-chunks): pre-selected sources to reuse
- *     without retrieving again.
+ * - When `chunks` is non-empty (regenerate-with-fixed-chunks), the pre-selected
+ *   sources are rendered as context ahead of the question, to reuse without
+ *   retrieving again.
  */
 export function buildUserMessage(
   query: string,
   chunks: SourceChunk[],
   meta: {
     uiLanguage: UiLanguage;
-  },
-  contextSource: "fixed" | "eager" = "fixed"
+  }
 ): string {
   const { uiLanguage } = meta;
   const languageInstruction = [
@@ -212,12 +203,5 @@ export function buildUserMessage(
   }
 
   const context = formatContext(chunks);
-  if (contextSource === "eager") {
-    // Labeled + contracted so the model recognizes this as a completed default
-    // retrieval and does not re-emit semantic_search (the round-trip P1 removes).
-    const eagerContract =
-      "Context (preloaded semantic search) — this is the result of the default semantic_search for this turn; the retrieval has already run. Answer directly from these sources and cite them by [Source N] when they are sufficient; do NOT call semantic_search again. Call a retrieval tool only to refine (sources insufficient) or for a specialized lookup (specific scripture passage or conference talk).";
-    return `${languageInstruction}\n\n${eagerContract}\n${context}\n\n${questionBlock}`;
-  }
   return `${languageInstruction}\n\nContext:\n${context}\n\n${questionBlock}`;
 }

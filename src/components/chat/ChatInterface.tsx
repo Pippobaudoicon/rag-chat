@@ -178,8 +178,17 @@ export function ChatInterface({
 
   const { followUpsFor, loadFollowUps, resetFollowUps } = useFollowUps();
 
+  // The server only reads the last message (history comes from the DB), so send
+  // just that one instead of every message with its sources/versions. Otherwise
+  // identical to the SDK's default body.
   const chatTransport = useMemo(
-    () => new DefaultChatTransport({ api: "/api/chat" }),
+    () =>
+      new DefaultChatTransport({
+        api: "/api/chat",
+        prepareSendMessagesRequest: ({ id, messages, body, trigger, messageId }) => ({
+          body: { ...body, id, messages: messages.slice(-1), trigger, messageId },
+        }),
+      }),
     []
   );
 

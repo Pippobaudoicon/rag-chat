@@ -1,5 +1,50 @@
 # Changelog
 
+## 0.12.77
+
+- **Redis config reads only the `UPSTASH_*` variables.** The unprefixed `KV_REST_API_URL` / `KV_REST_API_TOKEN` fallback pointed at an old database and is gone. Production moved to a new Upstash database with its primary in us-east-1, next to the iad1 functions and Neon, so rate-limit, usage and stream writes no longer cross the Atlantic. That is env only, no code change. Counters started empty once.
+
+## 0.12.76
+
+- **Chat-side language routing removed.** `semantic_search` and `search_conference_talks` passed their `query`/`title` through a request-scoped resolver (`retrieval-query-resolver.ts`) that called `routeQueryLanguage()`. With `RAG_LANGUAGE_ROUTING=false` in production it was a passthrough, since the main model already writes tool arguments in the corpus language. The resolver is deleted, the tools use the model's arguments directly, and the never-populated per-tool routing telemetry (`routingMs`, `translated`, `inputLanguageCode`, `routingModel`, `routingFallbackUsed`, `routingCalls`) plus the dead `RetrievalTrace.inputLanguageCode`/`searchQuery` are gone from `ChatProgressData`, `RetrievalToolEvent` and the retrieval trace. `retrievalLanguage` stays. `GET /api/search` still uses `routeQueryLanguage()`; `RAG_LANGUAGE_ROUTING` now only affects it. Net −284 lines of code and tests. Old `details_json` rows may still hold the removed fields; nothing reads them. The mobile types still list them as optional fields, which is harmless.
+
+## 0.12.75
+
+- **Fix: "Try again" after a failed follow-up saved the answer as a version of the previous answer.** Retry resends the history (`sendMessage(undefined)`), so the request carries the last message's `messageId` with `trigger: "submit-message"`. The route treated any `messageId` as a regenerate, and the regenerate target lookup falls back to the last assistant message. Only `trigger === "regenerate-message"` now marks a regenerate. Web and mobile retries both benefit; no client change.
+
+## 0.12.74
+
+- **Shorter default answers.** Balanced style targets 80–150 words for ordinary questions, with essential source support and no automatic recap or takeaway. Explicit requests for detail or brevity override the selected style's default length; Scholar remains in depth by default. Related sources no longer imply a longer answer just because they were retrieved. Eval (8 Italian questions, `scripts/eval/answers.ts`): output tokens p50 626→500, total time p50 21.6→17.9 s, cost/turn −17%, blind judge 4–3 for the old prompt (within noise). The `reasoningEffort: "low"` option from the same draft is not included: the gateway accepts only none/high/max for DeepSeek, so `low` was ignored.
+
+## 0.12.73
+
+- **Clients send only the latest message to `/api/chat`.** The web transport sent the whole UI history on every request, and each message's `metadata` carried its full sources, versions and details: 80 KB p50 per conversation, 350 KB p90, 1.26 MB max. The server only reads `messages.at(-1)` and loads the history from the DB. `prepareSendMessagesRequest` now sends `messages.slice(-1)` with the SDK's default body otherwise unchanged (`id`, `trigger`, `messageId` and the request `body`). Submit, retry, regenerate and stream resume behave as before.
+- Mobile app: the same change on `chatlds-mobile` branch `perf/send-last-message`. `docs/MOBILE.md` documents the contract. The server schema is unchanged, so older clients that send everything still work.
+
+## 0.12.72
+
+- **`citation_verifier` removed from the chat loop.** It ran on about half of the turns and roughly doubled their tokens: 46.8k input / 3.5k output vs 20.5k / 1.65k for retrieval turns without it. Its step alone took 12.6 s p50, because the model wrote the whole draft into the tool arguments and then rewrote it. With the claim audit off, it only regex-checked `[N]` ranges, and 0 out-of-range citations were found in 46 production answers. It also flagged valid markdown links like `[Alma 32:15-22](url)` as "malformed", forcing needless rewrites. After retrieval, `prepareStep` now turns every tool off (`activeTools: []`, `toolChoice: "none"`) and the model writes the answer.
+  - Answer-level eval, 8 Italian questions, blind LLM judge: first answer text 12.8 s → 8.4 s, total 22.9 s → 16.7 s, cost per turn −46%, 0 out-of-range citations in all runs; the judge preferred the no-verifier answer on 5 of 7 questions.
+- **Zero-token citation check.** `details.citations = { cited, outOfRange }` compares the answer's `[N]` markers with the source count (`src/lib/rag/citation-markers.ts`). It only monitors; the text is never changed.
+- **Claim-support audit removed** (`RAG_CLAIM_SUPPORT_AUDIT`, `CITATION_AUDIT_MODEL`, the `ca` segment of the retrieval flags signature). Retrieval cache keys change once.
+- **Cost and provider telemetry.** Assistant `details` also store `cachedInputTokens`, `costUsd` (AI Gateway `cost` summed over steps; excludes gateway surcharges), and the resolved `provider` / `resolvedModel` (the `model` field only holds the `CHAT_MODEL` alias).
+- **The saved answer matches what streamed.** The progress sentence the model writes before calling a tool was shown live but dropped on reload, because only the final step's text was saved. Now all steps' text is saved, joined with a blank line.
+- **Answer-level A/B eval harness** `scripts/eval/answers.ts`: `base` vs `nothink` (DeepSeek thinking disabled), with a blind pairwise judge. See `docs/PROJECT_INFO.md`.
+
+## 0.12.71
+
+- **Less work before the answer starts streaming** (measured `preStreamMs` p50 was 867 ms, with Redis ~96 ms per round trip from the functions):
+  - **Session answer cache removed.** It had 0 hits in 30 days (its key included the full history signature) but cost a Redis GET before every stream and a ~60 KB write after it. Gone with it: `cached-replay.ts`, `historySignature`, the memory-brief signature, and the `answer-cache` latency path.
+  - **Redis conversation-list and title caches removed**, with every `invalidateConversationCaches` / `invalidateConversationTitleCache` call (each one a sequential SCAN over the keyspace, awaited twice before the stream and once after). The list and titles now read straight from Postgres (Neon is ~31 ms away, Redis ~96 ms). The chat, stream, conversations and guest-claim routes no longer invalidate anything. Retrieval/tool caches, rate limits and resumable streams are unchanged.
+  - **Plan from session claims on the hot path.** `POST /api/chat` and `GET /api/search` use the new `getSessionEntitlements(userId, has)`: guest, Pro when `has({ plan })` matches a configured Pro plan key, otherwise free. There's no Clerk Backend API call per request (the `entitlements` phase was ~153 ms p50). `getBillingEntitlements` (full subscription lookup) stays for the billing, settings and memory pages.
+- **P1 eager retrieval removed.** `RAG_EAGER_RETRIEVAL` was never enabled, and it only fired for English prompts (60 of 61 recent turns were Italian). Removed: route section 5b, `eager-eligibility.ts`, `test:eager`, the eager variant of `buildUserMessage`, and its preloaded-context prompt rule. The fixed-chunks regenerate path is unchanged.
+- Retrieval cache entries drop the dead `answer: ""` field.
+
+## 0.12.70
+
+- **Free and guest turns make one retrieval call.** The 10-source cap for free/guest (0.12.68) was filled first-come by whichever parallel retrieval call finished first, so the second call did full Voyage/Pinecone work for nothing and the sources depended on a race. Non-Pro turns now get a retrieval budget of 1; an over-budget call returns before any retrieval work with "Retrieval limit reached. Answer using the sources already returned." Pro keeps 2.
+- **English-only namespaces are queried once.** Only `scriptures` has Italian vectors in `lds-rag-v1`; the other 10 namespaces were still queried in both languages, so half of those Pinecone queries returned nothing by construction. The semantic fan-out and the conference-talk candidates now query non-scripture namespaces in the index language only, and scriptures in the turn's scripture language. The cross-language collapse step (`collapseCrossLanguage`) is gone, since no English/Italian pair can reach the merge anymore; `test:cross-language` keeps the scripture-language guards.
+
 ## 0.12.67
 
 - **Suggested questions use a small model of their own.** `FOLLOW_UP_MODEL` now defaults to `google/gemini-2.5-flash-lite` (small, fast, no reasoning step, multilingual, structured output), pinned in `src/lib/chat/follow-ups.ts` instead of following `CHAT_MODEL`, so switching the chat to a pricier model doesn't make suggestions pricier. Output ceiling 300 tokens (was 600). The model reads at most the first 2500 characters of the answer (was 4000) and the call gives up after 10 seconds, in which case no suggestions are shown. `FOLLOW_UP_MODEL` still overrides it.

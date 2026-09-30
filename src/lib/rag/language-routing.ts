@@ -112,8 +112,8 @@ export function detectIndexLanguageMatch(
 
 /**
  * Local, network-free answer-language context for a prompt. This is the turn's
- * language hint — it is NOT a retrieval translation (that stays lazy, inside the
- * English-corpus tools). `und` is preserved for short/ambiguous input instead of
+ * language hint — it is NOT a retrieval translation (that is
+ * `routeQueryLanguage`, used only by /api/search). `und` is preserved for short/ambiguous input instead of
  * guessing; the generation model then naturally matches the original prompt.
  */
 export type PromptLanguage = {
