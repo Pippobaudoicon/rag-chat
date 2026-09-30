@@ -190,17 +190,16 @@ Read this first before deep code exploration.
    - `semantic_search` for general topical queries (caches via Upstash Redis).
    - `lookup_scripture_passage` for scripture references (also cached via Upstash Redis).
    - `search_conference_talks` for talks by title / speaker / year (also cached via Upstash Redis).
-   A turn permits one retrieval round with at most two retrieval executions
-   (Pro); free and guest turns get one, since their 10-source cap would only let
-   a second parallel call race the first for the same slots. An over-budget call
-   returns `limitReached` before doing any retrieval work. Genuinely multi-source
-   Pro questions may call two tools together in that round.
-   Afterward only optional citation verification remains available before the
-   final answer.
+    A turn permits one retrieval round with at most two retrieval executions
+    (Pro); free and guest turns get one, since their 10-source cap would only let
+    a second parallel call race the first for the same slots. An over-budget call
+    returns `limitReached` before doing any retrieval work. Genuinely multi-source
+    Pro questions may call two tools together in that round.
+    Afterward every tool is disabled (`toolChoice: "none"`) and the model writes
+    the final answer.
 9. Tool results register chunks in a shared per-turn `RagToolContext` so all
    citation indices remain stable across multiple tool calls.
-10. The model generates the final answer in the original language of the user's prompt and may call `citation_verifier`
-   before completing.
+10. The model generates the final answer in the original language of the user's prompt.
 11. Before generation starts, the route claims the conversation with an atomic
    compare-and-set: a pending first row (`streaming` + null `active_turn_id`) or a
    terminal/idle row receives a unique `active_turn_id`, optional Redis
@@ -336,6 +335,19 @@ Notes:
   search query; translation is per-tool. The retrieved chunks live in
   `sources_json`; the trace captures the *how* so real conversations can be mined
   into the eval gold set.
+- The persisted assistant `content` (and its `versions_json` entry) is the text of
+  every step joined with a blank line — the pre-tool progress sentence plus the
+  answer — so a reload shows what streamed (`onFinish`'s own `text` is only the
+  final step).
+- Assistant `details_json` (written in `onFinish`) also stores cost/citation
+  telemetry: `cachedInputTokens` (`usage.inputTokenDetails.cacheReadTokens`),
+  `costUsd` (AI Gateway `providerMetadata.gateway.cost`, summed over steps;
+  excludes gateway surcharges), `provider` / `resolvedModel` (final step's
+  `gateway.routing.finalProvider` / `canonicalSlug`, since `model` is only the
+  `CHAT_MODEL` alias), and `citations: { cited, outOfRange }` — a zero-token
+  check of the final text's `[N]` markers (`extractCitationMarkers` in
+  `src/lib/rag/citation-markers.ts`) against the persisted source count. It
+  only monitors; the text is never rewritten.
 - Assistant `details_json` also stores a versioned `latency` trace
   (`LatencyTrace` in `types.ts`) for quantifying chat-response latency from real
   traffic. It records independent pre-stream phase durations (auth, entitlements,
@@ -347,7 +359,7 @@ Notes:
   in-step tool execution, since `onStepFinish` fires after tools run), and
   per-tool `{name, durationMs, ok, cacheHit}`. The empty tool-decision turn is
   derived as `firstToolCallMs − preStreamMs` (not the gap from `firstToolCallMs`
-  to `serverFirstTextMs`, which is retrieval plus later model/verifier work).
+  to `serverFirstTextMs`, which is retrieval plus later model work).
   `path` (`generated` | `regenerate`; older rows may carry the removed
   `answer-cache` path) separates regenerations from cold-path percentiles, and `release` (`VERCEL_GIT_COMMIT_SHA`) enables before/after
   comparison. Built by `src/lib/observability/latency.ts` (`createLatencyTrace`
@@ -450,8 +462,8 @@ Notes:
   tools to invoke via the AI SDK tools API. To prevent runaway context growth,
   a turn allows one retrieval round with at most two retrieval executions (one
   for free/guest, see §4 step 8);
-  `prepareStep` then disables retrieval tools, leaving optional citation
-  verification followed by the final answer. Retrieval caching lives in the tool layer
+  `prepareStep` then disables every tool (`activeTools: []`, `toolChoice: "none"`)
+  so the next step writes the final answer. Retrieval caching lives in the tool layer
   for `semantic_search`, `lookup_scripture_passage`, and `search_conference_talks`.
   `stopWhen: stepCountIs(4)` is the emergency cap for model + tool steps per
   turn. The only pre-seeded context is the regenerate-with-fixed-chunks path
@@ -481,14 +493,6 @@ Notes:
     the COMPLETE talk in reading order via prefix listing (`fetchConferenceTalkChunks`),
     so the model sees the whole talk rather than whichever chunks semantic search
     surfaced (`matchType` exact/confirmed, `completedTalk: true`).
-  - `citation_verifier` — always performs deterministic structural validation:
-    inline numeric citations must map to chunks accumulated during the turn and
-    malformed markers are flagged. The nested claim-support LLM audit is default
-    OFF (`RAG_CLAIM_SUPPORT_AUDIT=false`) to avoid latency/cost and structured-
-    output failures. When enabled, it uses `CITATION_AUDIT_MODEL` (default
-    `openai/gpt-5.4-mini`) and remains fail-open. With the audit disabled, a
-    structurally valid result reports only that markers are valid; it does not
-    instruct the main model to perform another retrieval.
   - `read_personal_memory` — reads the user's full saved personalization memory
     on demand when the compact memory brief is insufficient for the current turn.
   - `update_personal_memory` — stores durable personalization memory only when
@@ -500,7 +504,7 @@ Notes:
   `src/lib/rag/tools/index.ts` which exposes `createRagTools()`.
 - All tools share a per-turn `RagToolContext` so citation indices are stable
   across multiple tool calls. Persisted/UI source ordering matches the
-  citation-verifier order: chunks are listed in the order they were first
+  citation indices: chunks are listed in the order they were first
   registered by tools.
 - System prompt enforces:
   - tool-first retrieval (at least one retrieval tool for any substantive
@@ -554,8 +558,6 @@ Notes:
 - `RAG_ROUTING_MODEL` (optional; defaults to `openai/gpt-oss-120b`) — dedicated retrieval-query routing/translation model, independent from `CHAT_MODEL` (`reasoningEffort: low`, 600-token ceiling)
 - `RAG_ROUTING_FALLBACK_MODEL` (optional; defaults to `openai/gpt-5.4-mini`) — one-shot fallback used once if the primary routing model returns no structured output
 - `RAG_LANGUAGE_ROUTING` (optional; defaults to `false`) — set to `true` only to restore the legacy dedicated routing-model path
-- `RAG_CLAIM_SUPPORT_AUDIT` (optional; defaults to `false`) — enables the nested LLM claim-support pass inside `citation_verifier`; structural citation validation always remains active
-- `CITATION_AUDIT_MODEL` (optional; defaults to `openai/gpt-5.4-mini`) — structured-output model used only when claim-support auditing is enabled
 - `FOLLOW_UP_MODEL` (optional; defaults to `google/gemini-2.5-flash-lite`, pinned independently from `CHAT_MODEL`) — small non-reasoning structured-output model for the suggested next questions: one call per answer, 300-token ceiling, answer trimmed to 2500 characters, 10 s timeout (no suggestions on timeout)
 - `RAG_GRAPH_RERANK` (optional; defaults to `true`) — graph-aware rerank kill-switch
 - `RAG_RERANK` (optional; defaults to `false`) — Voyage cross-encoder rerank
@@ -649,12 +651,12 @@ Reference template: `.env.example`.
   - `src/lib/rag/cache.ts`
   - `src/lib/rag/scripture-reference.ts`
   - `src/lib/rag/citation-links.ts`
+  - `src/lib/rag/citation-markers.ts` (post-answer `[N]` citation check)
   - `src/lib/rag/tools/index.ts` (factory)
   - `src/lib/rag/tools/shared/` (tool-context, chunk-formatting, text-normalize)
   - `src/lib/rag/tools/semantic-search/`
   - `src/lib/rag/tools/lookup-scripture-passage/`
   - `src/lib/rag/tools/search-conference-talks/`
-  - `src/lib/rag/tools/citation-verifier/`
 - Observability:
   - `src/lib/observability/latency.ts` (per-turn `LatencyTrace` builder + tool-timing wrapper)
 - DB:
@@ -784,6 +786,12 @@ Reference template: `.env.example`.
   constant across both arms; multi-query/diversity follow their env flags and apply
   to both arms — toggle their env and re-run to measure those). Two retrieval calls
   per case. Hits live Pinecone + Voyage. Add a filter: `pnpm run eval -- faith`.
+- Answer-level A/B eval: `pnpm exec dotenv -o -e .env -e .env.local -- tsx
+  scripts/eval/answers.ts [idFilter]` runs 8 Italian questions through the real
+  tool loop over the AI Gateway (no Redis/DB) in two variants — `base` and
+  `nothink` (DeepSeek `thinking: { type: "disabled" }`) — and a blind pairwise
+  LLM judge. It reports first-answer-text time, tokens, gateway cost and citations,
+  and writes JSON to `scripts/eval/results/`. It costs well under $1 per run.
 - Routing fast-path test: `pnpm run test:routing` (`scripts/test/language-routing.test.ts`)
   — pure, network-free assertions that the local same-language short-circuit
   (`detectIndexLanguageMatch`) fires only for confidently, dominantly index-language

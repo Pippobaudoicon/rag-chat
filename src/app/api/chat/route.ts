@@ -53,8 +53,10 @@ import {
   recoverStaleGeneration,
   releasePendingInitialTurn as releasePendingTurn,
 } from "@/lib/chat/turn-store";
+import { extractCitationMarkers } from "@/lib/rag/citation-markers";
 import {
   findRegenerateTarget,
+  gatewayDetails,
   getToolNames,
   toRetrievalToolEvent,
   uniqueSources,
@@ -490,7 +492,7 @@ export async function POST(req: Request) {
   const toolNamesUsed: string[] = [];
 
   // Wrap every tool's execute to record per-tool name / wall-time / success into
-  // the latency trace (covers retrieval tools, citation_verifier, and memory).
+  // the latency trace (covers retrieval tools and memory).
   const chatTools = withToolTiming(
     {
       ...createRagTools({
@@ -541,9 +543,7 @@ export async function POST(req: Request) {
       if (!policy) return undefined;
 
       const stepInstruction =
-        policy.toolChoice === "none"
-          ? "Tool use is complete. Produce the final user-facing answer now using the retrieved or preloaded sources. Do not emit tool-call syntax, XML, DSML, or another tool request."
-          : "Retrieval is complete. Do not request more sources. Either produce the final user-facing answer now or call citation_verifier once, then finalize.";
+        "Tool use is complete. Produce the final user-facing answer now using the retrieved or preloaded sources. Do not emit tool-call syntax, XML, DSML, or another tool request.";
 
       return {
         ...policy,
@@ -559,7 +559,7 @@ export async function POST(req: Request) {
       // First visible-text + tool-call milestones (set-once). The empty
       // tool-decision turn is firstToolCallMs − preStreamMs (the cost we plan to
       // cut); firstToolCallMs → serverFirstTextMs is retrieval + later
-      // model/verifier work, not the decision itself.
+      // model work, not the decision itself.
       latency.milestone("firstModelChunkMs");
       if (chunk.type === "tool-call") {
         latency.milestone("firstToolCallMs");
@@ -601,7 +601,10 @@ export async function POST(req: Request) {
       await markGenerationErrorSafely();
     },
 
-    onFinish: async ({ text, totalUsage, finishReason, steps }) => {
+    onFinish: async ({ totalUsage, finishReason, steps }) => {
+      // Persist what streamed: the pre-tool progress sentence plus the answer
+      // (onFinish's `text` is only the final step).
+      const text = steps.map((step) => step.text).filter(Boolean).join("\n\n");
       try {
       const currentGeneration = await db.query.conversations.findFirst({
         columns: { generationStatus: true, activeTurnId: true },
@@ -638,8 +641,15 @@ export async function POST(req: Request) {
       }
 
       // Build details object for persistence
+      const citedIndices = extractCitationMarkers(text);
       const details: MessageDetails = {
         ...usageDetails(totalUsage),
+        ...gatewayDetails(steps),
+        // Zero-token citation check (monitoring only; the text is not changed).
+        citations: {
+          cited: citedIndices.length,
+          outOfRange: citedIndices.filter((n) => n > getResponseSources().length),
+        },
         latencyMs: Date.now() - startTime,
         model: CHAT_MODEL,
         finishReason,

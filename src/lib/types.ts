@@ -171,7 +171,7 @@ export interface RetrievalTrace {
   indexLanguage?: string;
   sources: SourceType[];
   topK: number;
-  /** Retrieval-flag signature, e.g. "lr0rr1mq0mmr0ca0" (see flags.ts). */
+  /** Retrieval-flag signature, e.g. "lr0rr1mq0mmr0" (see flags.ts). */
   flags: string;
   tools: RetrievalToolEvent[];
 }
@@ -235,9 +235,19 @@ export interface LatencyTrace {
 
 export interface MessageDetails {
   inputTokens?: number;
+  /** Input tokens served from the provider's prompt cache. */
+  cachedInputTokens?: number;
   outputTokens?: number;
   totalTokens?: number;
   reasoningTokens?: number;
+  /** AI Gateway `cost` (USD) summed over steps; excludes gateway surcharges. */
+  costUsd?: number;
+  /** Provider that served the final step (gateway `routing.finalProvider`). */
+  provider?: string;
+  /** Model behind the `model` alias (gateway `routing.canonicalSlug`). */
+  resolvedModel?: string;
+  /** Inline [N] citations in the final text: unique count + indices past the source list. */
+  citations?: { cited: number; outOfRange: number[] };
   latencyMs?: number;
   model?: string;
   finishReason?: string;

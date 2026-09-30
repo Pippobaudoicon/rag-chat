@@ -73,16 +73,6 @@ export function isLanguageRoutingEnabled(): boolean {
 }
 
 /**
- * Nested LLM claim-support audit inside citation_verifier.
- *
- * Default: OFF. Deterministic citation-index validation remains active. Enable
- * only when the extra model call's latency/cost is acceptable.
- */
-export function isClaimSupportAuditEnabled(): boolean {
-  return envBool(process.env.RAG_CLAIM_SUPPORT_AUDIT, false);
-}
-
-/**
  * Compact signature of retrieval flags used in cache keys. Retrieval caches
  * must vary with these flags, otherwise toggling routing / rerank / multi-query
  * / diversity would keep serving stale results until the cache TTL expires.
@@ -92,7 +82,5 @@ export function isClaimSupportAuditEnabled(): boolean {
 export function retrievalFlagsSignature(): string {
   return `lr${isLanguageRoutingEnabled() ? 1 : 0}rr${
     isRerankEnabled() ? 1 : 0
-  }mq${isMultiQueryEnabled() ? 1 : 0}mmr${isDiversityEnabled() ? 1 : 0}ca${
-    isClaimSupportAuditEnabled() ? 1 : 0
-  }`;
+  }mq${isMultiQueryEnabled() ? 1 : 0}mmr${isDiversityEnabled() ? 1 : 0}`;
 }

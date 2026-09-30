@@ -3,8 +3,8 @@ type ToolLoopStep = {
 };
 
 type StepPolicy = {
-  activeTools?: Array<"citation_verifier">;
-  toolChoice?: "none";
+  activeTools: [];
+  toolChoice: "none";
 };
 
 const RETRIEVAL_TOOLS = new Set([
@@ -27,12 +27,8 @@ export function prepareChatToolStep(
     )
   );
 
-  if (calledTools.includes("citation_verifier")) {
-    return { activeTools: [], toolChoice: "none" };
-  }
-
   if (calledTools.some((name) => RETRIEVAL_TOOLS.has(name))) {
-    return { activeTools: ["citation_verifier"] };
+    return { activeTools: [], toolChoice: "none" };
   }
 
   return undefined;

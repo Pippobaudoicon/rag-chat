@@ -22,10 +22,6 @@ export interface IndexedToolChunk {
  *     persisted and rendered as source cards.
  */
 export interface RagToolContext {
-  /** Current snapshot of the chunks that have been registered this turn. */
-  liveChunks(): SourceChunk[];
-  /** Total number of registered chunks (== max valid citation index). */
-  citationCount(): number;
   /** Lock all scripture-producing tools to one language for this turn. */
   resolveScriptureLanguage(requested: Language): Language;
   /**
@@ -55,8 +51,6 @@ export function createRagToolContext(
   const onSources = options.onSources;
 
   return {
-    liveChunks: () => live,
-    citationCount: () => live.length,
     resolveScriptureLanguage(requested) {
       scriptureLanguage ??= requested;
       return scriptureLanguage;

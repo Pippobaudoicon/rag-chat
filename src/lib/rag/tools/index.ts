@@ -1,6 +1,5 @@
 import type { ChatProgressData, Language, SourceChunk, SourceType } from "@/lib/types";
 import type { RetrievalQueryResolver } from "@/lib/rag/retrieval-query-resolver";
-import { createCitationVerifierTool } from "./citation-verifier/tool";
 import { createLookupScripturePassageTool } from "./lookup-scripture-passage/tool";
 import { createSearchConferenceTalksTool } from "./search-conference-talks/tool";
 import { createSemanticSearchTool } from "./semantic-search/tool";
@@ -55,8 +54,6 @@ export interface CreateRagToolsOptions {
  *   - `lookup_scripture_passage` — scripture-by-reference retrieval.
  *   - `search_conference_talks` — conference-talk retrieval with optional
  *     speaker / year / title filters.
- *   - `citation_verifier` — validates inline `[N]` markers before sending the
- *     final answer.
  */
 export function createRagTools(options: CreateRagToolsOptions) {
   const {
@@ -84,7 +81,6 @@ export function createRagTools(options: CreateRagToolsOptions) {
     }),
     lookup_scripture_passage: createLookupScripturePassageTool({ context, onProgress }),
     search_conference_talks: createSearchConferenceTalksTool({ language, resolver, context, onProgress }),
-    citation_verifier: createCitationVerifierTool({ context }),
   };
 
   return withToolCallBudget(

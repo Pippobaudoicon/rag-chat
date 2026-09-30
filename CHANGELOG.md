@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.12.72
+
+- **`citation_verifier` removed from the chat loop.** It ran on about half of the turns and roughly doubled their tokens: 46.8k input / 3.5k output vs 20.5k / 1.65k for retrieval turns without it. Its step alone took 12.6 s p50, because the model wrote the whole draft into the tool arguments and then rewrote it. With the claim audit off, it only regex-checked `[N]` ranges, and 0 out-of-range citations were found in 46 production answers. It also flagged valid markdown links like `[Alma 32:15-22](url)` as "malformed", forcing needless rewrites. After retrieval, `prepareStep` now turns every tool off (`activeTools: []`, `toolChoice: "none"`) and the model writes the answer.
+  - Answer-level eval, 8 Italian questions, blind LLM judge: first answer text 12.8 s → 8.4 s, total 22.9 s → 16.7 s, cost per turn −46%, 0 out-of-range citations in all runs; the judge preferred the no-verifier answer on 5 of 7 questions.
+- **Zero-token citation check.** `details.citations = { cited, outOfRange }` compares the answer's `[N]` markers with the source count (`src/lib/rag/citation-markers.ts`). It only monitors; the text is never changed.
+- **Claim-support audit removed** (`RAG_CLAIM_SUPPORT_AUDIT`, `CITATION_AUDIT_MODEL`, the `ca` segment of the retrieval flags signature). Retrieval cache keys change once.
+- **Cost and provider telemetry.** Assistant `details` also store `cachedInputTokens`, `costUsd` (AI Gateway `cost` summed over steps; excludes gateway surcharges), and the resolved `provider` / `resolvedModel` (the `model` field only holds the `CHAT_MODEL` alias).
+- **The saved answer matches what streamed.** The progress sentence the model writes before calling a tool was shown live but dropped on reload, because only the final step's text was saved. Now all steps' text is saved, joined with a blank line.
+- **Answer-level A/B eval harness** `scripts/eval/answers.ts`: `base` vs `nothink` (DeepSeek thinking disabled), with a blind pairwise judge. See `docs/PROJECT_INFO.md`.
+
 ## 0.12.71
 
 - **Less work before the answer starts streaming** (measured `preStreamMs` p50 was 867 ms, with Redis ~96 ms per round trip from the functions):
