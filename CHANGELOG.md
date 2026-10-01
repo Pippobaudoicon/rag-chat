@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.12.80
+
+- **Title search on `GET /api/conversations`.** Optional `?q=` filters the list by title (case-insensitive `ILIKE`, `%`/`_`/`\` escaped, query capped at 100 characters) and composes with the existing cursor pagination. The mobile history drawer uses it to search every chat instead of only the pages already loaded. Without `q` the endpoint is unchanged.
+
 ## 0.12.79
 
 - **Parallel retrieval calls share the source cap instead of the first one taking it all.** Free and guest turns allowed a single retrieval call of any kind, so "Ether 12:27 and what leaders have said about it" refused the second tool and answered half the question. Now `maxRetrievalCalls` limits only `semantic_search` (Pro 2, free/guest 1); scripture and talk lookups always run, still in the single retrieval round. Parallel calls wait for each other (`trackCall`) and split the cap round-robin (`claimChunks`: scripture, then talks, then topical), so two calls keep their top five each under the free 10-source cap. A plain "lookups first" ordering was tried first and dropped: lookups pad to 10 chunks, so topical search always got 0, and a talk search finishing ~1 s before a passage lookup took all 10 slots and dropped the requested verse. Eval (11 Italian questions, free settings, old rule vs new): judge 7–4 for the new rule; multi-tool turns now register 5+5 instead of 10+0; retrieval time is unchanged (~2.5–3 s, the round already waited for every tool); cost/turn about the same ($0.00050 p50).

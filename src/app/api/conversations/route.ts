@@ -1,5 +1,5 @@
 import { getViewer } from "@/lib/auth/guest";
-import { and, desc, eq, isNull, lt, or } from "drizzle-orm";
+import { and, desc, eq, ilike, isNull, lt, or } from "drizzle-orm";
 import type { NextRequest } from "next/server";
 import { getDb } from "@/lib/db";
 import {
@@ -52,20 +52,23 @@ export async function GET(req: NextRequest) {
 
   const limit = clampLimit(req.nextUrl.searchParams.get("limit"));
   const cursor = parseCursor(req.nextUrl.searchParams.get("cursor"));
+  // Optional case-insensitive title search; LIKE wildcards in the query are literal.
+  const query = req.nextUrl.searchParams.get("q")?.trim().slice(0, 100) ?? "";
   const pageSize = limit + 1;
 
-  const where = cursor
-    ? and(
-        eq(conversations.clerkUserId, userId),
-        or(
+  const where = and(
+    eq(conversations.clerkUserId, userId),
+    query ? ilike(conversations.title, `%${query.replace(/[\\%_]/g, "\\$&")}%`) : undefined,
+    cursor
+      ? or(
           lt(conversations.updatedAt, cursor.updatedAt),
           and(
             eq(conversations.updatedAt, cursor.updatedAt),
             lt(conversations.id, cursor.id)
           )
         )
-      )
-    : eq(conversations.clerkUserId, userId);
+      : undefined
+  );
 
   const db = getDb();
   const list = await db
