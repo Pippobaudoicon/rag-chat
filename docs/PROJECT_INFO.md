@@ -1,6 +1,6 @@
 # ChatLDS Project Knowledge Base
 
-Last updated: 2026-09-30
+Last updated: 2026-10-03
 
 This document is the single source of truth for project context.
 Read this first before deep code exploration.
@@ -829,6 +829,19 @@ Reference template: `.env.example`.
 - `RAG_MMR` (default **off**) — per-source / per-title diversity caps on the top-k.
 
 ## 12) Update policy for agents
+
+### GitHub documentation
+
+- `README.md` is the public project overview and local setup entry point.
+- `CONTRIBUTING.md` records contribution, validation, and documentation requirements.
+- `SUPPORT.md` directs questions and bug reports to GitHub issues.
+- `DONATE.md` explains voluntary project support, separate from subscriptions.
+  It and the README link to the PayPal donation page for hosted button
+  `3NFDJJ3NCY33L`; `.github/FUNDING.yml` uses the same URL for GitHub sponsorships.
+- `SECURITY.md` explains private vulnerability reporting, with a fallback when
+  GitHub private reporting is unavailable. It does not promise a support schedule.
+- `LICENSE` contains the standard Apache 2.0 text; `LICENSE.md` explains its scope.
+  Application licensing does not relicense third-party corpus material.
 
 ### Active implementation plan
 

@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.12.83
+
+- Add PayPal donation buttons to the README and donation page, and configure
+  `.github/FUNDING.yml` with the same link for GitHub's Sponsor button.
+
+## 0.12.82
+
+- Add `DONATE.md` with voluntary support information, distinguish donations from
+  Pro subscriptions, and link the donation page from the README. The payment
+  link is pending configuration.
+
+## 0.12.81
+
+- Expand the GitHub README with features, setup requirements, service configuration,
+  development commands, and project links. Add contribution, support, and security
+  reporting guidance, plus the Apache 2.0 license and package license metadata.
+
 ## 0.12.80
 
 - **Title search on `GET /api/conversations`.** Optional `?q=` filters the list by title (case-insensitive `ILIKE`, `%`/`_`/`\` escaped, query capped at 100 characters) and composes with the existing cursor pagination. The mobile history drawer uses it to search every chat instead of only the pages already loaded. Without `q` the endpoint is unchanged.
