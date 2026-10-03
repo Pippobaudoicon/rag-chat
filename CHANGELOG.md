@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.12.83
+
+- Add PayPal donation buttons to the README and donation page, and configure
+  `.github/FUNDING.yml` with the same link for GitHub's Sponsor button.
+
+## 0.12.82
+
+- Add `DONATE.md` with voluntary support information, distinguish donations from
+  Pro subscriptions, and link the donation page from the README. The payment
+  link is pending configuration.
+
+## 0.12.81
+
+- Expand the GitHub README with features, setup requirements, service configuration,
+  development commands, and project links. Add contribution, support, and security
+  reporting guidance, plus the Apache 2.0 license and package license metadata.
+
 ## 0.12.79
 
 - **Parallel retrieval calls share the source cap instead of the first one taking it all.** Free and guest turns allowed a single retrieval call of any kind, so "Ether 12:27 and what leaders have said about it" refused the second tool and answered half the question. Now `maxRetrievalCalls` limits only `semantic_search` (Pro 2, free/guest 1); scripture and talk lookups always run, still in the single retrieval round. Parallel calls wait for each other (`trackCall`) and split the cap round-robin (`claimChunks`: scripture, then talks, then topical), so two calls keep their top five each under the free 10-source cap. A plain "lookups first" ordering was tried first and dropped: lookups pad to 10 chunks, so topical search always got 0, and a talk search finishing ~1 s before a passage lookup took all 10 slots and dropped the requested verse. Eval (11 Italian questions, free settings, old rule vs new): judge 7–4 for the new rule; multi-tool turns now register 5+5 instead of 10+0; retrieval time is unchanged (~2.5–3 s, the round already waited for every tool); cost/turn about the same ($0.00050 p50).
