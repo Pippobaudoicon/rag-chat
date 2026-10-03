@@ -269,7 +269,8 @@ Read this first before deep code exploration.
   - Refreshes recent-conversation memory and period rollups, then returns the updated memory snapshot.
 - `GET /api/conversations`
   - List user conversations (latest first), including `generationStatus` for
-    sidebar activity indicators.
+    sidebar activity indicators. Optional `?q=` filters by title
+    (case-insensitive, LIKE wildcards escaped).
 - `POST /api/conversations`
   - Creates a conversation with language/sources defaults plus optional
     `responseStyle`, `title`, and `initialMessage`.

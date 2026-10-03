@@ -25,8 +25,9 @@ Why Expo, architecture, and the roadmap: `docs/MOBILE_APP_PLAN.md` and
   resends the history as a submit becomes a new turn, even when it carries a
   `messageId` (0.12.75).
 - **GET `/api/conversations`**, **GET `/api/conversations/[id]`** — list / history (M2).
+  The list takes optional `?q=` (case-insensitive title search, 0.12.80).
 - **GET `/api/chat/[id]/stream`** — resume in-flight answer (M2).
-- Optional, not used by the app yet: **POST `/api/conversations/[id]/follow-ups`**
+- Used by the app since mobile 1.0.5: **POST `/api/conversations/[id]/follow-ups`**
   returns `{ messageId, followUps: string[] }` (suggested next questions for the
   latest answer), also stored as `details.followUps` on that message in
   GET `/api/conversations/[id]`. Both are additive; ignoring them is fine.
