@@ -147,7 +147,8 @@ Read this first before deep code exploration.
   shows up to 3 questions for the latest answer (`src/lib/chat/follow-ups.ts`,
   `src/components/chat/interface/useFollowUps.ts` + `FollowUpSuggestions.tsx`).
   Touch screens (`pointer: coarse`): a thin scrollable row of chips above the
-  composer; a tap fills the composer (it does not send). Mouse/trackpad
+  composer; a tap sends the question immediately through the normal submit handler.
+  Mouse/trackpad
   (`pointer: fine`): the first suggestion is the composer placeholder, Tab fills
   it, Tab again on an untouched suggestion cycles to the next; Shift+Tab and Tab
   in a typed draft keep their normal behavior. A small clickable `Tab` hint in

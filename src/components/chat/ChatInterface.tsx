@@ -856,7 +856,7 @@ export function ChatInterface({
             <FollowUpChips
               followUps={followUps}
               text={text.chat.followUps}
-              onSelect={(question) => fillFollowUp(followUps.indexOf(question), false)}
+              onSelect={handleSubmit}
             />
           )}
           {composer}

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.12.84
+
+- Clicking a follow-up suggestion chip sends the question immediately instead of
+  filling the composer. The desktop Tab shortcut still fills and cycles suggestions.
+
 ## 0.12.83
 
 - Add PayPal donation buttons to the README and donation page, and configure
