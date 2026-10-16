@@ -14,7 +14,8 @@ async function main() {
     throw new Error("REALTIME_GATEWAY_API_KEY is missing from .env.local (realtime client secrets need a Gateway API key, not OIDC)");
   }
   const tools = await experimental_getRealtimeToolDefinitions({ tools: voiceTools });
-  const config = { ...voiceSessionConfig, outputModalities: ["text" as const], tools };
+  // Audio output like the UI: Gemini Live rejects text-only sessions (close 1008).
+  const config = { ...voiceSessionConfig, tools };
   const model = realtimeGateway.experimental_realtime(REALTIME_MODEL);
   const token = await realtimeGateway.experimental_realtime.getToken({
     model: REALTIME_MODEL,
@@ -31,9 +32,11 @@ async function main() {
   let toolResponseDone = false; // the function-calling response has finished
   let followUpRequested = false;
   let transcript = "";
+  let partial = ""; // Gemini sends the transcript only as deltas; its *-done text is empty
   const done = new Promise<void>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error("timeout")), 60_000);
     ws.onerror = () => reject(new Error("websocket error"));
+    ws.onclose = (e) => reject(new Error(`websocket closed ${e.code} ${e.reason}`));
     ws.onopen = () => {
       console.log(`[${REALTIME_MODEL}] connected`);
       // Mirrors the hook: session-update on open, question once the session is ready.
@@ -47,7 +50,7 @@ async function main() {
       await send({ type: "response-create" });
     };
     const handle = async (message: MessageEvent) => {
-      const raw = JSON.parse(String(message.data));
+      const raw = JSON.parse(typeof message.data === "string" ? message.data : await (message.data as Blob).text());
       const healthCheck = model.getHealthCheckResponse?.(raw);
       if (healthCheck) return ws.send(JSON.stringify(healthCheck));
       for (const event of [parse(raw)].flat()) {
@@ -70,8 +73,10 @@ async function main() {
           outputsSent++;
           await maybeFollowUp();
         }
+        if (event.type === "audio-transcript-delta" || event.type === "text-delta") partial += event.delta;
         if (event.type === "audio-transcript-done" || event.type === "text-done") {
-          const text = event.type === "text-done" ? event.text : event.transcript;
+          const text = (event.type === "text-done" ? event.text : event.transcript) || partial;
+          partial = "";
           if (text && followUpRequested) {
             transcript = text;
             console.log(`ASSISTANT: ${text}`);
