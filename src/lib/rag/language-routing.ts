@@ -242,7 +242,7 @@ export type RoutingModelCall = (req: RoutingModelRequest) => Promise<RoutingOutp
 async function defaultRoutingCall(req: RoutingModelRequest): Promise<RoutingOutput> {
   const result = await generateText({
     model: gateway(req.model),
-    system: req.system,
+    instructions: req.system,
     prompt: req.prompt,
     maxOutputTokens: req.maxOutputTokens,
     providerOptions: { openai: { reasoningEffort: req.reasoningEffort } },

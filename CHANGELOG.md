@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.12.85
+
+- **AI SDK 7.** Bump `ai` 6 → 7.0.142 and `@ai-sdk/react` 3 → 4.0.146, and add
+  `@ai-sdk/gateway` 4.0.115 as an explicit dependency (pinned to the version `ai`
+  depends on; it exposes `gateway.experimental_realtime`). No behavior change.
+  Migration: `system` → `instructions` (including the `prepareStep` final-answer
+  override), `stepCountIs` → `isStepCount`, `onStepFinish` → `onStepEnd`,
+  `onFinish` → `onEnd` with `usage` (v7's `usage` is the all-steps total that v6
+  called `totalUsage`), and `result.toUIMessageStream()` → the standalone
+  `toUIMessageStream({ stream: result.stream, tools })`. v7's `onChunk` also
+  receives boundary parts (`start`, `start-step`, `finish`, …), so the latency
+  `firstModelChunkMs` milestone is limited to the v6 content-chunk types. The eval
+  script gets the same renames plus `fullStream` → `stream`.
+- Mobile wire contract unchanged: the server still emits UI Message Stream
+  protocol `v1` with the same chunk types and headers, and the mobile app's ai@6
+  `DefaultChatTransport` + `readUIMessageStream` parse a v7 tool-loop stream with
+  no errors. Persisted messages need no migration: the DB stores plain `content`
+  and JSON columns, and saved chats rebuild `{ type: "text" }` parts, whose
+  shape is the same in v7.
+
 ## 0.12.84
 
 - Clicking a follow-up suggestion chip sends the question immediately instead of
