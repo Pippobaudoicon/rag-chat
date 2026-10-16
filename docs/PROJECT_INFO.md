@@ -247,6 +247,22 @@ Read this first before deep code exploration.
     is ignored (0.12.75).
   - Claims persisted generation ownership before streaming, returns `409` while
     another non-stale turn is active, and commits only for the owning turn.
+- `POST /api/realtime/token` and `POST /api/realtime/tool` (web voice prototype,
+  0.12.86; both `404` unless `NEXT_PUBLIC_REALTIME_VOICE=1`; signed-in only: `401`
+  without a user, `403` for guests)
+  - `token` counts each voice session start once against the plan's chat rate
+    limiter (same `429` response as `/api/chat`), then mints a short-lived AI
+    Gateway client secret with `gateway.experimental_realtime.getToken` for
+    `REALTIME_MODEL` and returns `{ token, url, expiresAt, tools }`. The browser
+    (`experimental_useRealtime` in `VoiceChat.tsx`) opens the model WebSocket
+    directly; session config lives in `src/lib/realtime/config.ts`.
+  - `tool` executes the single `semantic_search({ query, language })` tool on the
+    server (zod-validated, `runSemanticRetrieval` over `ALL_SOURCES`, topK 6,
+    ~600 chars per result). General retrieval uses the index language
+    (`getIndexLanguage()`); `language` only selects `scriptureLanguage`. It shares
+    `/api/search`'s `search:<plan>:<userId>` limiter bucket (same `429` response). The hook's client-side `onToolCall` POSTs here and
+    returns the JSON to the model. Voice transcripts are not persisted.
+  - Smoke check: `REALTIME_MODEL=<id> pnpm run realtime:smoke`.
 - `GET /api/chat/[id]/stream`
   - Auth and conversation ownership required.
   - Resumes the current SSE stream through `resumable-stream/generic` when
@@ -558,6 +574,15 @@ Notes:
 - `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`
 - `CLERK_SECRET_KEY`
 - `NEXT_PUBLIC_CLERK_SIGN_IN_URL`
+- `REALTIME_GATEWAY_API_KEY` is required by realtime voice: `getToken` rejects Vercel
+  OIDC tokens with `403 Client secrets can only be minted with a Gateway API key`.
+  Only the realtime token minting uses it (`createGateway({ apiKey })` in
+  `src/lib/realtime/voice.ts`); text chat keeps OIDC. Do not set it as
+  `AI_GATEWAY_API_KEY`: the shared provider would then prefer the key over OIDC for
+  every call. Set it in the Vercel project env too wherever voice is enabled.
+- `NEXT_PUBLIC_REALTIME_VOICE` (`1` shows the composer mic button and enables
+  `/api/realtime/*`; absent = off) and `REALTIME_MODEL` (default
+  `openai/gpt-realtime-mini`; `next.config.ts` inlines it for the browser codec).
 - `NEXT_PUBLIC_CLERK_SIGN_UP_URL`
 - `DATABASE_URL`
 - `UPSTASH_KV_REST_API_URL` / `UPSTASH_KV_REST_API_TOKEN` (set by the Vercel

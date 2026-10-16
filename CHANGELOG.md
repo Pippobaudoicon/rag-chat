@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.12.86
+
+- **Web realtime voice prototype (flag `NEXT_PUBLIC_REALTIME_VOICE=1`, off by
+  default).** Signed-in users get a mic button in the chat composer; a compact
+  panel shows status, a live transcript and a stop button. Built on AI SDK 7
+  `experimental_useRealtime` + AI Gateway (`REALTIME_MODEL`, default
+  `openai/gpt-realtime-mini`). New routes `POST /api/realtime/token` (auth, `403`
+  for guests, one chat rate-limit hit per session start) and
+  `POST /api/realtime/tool` (runs `semantic_search` server-side via
+  `runSemanticRetrieval`, topK 6). **Voice transcripts are not persisted to the
+  conversation.** Web only; mobile is unaffected. `pnpm run realtime:smoke` runs
+  a Node end-to-end check. Realtime requires `REALTIME_GATEWAY_API_KEY` (Gateway rejects
+  OIDC when minting client secrets). It is a separate variable, passed only to the
+  realtime token minting via `createGateway`, so text chat keeps using OIDC.
+  Review fixes: the tool route shares `/api/search`'s per-plan limiter bucket;
+  voice searches `ALL_SOURCES` in the index language (the tool's `language` only
+  picks the scripture language); mic start is single-flight and stale
+  `getUserMedia` streams are released; blank `REALTIME_MODEL` falls back to the
+  default; the smoke script waits for the tool output and a final answer.
+
 ## 0.12.85
 
 - **AI SDK 7.** Bump `ai` 6 → 7.0.142 and `@ai-sdk/react` 3 → 4.0.146, and add
