@@ -257,8 +257,10 @@ Read this first before deep code exploration.
     (`experimental_useRealtime` in `VoiceChat.tsx`) opens the model WebSocket
     directly; session config lives in `src/lib/realtime/config.ts`.
   - `tool` executes the single `semantic_search({ query, language })` tool on the
-    server (zod-validated, `runSemanticRetrieval` over `DEFAULT_SOURCES`, topK 6,
-    ~600 chars per result). The hook's client-side `onToolCall` POSTs here and
+    server (zod-validated, `runSemanticRetrieval` over `ALL_SOURCES`, topK 6,
+    ~600 chars per result). General retrieval uses the index language
+    (`getIndexLanguage()`); `language` only selects `scriptureLanguage`. It shares
+    `/api/search`'s `search:<plan>:<userId>` limiter bucket (same `429` response). The hook's client-side `onToolCall` POSTs here and
     returns the JSON to the model. Voice transcripts are not persisted.
   - Smoke check: `REALTIME_MODEL=<id> pnpm run realtime:smoke`.
 - `GET /api/chat/[id]/stream`
@@ -573,8 +575,9 @@ Notes:
 - `CLERK_SECRET_KEY`
 - `NEXT_PUBLIC_CLERK_SIGN_IN_URL`
 - `AI_GATEWAY_API_KEY` is required by realtime voice: `getToken` rejects Vercel OIDC
-  tokens with `403 Client secrets can only be minted with a Gateway API key`
-  (text chat keeps using OIDC).
+  tokens with `403 Client secrets can only be minted with a Gateway API key`.
+  The shared Gateway provider prefers this key over OIDC for ALL calls once it is
+  set, text chat included.
 - `NEXT_PUBLIC_REALTIME_VOICE` (`1` shows the composer mic button and enables
   `/api/realtime/*`; absent = off) and `REALTIME_MODEL` (default
   `openai/gpt-realtime-mini`; `next.config.ts` inlines it for the browser codec).

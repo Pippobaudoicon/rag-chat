@@ -27,6 +27,10 @@ async function main() {
   const parse = model.createServerEventParser?.() ?? ((raw: unknown) => model.parseServerEvent(raw));
 
   let toolCalls = 0;
+  let outputsSent = 0;
+  let toolResponseDone = false; // the function-calling response has finished
+  let followUpRequested = false;
+  let transcript = "";
   const done = new Promise<void>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error("timeout")), 60_000);
     ws.onerror = () => reject(new Error("websocket error"));
@@ -36,7 +40,13 @@ async function main() {
       void send({ type: "session-update", config });
     };
     let asked = false;
-    ws.onmessage = async (message) => {
+    // The follow-up answer needs both the finished tool-calling response and the tool output.
+    const maybeFollowUp = async () => {
+      if (followUpRequested || !toolResponseDone || outputsSent < toolCalls) return;
+      followUpRequested = true;
+      await send({ type: "response-create" });
+    };
+    const handle = async (message: MessageEvent) => {
       const raw = JSON.parse(String(message.data));
       const healthCheck = model.getHealthCheckResponse?.(raw);
       if (healthCheck) return ws.send(JSON.stringify(healthCheck));
@@ -57,18 +67,28 @@ async function main() {
             type: "conversation-item-create",
             item: { type: "function-call-output", callId: event.callId, name: event.name, output: JSON.stringify(result) },
           });
-          await send({ type: "response-create" });
+          outputsSent++;
+          await maybeFollowUp();
         }
         if (event.type === "audio-transcript-done" || event.type === "text-done") {
           const text = event.type === "text-done" ? event.text : event.transcript;
-          if (text) console.log(`ASSISTANT: ${text}`);
+          if (text && followUpRequested) {
+            transcript = text;
+            console.log(`ASSISTANT: ${text}`);
+          }
         }
-        if (event.type === "response-done" && toolCalls > 0) {
-          clearTimeout(timer);
-          resolve();
+        if (event.type === "response-done") {
+          if (toolCalls > 0 && !toolResponseDone) {
+            toolResponseDone = true;
+            await maybeFollowUp();
+          } else if (followUpRequested && transcript) {
+            clearTimeout(timer);
+            resolve();
+          }
         }
       }
     };
+    ws.onmessage = (message) => handle(message).catch(reject);
   });
   await done.finally(() => ws.close());
   console.log(`done: ${toolCalls} tool call(s)`);

@@ -12,7 +12,13 @@
   `runSemanticRetrieval`, topK 6). **Voice transcripts are not persisted to the
   conversation.** Web only; mobile is unaffected. `pnpm run realtime:smoke` runs
   a Node end-to-end check. Realtime requires `AI_GATEWAY_API_KEY` (Gateway rejects
-  OIDC when minting client secrets).
+  OIDC when minting client secrets; once set, the Gateway provider prefers it over
+  OIDC for all calls, text chat included).
+  Review fixes: the tool route shares `/api/search`'s per-plan limiter bucket;
+  voice searches `ALL_SOURCES` in the index language (the tool's `language` only
+  picks the scripture language); mic start is single-flight and stale
+  `getUserMedia` streams are released; blank `REALTIME_MODEL` falls back to the
+  default; the smoke script waits for the tool output and a final answer.
 
 ## 0.12.85
 

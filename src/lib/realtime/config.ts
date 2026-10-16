@@ -2,7 +2,7 @@
 // inlines REALTIME_MODEL so the browser can build the matching model codec.
 
 export const REALTIME_VOICE_ENABLED = process.env.NEXT_PUBLIC_REALTIME_VOICE === "1";
-export const REALTIME_MODEL = process.env.REALTIME_MODEL ?? "openai/gpt-realtime-mini";
+export const REALTIME_MODEL = process.env.REALTIME_MODEL || "openai/gpt-realtime-mini";
 
 export const voiceSessionConfig = {
   instructions: `You are ChatLDS, a spoken assistant for The Church of Jesus Christ of Latter-day Saints.

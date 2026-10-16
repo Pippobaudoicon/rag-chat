@@ -1,7 +1,7 @@
 import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
-  env: { REALTIME_MODEL: process.env.REALTIME_MODEL ?? "openai/gpt-realtime-mini" },
+  env: { REALTIME_MODEL: process.env.REALTIME_MODEL || "openai/gpt-realtime-mini" },
   serverExternalPackages: ["mermaid"],
   experimental: {
     optimizeCss: true,

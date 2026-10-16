@@ -18,9 +18,11 @@ const api = { token: "/api/realtime/token" };
 export function VoiceChat({ language }: { language: UiLanguage }) {
   const text = uiText(language).chat.voice;
   const [active, setActive] = useState(false);
+  const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const capturingRef = useRef(false);
+  const attemptRef = useRef(0); // bumped by stop/unmount/start; a stale start must not touch state
 
   const realtime = experimental_useRealtime({
     model,
@@ -40,24 +42,44 @@ export function VoiceChat({ language }: { language: UiLanguage }) {
   });
   const { status, connect, disconnect, startAudioCapture } = realtime;
 
-  const stop = () => {
-    disconnect();
+  const releaseStream = () => {
+    attemptRef.current++;
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
     capturingRef.current = false;
+  };
+
+  const stop = () => {
+    disconnect();
+    releaseStream();
+    setStarting(false);
     setActive(false);
   };
 
   const start = async () => {
+    if (starting) return;
+    const attempt = ++attemptRef.current;
     setError(null);
+    setStarting(true);
+    let stream: MediaStream;
     try {
-      streamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch {
-      setError(text.micDenied);
+      if (attempt === attemptRef.current) {
+        setStarting(false);
+        setError(text.micDenied);
+      }
       return;
     }
+    if (attempt !== attemptRef.current) return stream.getTracks().forEach((track) => track.stop());
+    streamRef.current = stream;
     setActive(true);
-    await connect();
+    setStarting(false);
+    try {
+      await connect();
+    } catch {
+      if (attempt === attemptRef.current) stop();
+    }
   };
 
   // Feed the mic to the session once it is ready.
@@ -70,7 +92,8 @@ export function VoiceChat({ language }: { language: UiLanguage }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status]);
 
-  useEffect(() => () => stop(), []); // eslint-disable-line react-hooks/exhaustive-deps
+  // Unmount: the hook disposes its own session; hook controls throw by now, so only release our stream.
+  useEffect(() => releaseStream, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const label =
     status === "connecting" || (active && status !== "connected")
@@ -84,6 +107,7 @@ export function VoiceChat({ language }: { language: UiLanguage }) {
       <button
         type="button"
         onClick={active ? stop : start}
+        disabled={starting}
         aria-label={text.start}
         title={text.start}
         aria-pressed={active}
