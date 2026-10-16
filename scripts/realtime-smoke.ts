@@ -2,21 +2,21 @@
 // Mints a Gateway token, opens the WebSocket through the model codec, asks a
 // question that forces semantic_search, answers the tool call with the same
 // handler as POST /api/realtime/tool, and prints the transcript.
-import { gateway, experimental_getRealtimeToolDefinitions } from "ai";
+import { experimental_getRealtimeToolDefinitions } from "ai";
 import { REALTIME_MODEL, voiceSessionConfig } from "@/lib/realtime/config";
-import { runVoiceSemanticSearch, voiceTools } from "@/lib/realtime/voice";
+import { realtimeGateway, runVoiceSemanticSearch, voiceTools } from "@/lib/realtime/voice";
 
 const QUESTION = "What does Alma 32 teach about faith and a seed?";
 
 async function main() {
   // getToken rejects Vercel OIDC tokens (403); it needs a Gateway API key.
-  if (!process.env.AI_GATEWAY_API_KEY) {
-    throw new Error("AI_GATEWAY_API_KEY is missing from .env.local (realtime client secrets need a Gateway API key, not OIDC)");
+  if (!process.env.REALTIME_GATEWAY_API_KEY) {
+    throw new Error("REALTIME_GATEWAY_API_KEY is missing from .env.local (realtime client secrets need a Gateway API key, not OIDC)");
   }
   const tools = await experimental_getRealtimeToolDefinitions({ tools: voiceTools });
   const config = { ...voiceSessionConfig, outputModalities: ["text" as const], tools };
-  const model = gateway.experimental_realtime(REALTIME_MODEL);
-  const token = await gateway.experimental_realtime.getToken({
+  const model = realtimeGateway.experimental_realtime(REALTIME_MODEL);
+  const token = await realtimeGateway.experimental_realtime.getToken({
     model: REALTIME_MODEL,
     sessionConfig: config,
   });

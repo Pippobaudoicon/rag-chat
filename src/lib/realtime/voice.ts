@@ -1,4 +1,4 @@
-import { tool } from "ai";
+import { createGateway, tool } from "ai";
 import { z } from "zod";
 import { runSemanticRetrieval } from "@/lib/rag/tools/shared/semantic-retrieval";
 import { getIndexLanguage } from "@/lib/rag/language-routing";
@@ -7,6 +7,10 @@ import type { SourceChunk } from "@/lib/types";
 
 // Web voice prototype: the one tool the realtime model can call. Declared via
 // the token route, executed here (server) through POST /api/realtime/tool.
+
+// getToken rejects Vercel OIDC (403), so minting needs a Gateway API key. It gets
+// its own env var: AI_GATEWAY_API_KEY would take precedence over OIDC for text chat too.
+export const realtimeGateway = createGateway({ apiKey: process.env.REALTIME_GATEWAY_API_KEY });
 
 const semanticSearchInput = z.object({
   query: z

@@ -574,10 +574,12 @@ Notes:
 - `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`
 - `CLERK_SECRET_KEY`
 - `NEXT_PUBLIC_CLERK_SIGN_IN_URL`
-- `AI_GATEWAY_API_KEY` is required by realtime voice: `getToken` rejects Vercel OIDC
-  tokens with `403 Client secrets can only be minted with a Gateway API key`.
-  The shared Gateway provider prefers this key over OIDC for ALL calls once it is
-  set, text chat included.
+- `REALTIME_GATEWAY_API_KEY` is required by realtime voice: `getToken` rejects Vercel
+  OIDC tokens with `403 Client secrets can only be minted with a Gateway API key`.
+  Only the realtime token minting uses it (`createGateway({ apiKey })` in
+  `src/lib/realtime/voice.ts`); text chat keeps OIDC. Do not set it as
+  `AI_GATEWAY_API_KEY`: the shared provider would then prefer the key over OIDC for
+  every call. Set it in the Vercel project env too wherever voice is enabled.
 - `NEXT_PUBLIC_REALTIME_VOICE` (`1` shows the composer mic button and enables
   `/api/realtime/*`; absent = off) and `REALTIME_MODEL` (default
   `openai/gpt-realtime-mini`; `next.config.ts` inlines it for the browser codec).

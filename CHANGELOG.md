@@ -11,9 +11,9 @@
   `POST /api/realtime/tool` (runs `semantic_search` server-side via
   `runSemanticRetrieval`, topK 6). **Voice transcripts are not persisted to the
   conversation.** Web only; mobile is unaffected. `pnpm run realtime:smoke` runs
-  a Node end-to-end check. Realtime requires `AI_GATEWAY_API_KEY` (Gateway rejects
-  OIDC when minting client secrets; once set, the Gateway provider prefers it over
-  OIDC for all calls, text chat included).
+  a Node end-to-end check. Realtime requires `REALTIME_GATEWAY_API_KEY` (Gateway rejects
+  OIDC when minting client secrets). It is a separate variable, passed only to the
+  realtime token minting via `createGateway`, so text chat keeps using OIDC.
   Review fixes: the tool route shares `/api/search`'s per-plan limiter bucket;
   voice searches `ALL_SOURCES` in the index language (the tool's `language` only
   picks the scripture language); mic start is single-flight and stale

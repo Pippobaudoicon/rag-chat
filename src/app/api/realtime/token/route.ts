@@ -1,9 +1,9 @@
-import { gateway, experimental_getRealtimeToolDefinitions } from "ai";
+import { experimental_getRealtimeToolDefinitions } from "ai";
 import { getViewer, isGuestId } from "@/lib/auth/guest";
 import { getSessionEntitlements } from "@/lib/billing/entitlements";
 import { getChatRateLimiter, rateLimitedResponse } from "@/lib/chat/rate-limit";
 import { REALTIME_MODEL, REALTIME_VOICE_ENABLED, voiceSessionConfig } from "@/lib/realtime/config";
-import { voiceTools } from "@/lib/realtime/voice";
+import { realtimeGateway, voiceTools } from "@/lib/realtime/voice";
 
 export const runtime = "nodejs";
 
@@ -23,7 +23,7 @@ export async function POST(req: Request) {
   }
 
   const tools = await experimental_getRealtimeToolDefinitions({ tools: voiceTools });
-  const token = await gateway.experimental_realtime.getToken({
+  const token = await realtimeGateway.experimental_realtime.getToken({
     model: REALTIME_MODEL,
     sessionConfig: { ...voiceSessionConfig, tools },
   });
