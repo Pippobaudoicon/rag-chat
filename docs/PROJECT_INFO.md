@@ -25,7 +25,8 @@ Read this first before deep code exploration.
 - DB: Neon Postgres + Drizzle ORM.
 - Vector DB: Pinecone.
 - Embeddings: Voyage AI (`voyage-4-large`, 1024 dims).
-- LLM runtime: Vercel AI SDK (`streamText`) through gateway.
+- Runtime: Node.js 22+ (24 recommended), required by AI SDK 7.
+- LLM runtime: Vercel AI SDK 7 (`ai@7`, `@ai-sdk/react@4`, explicit `@ai-sdk/gateway@4`; `streamText`) through gateway. The mobile app stays on ai@6 and parses the same UI Message Stream protocol (`v1`).
 - Cache and resumable stream transport: Upstash Redis REST plus
   `resumable-stream/generic` (status-polling fallback when Redis is absent).
 - Observability: Vercel Analytics + Speed Insights.
@@ -343,9 +344,9 @@ Notes:
   into the eval gold set.
 - The persisted assistant `content` (and its `versions_json` entry) is the text of
   every step joined with a blank line — the pre-tool progress sentence plus the
-  answer — so a reload shows what streamed (`onFinish`'s own `text` is only the
+  answer — so a reload shows what streamed (`onEnd`'s own `text` is only the
   final step).
-- Assistant `details_json` (written in `onFinish`) also stores cost/citation
+- Assistant `details_json` (written in `onEnd`) also stores cost/citation
   telemetry: `cachedInputTokens` (`usage.inputTokenDetails.cacheReadTokens`),
   `costUsd` (AI Gateway `providerMetadata.gateway.cost`, summed over steps;
   excludes gateway surcharges), `provider` / `resolvedModel` (final step's
@@ -362,7 +363,7 @@ Notes:
   `firstToolCallMs`, `serverFirstTextMs`, `answerReadyMs` — generation/cache
   resolved, captured before the trailing DB/cache writes, so not total handler
   time), per-step **inclusive** wall time (`steps[].wallMs` covers model + any
-  in-step tool execution, since `onStepFinish` fires after tools run), and
+  in-step tool execution, since `onStepEnd` fires after tools run), and
   per-tool `{name, durationMs, ok, cacheHit}`. The empty tool-decision turn is
   derived as `firstToolCallMs − preStreamMs` (not the gap from `firstToolCallMs`
   to `serverFirstTextMs`, which is retrieval plus later model work).
@@ -471,7 +472,7 @@ Notes:
   `prepareStep` then disables every tool (`activeTools: []`, `toolChoice: "none"`)
   so the next step writes the final answer. Retrieval caching lives in the tool layer
   for `semantic_search`, `lookup_scripture_passage`, and `search_conference_talks`.
-  `stopWhen: stepCountIs(4)` is the emergency cap for model + tool steps per
+  `stopWhen: isStepCount(4)` is the emergency cap for model + tool steps per
   turn. The only pre-seeded context is the regenerate-with-fixed-chunks path
   (P1 eager retrieval was removed: it only fired on English prompts).
 - AI function tools available in the chat runtime:

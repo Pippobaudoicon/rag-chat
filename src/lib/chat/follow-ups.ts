@@ -55,7 +55,7 @@ export async function generateFollowUps(
   try {
     const result = await generateText({
       model: gateway(FOLLOW_UP_MODEL),
-      system: [
+      instructions: [
         "You suggest what a user might ask next in a chat about the teachings of The Church of Jesus Christ of Latter-day Saints.",
         `Write ${MAX_FOLLOW_UPS} short follow-up questions (under 80 characters each) the USER could send next, in the user's voice.`,
         "Write them in the same language as the user's question.",

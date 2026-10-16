@@ -267,7 +267,7 @@ async function refreshPeriodSummary(
     const result = await generateObject({
       model: gateway(MEMORY_MODEL),
       schema: periodSummarySchema,
-      system: "You write concise durable memory summaries for personalization. Return only fields matching the schema.",
+      instructions: "You write concise durable memory summaries for personalization. Return only fields matching the schema.",
       prompt: truncate(prompt, MAX_SUMMARY_INPUT_CHARS),
     });
     object = result.object;
@@ -539,7 +539,7 @@ async function refreshRecentConversationMemory({
     const result = await generateObject({
       model: gateway(MEMORY_MODEL),
       schema: conversationMemorySchema,
-      system: "You write concise durable memory for personalization. Return only fields matching the schema.",
+      instructions: "You write concise durable memory for personalization. Return only fields matching the schema.",
       prompt: truncate(prompt, MAX_SUMMARY_INPUT_CHARS),
     });
     object = result.object;
@@ -889,7 +889,7 @@ export async function recordFeedbackMemory({
     const { object } = await generateObject({
       model: gateway(MEMORY_MODEL),
       schema: feedbackMemorySchema,
-      system: "You maintain concise durable feedback memory. Return only fields matching the schema.",
+      instructions: "You maintain concise durable feedback memory. Return only fields matching the schema.",
       prompt: truncate(prompt, MAX_SUMMARY_INPUT_CHARS),
     });
 

@@ -6,8 +6,9 @@ import {
   streamText,
   generateId,
   gateway,
-  stepCountIs,
+  isStepCount,
   smoothStream,
+  toUIMessageStream,
 } from "ai";
 import { eq, and, asc } from "drizzle-orm";
 import { getDb } from "@/lib/db";
@@ -74,6 +75,17 @@ import type {
 export const runtime = "nodejs";
 export const maxDuration = 180;
 
+// The chunk types AI SDK v6 passed to streamText's onChunk.
+const V6_ON_CHUNK_TYPES = new Set([
+  "text-delta",
+  "reasoning-delta",
+  "source",
+  "tool-call",
+  "tool-input-start",
+  "tool-input-delta",
+  "tool-result",
+  "raw",
+]);
 const DEFAULT_MAX_OUTPUT_TOKENS = 6000;
 const DEFAULT_MAX_RESPONSE_SOURCES = 50;
 const DEFAULT_FREE_MAX_RESPONSE_SOURCES = 10;
@@ -486,7 +498,7 @@ export async function POST(req: Request) {
     ? `${baseSystemPrompt}\n\nMemory brief:\n${memoryBrief}`
     : baseSystemPrompt;
 
-  // ── 7. Stream with AI SDK v6 ──────────────────────────────────────────────
+  // ── 7. Stream with AI SDK v7 ──────────────────────────────────────────────
   const toolNamesUsed: string[] = [];
 
   // Wrap every tool's execute to record per-tool name / wall-time / success into
@@ -522,7 +534,7 @@ export async function POST(req: Request) {
   );
 
   // Per-step INCLUSIVE wall time: elapsed since the previous step boundary (or
-  // stream start for step 1). onStepFinish fires after in-step tool execution, so
+  // stream start for step 1). onStepEnd fires after in-step tool execution, so
   // this includes tool time, not just model decode. `preStreamMs` is the last
   // thing recorded before streaming.
   let stepIndex = 0;
@@ -531,10 +543,10 @@ export async function POST(req: Request) {
 
   const result = streamText({
     model: gateway(CHAT_MODEL),
-    system: systemPrompt,
+    instructions: systemPrompt,
     messages: chatMessages,
     maxOutputTokens: MAX_OUTPUT_TOKENS,
-    stopWhen: stepCountIs(4),
+    stopWhen: isStepCount(4),
     tools: chatTools,
     prepareStep: ({ steps }) => {
       const policy = prepareChatToolStep(steps, hasFixedChunks);
@@ -545,7 +557,7 @@ export async function POST(req: Request) {
 
       return {
         ...policy,
-        system: `${systemPrompt}\n\n${stepInstruction}`,
+        instructions: `${systemPrompt}\n\n${stepInstruction}`,
       };
     },
     experimental_transform: smoothStream({
@@ -558,6 +570,9 @@ export async function POST(req: Request) {
       // tool-decision turn is firstToolCallMs − preStreamMs (the cost we plan to
       // cut); firstToolCallMs → serverFirstTextMs is retrieval + later
       // model work, not the decision itself.
+      // v7 also passes boundary parts (start, start-step, finish, …); keep the
+      // v6 content-chunk set so the milestone still means first model output.
+      if (!V6_ON_CHUNK_TYPES.has(chunk.type)) return;
       latency.milestone("firstModelChunkMs");
       if (chunk.type === "tool-call") {
         latency.milestone("firstToolCallMs");
@@ -566,7 +581,7 @@ export async function POST(req: Request) {
       if (chunk.type === "text-delta") latency.milestone("serverFirstTextMs");
     },
 
-    onStepFinish: ({ toolCalls, finishReason }) => {
+    onStepEnd: ({ toolCalls, finishReason }) => {
       const nowMark = performance.now();
       latency.addStep({
         index: stepIndex,
@@ -599,9 +614,9 @@ export async function POST(req: Request) {
       await markGenerationErrorSafely();
     },
 
-    onFinish: async ({ totalUsage, finishReason, steps }) => {
+    onEnd: async ({ usage, finishReason, steps }) => {
       // Persist what streamed: the pre-tool progress sentence plus the answer
-      // (onFinish's `text` is only the final step).
+      // (onEnd's `text` is only the final step).
       const text = steps.map((step) => step.text).filter(Boolean).join("\n\n");
       try {
       const currentGeneration = await db.query.conversations.findFirst({
@@ -641,7 +656,7 @@ export async function POST(req: Request) {
       // Build details object for persistence
       const citedIndices = extractCitationMarkers(text);
       const details: MessageDetails = {
-        ...usageDetails(totalUsage),
+        ...usageDetails(usage),
         ...gatewayDetails(steps),
         // Zero-token citation check (monitoring only; the text is not changed).
         citations: {
@@ -741,7 +756,9 @@ export async function POST(req: Request) {
       // toUIMessageStream() is required for AI Elements <Message> component.
       // Include sources in message metadata so the UI can display source cards.
       writer.merge(
-        result.toUIMessageStream({
+        toUIMessageStream({
+          stream: result.stream,
+          tools: chatTools,
           generateMessageId: generateId,
           messageMetadata: ({ part }) => {
             if (part.type === "finish") {

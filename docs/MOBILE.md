@@ -14,8 +14,9 @@ Why Expo, architecture, and the roadmap: `docs/MOBILE_APP_PLAN.md` and
   by `src/proxy.ts`. Unauthenticated API requests `307 → /sign-in`; a valid
   bearer passes straight through. Keep bearer auth working.
 - **POST `/api/conversations`** — create; app reads `id` + `initialMessageId`.
-- **POST `/api/chat`** — **AI SDK v6 UI Message Stream** (SSE); app parses with
-  `useChat`. Don't change the stream protocol without bumping the mobile client's
+- **POST `/api/chat`** — **AI SDK UI Message Stream** (SSE, protocol `v1`; the
+  server runs ai@7, the app parses it with ai@6 — verified compatible in 0.12.85)
+  with `useChat`. Don't change the stream protocol without bumping the mobile client's
   `ai` / `@ai-sdk/react` pins to match. **Request contract:** send only the
   latest UI message (`messages: messages.slice(-1)`) — the server reads only
   `messages.at(-1)` and loads history from the DB, while every message's

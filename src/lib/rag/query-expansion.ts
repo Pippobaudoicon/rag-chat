@@ -35,7 +35,7 @@ export async function generateQueryVariants(
   try {
     const result = await generateText({
       model: gateway(model),
-      system: [
+      instructions: [
         "You expand an LDS (Latter-day Saint) search query into alternative phrasings for document retrieval.",
         `Write every variant in ${languageName}.`,
         "Produce semantically distinct rewordings: one using canonical LDS / scriptural terminology, one in plainer everyday wording.",

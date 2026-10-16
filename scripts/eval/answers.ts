@@ -19,7 +19,7 @@ import {
   generateText,
   Output,
   smoothStream,
-  stepCountIs,
+  isStepCount,
   streamText,
   type StepResult,
   type ToolSet,
@@ -101,15 +101,15 @@ async function runTurn(question: string, variant: Variant) {
   const t0 = performance.now();
   const result = streamText({
     model: gateway(CHAT_MODEL),
-    system,
+    instructions: system,
     messages: [{ role: "user", content: buildUserMessage(question, [], { uiLanguage: "ita" }) }],
     maxOutputTokens: MAX_OUTPUT_TOKENS,
-    stopWhen: stepCountIs(4),
+    stopWhen: isStepCount(4),
     abortSignal: AbortSignal.timeout(180_000),
     tools,
     prepareStep: ({ steps }) => {
       const policy = prepareChatToolStep(steps, false);
-      return policy ? { ...policy, system: `${system}\n\n${TOOL_USE_COMPLETE}` } : undefined;
+      return policy ? { ...policy, instructions: `${system}\n\n${TOOL_USE_COMPLETE}` } : undefined;
     },
     providerOptions: variant === "nothink" ? { deepseek: { thinking: { type: "disabled" } } } : undefined,
     experimental_transform: smoothStream({ delayInMs: 20, chunking: "word" }),
@@ -121,7 +121,7 @@ async function runTurn(question: string, variant: Variant) {
   let step = -1;
   let error: string | undefined;
   try {
-    for await (const part of result.fullStream) {
+    for await (const part of result.stream) {
       if (part.type === "start-step") step += 1;
       else if (part.type === "text-delta" && part.text.trim()) firstTextByStep[step] ??= performance.now() - t0;
       else if (part.type === "error") error = String(part.error);
@@ -134,7 +134,7 @@ async function runTurn(question: string, variant: Variant) {
   const within = <T,>(p: PromiseLike<T>, fallback: T) =>
     Promise.race([Promise.resolve(p), new Promise<T>((r) => setTimeout(() => { error ??= "steps/usage timeout"; r(fallback); }, 30_000))]);
   const steps: StepResult<ToolSet>[] = await within(result.steps, []).catch(() => []);
-  const usage = await within(result.totalUsage, undefined).catch(() => undefined);
+  const usage = await within(result.usage, undefined).catch(() => undefined);
 
   const answer = steps.at(-1)?.text ?? "";
   const cited = extractCitationMarkers(answer);
@@ -195,7 +195,7 @@ async function judge(question: string, a: Run, b: Run) {
     model: gateway(JUDGE_MODEL),
     output: Output.object({ schema: judgeSchema }),
     providerOptions: { anthropic: { effort: "low" } },
-    system:
+    instructions:
       "You are a strict, impartial evaluator of source-grounded answers from an Italian-language Latter-day Saint study assistant. " +
       "Each answer comes with ITS OWN numbered source list (the [N] numbering differs between answers). " +
       "Judge: (1) faithfulness — every substantive claim is supported by the sources it cites, [N] markers point at sources that back the claim, nothing invented; " +
