@@ -1,6 +1,6 @@
 {
   "name": "rag-chat",
-  "version": "0.12.85",
+  "version": "0.12.86",
   "license": "Apache-2.0",
   "private": true,
   "packageManager": "pnpm@10.34.5",
@@ -24,7 +24,8 @@
     "test:chat-lifecycle": "tsx scripts/test/chat-lifecycle.test.ts",
     "test:chat-turn": "tsx scripts/test/chat-turn.test.ts",
     "test:guest": "tsx scripts/test/guest-access.test.ts",
-    "test:follow-ups": "tsx scripts/test/follow-ups.test.ts"
+    "test:follow-ups": "tsx scripts/test/follow-ups.test.ts",
+    "realtime:smoke": "dotenv -o -e .env -e .env.local -- tsx scripts/realtime-smoke.ts"
   },
   "dependencies": {
     "@ai-sdk/gateway": "4.0.115",

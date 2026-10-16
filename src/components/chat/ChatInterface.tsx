@@ -22,6 +22,8 @@ import {
 } from "@/components/ai-elements/prompt-input";
 import type { PromptInputMessage } from "@/components/ai-elements/prompt-input";
 import { ResponseStylePicker } from "./ResponseStylePicker";
+import { VoiceChat } from "./VoiceChat";
+import { REALTIME_VOICE_ENABLED } from "@/lib/realtime/config";
 import { EmptyGreeting, EmptySuggestions } from "./EmptyState";
 import { ChatMessage } from "./ChatMessage";
 import {
@@ -708,7 +710,7 @@ export function ChatInterface({
     <PromptInput
       data-tour="composer"
       onSubmit={handlePromptSubmit}
-      className="**:data-[slot=input-group]:h-auto **:data-[slot=input-group]:rounded-3xl **:data-[slot=input-group]:border **:data-[slot=input-group]:border-border **:data-[slot=input-group]:bg-card **:data-[slot=input-group]:shadow-[0_8px_30px_-12px_rgb(0_0_0/0.5)]"
+      className="relative **:data-[slot=input-group]:h-auto **:data-[slot=input-group]:rounded-3xl **:data-[slot=input-group]:border **:data-[slot=input-group]:border-border **:data-[slot=input-group]:bg-card **:data-[slot=input-group]:shadow-[0_8px_30px_-12px_rgb(0_0_0/0.5)]"
     >
       {/* text-base md:* is the codebase-wide input convention (see
           ui/textarea.tsx): iOS Safari zooms the viewport when focusing an
@@ -741,6 +743,7 @@ export function ChatInterface({
             onToggle={toggleSearchScope}
             disabled={isStreaming}
           />
+          {REALTIME_VOICE_ENABLED && !isGuest && <VoiceChat language={language} />}
         </PromptInputTools>
         <div className="flex items-center gap-1.5">
           {followUps.length > 0 && (!hasDraft || filledFollowUp !== null) && (

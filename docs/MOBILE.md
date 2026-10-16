@@ -32,6 +32,7 @@ Why Expo, architecture, and the roadmap: `docs/MOBILE_APP_PLAN.md` and
   returns `{ messageId, followUps: string[] }` (suggested next questions for the
   latest answer), also stored as `details.followUps` on that message in
   GET `/api/conversations/[id]`. Both are additive; ignoring them is fine.
+- Realtime voice (`/api/realtime/*`, 0.12.86) is web-only for now; the app does not use it.
 - On the M2 radar: `/api/feedback`, `/api/memory`, `/api/settings`, `/api/search`.
 
 ## Copied types
