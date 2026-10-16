@@ -43,7 +43,7 @@ or sharing an answer.
 
 ## Run locally
 
-Use Node.js 20.9 or newer and the pnpm version pinned in `package.json`.
+Use Node.js 22 or newer (24 recommended; required by AI SDK 7) and the pnpm version pinned in `package.json`.
 You need your own service credentials and a populated Pinecone index compatible
 with the [corpus contract](docs/PROJECT_INFO.md). This repository is the web app
 and API; it does not provision or ingest the source corpus.

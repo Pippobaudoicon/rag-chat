@@ -25,6 +25,7 @@ Read this first before deep code exploration.
 - DB: Neon Postgres + Drizzle ORM.
 - Vector DB: Pinecone.
 - Embeddings: Voyage AI (`voyage-4-large`, 1024 dims).
+- Runtime: Node.js 22+ (24 recommended), required by AI SDK 7.
 - LLM runtime: Vercel AI SDK 7 (`ai@7`, `@ai-sdk/react@4`, explicit `@ai-sdk/gateway@4`; `streamText`) through gateway. The mobile app stays on ai@6 and parses the same UI Message Stream protocol (`v1`).
 - Cache and resumable stream transport: Upstash Redis REST plus
   `resumable-stream/generic` (status-polling fallback when Redis is absent).
